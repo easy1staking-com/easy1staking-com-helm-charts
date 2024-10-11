@@ -1,0 +1,96 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ogmios.fullname" . }}
+  labels:
+    {{- include "ogmios.labels" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  selector:
+    matchLabels:
+      {{- include "ogmios.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "ogmios.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      serviceAccountName: {{ include "ogmios.serviceAccountName" . }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          env:
+          - name: NODE_CONFIG_PATH
+            value: {{ .Values.nodeConfigPath }}
+          - name: LISTEN_HOST
+            value: "0.0.0.0"
+          - name: LISTEN_PORT
+            value: {{ .Values.service.port | quote }}
+          - name: NODE_SOCKET_PATH
+            value: {{ .Values.nodeSocketPath }}
+          - name: LOG_LEVEL
+            value: {{ .Values.logLevel }}
+          {{- if .Values.extraParams.enabled | default false }}
+          command: ["sh", "-xc", "ogmios --node-socket ${NODE_SOCKET_PATH} --host ${LISTEN_HOST} --port ${LISTEN_PORT} --log-level ${LOG_LEVEL} --node-config ${NODE_CONFIG_PATH} --include-transaction-cbor --metadata-detailed-schema"]
+          {{- else }}
+          command: ["sh", "-xc", "ogmios --node-socket ${NODE_SOCKET_PATH} --host ${LISTEN_HOST} --port ${LISTEN_PORT} --log-level ${LOG_LEVEL} --node-config ${NODE_CONFIG_PATH}"]
+          {{- end }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+        - name: socat-socket-server
+          image: alpine/socat
+          env:
+          - name: CARDANO_NODE_SOCKET_TCP_HOST
+            value: {{ .Values.socat.host }}
+          - name: CARDANO_NODE_SOCKET_TCP_PORT
+            value: {{ .Values.socat.port | quote }}
+          command: ["sh", "-c", "rm -f /ipc/node.socket; socat UNIX-LISTEN:/ipc/node.socket,fork,reuseaddr,unlink-early TCP:${CARDANO_NODE_SOCKET_TCP_HOST}:${CARDANO_NODE_SOCKET_TCP_PORT},ignoreeof"]
+          {{- with .Values.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
