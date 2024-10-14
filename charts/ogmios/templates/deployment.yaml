@@ -27,7 +27,6 @@ spec:
       imagePullSecrets:
         {{- toYaml . | nindent 8 }}
       {{- end }}
-      serviceAccountName: {{ include "ogmios.serviceAccountName" . }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       containers:
@@ -73,7 +72,9 @@ spec:
             value: {{ .Values.socat.host }}
           - name: CARDANO_NODE_SOCKET_TCP_PORT
             value: {{ .Values.socat.port | quote }}
-          command: ["sh", "-c", "rm -f /ipc/node.socket; socat UNIX-LISTEN:/ipc/node.socket,fork,reuseaddr,unlink-early TCP:${CARDANO_NODE_SOCKET_TCP_HOST}:${CARDANO_NODE_SOCKET_TCP_PORT},ignoreeof"]
+          - name: NODE_SOCKET_PATH
+            value: {{ .Values.nodeSocketPath }}
+          command: ["sh", "-c", "rm -f ${NODE_SOCKET_PATH}; socat UNIX-LISTEN:${NODE_SOCKET_PATH},fork,reuseaddr,unlink-early TCP:${CARDANO_NODE_SOCKET_TCP_HOST}:${CARDANO_NODE_SOCKET_TCP_PORT},ignoreeof"]
           {{- with .Values.volumeMounts }}
           volumeMounts:
             {{- toYaml . | nindent 12 }}

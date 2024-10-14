@@ -98,7 +98,7 @@ affinity: {}
 nodeConfigPath: ""
 
 ## Path to the socket file
-nodeSocketPach: "/node-ipc/node.socket"
+nodeSocketPath: "/node-ipc/node.socket"
 
 socat:
   host: ""
