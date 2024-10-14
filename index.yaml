@@ -3,6 +3,16 @@ entries:
   ogmios:
   - apiVersion: v2
     appVersion: v6.8.0
+    created: "2024-10-14T22:39:38.606373827Z"
+    description: A Helm chart for Kubernetes
+    digest: add0a34131dc726fadb45ccbb88aa5f6432f282d55e16538c2797cb030124b60
+    name: ogmios
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ogmios-0.0.1-alpha3/ogmios-0.0.1-alpha3.tgz
+    version: 0.0.1-alpha3
+  - apiVersion: v2
+    appVersion: v6.8.0
     created: "2024-10-11T23:00:04.422224559Z"
     description: A Helm chart for Kubernetes
     digest: f4c3b631e076f9e63d9aecab497949ee52d7542ac01d2bc14dc121b0be23ac65
@@ -11,4 +21,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ogmios-0.0.1-alpha2/ogmios-0.0.1-alpha2.tgz
     version: 0.0.1-alpha2
-generated: "2024-10-11T23:00:04.422235339Z"
+generated: "2024-10-14T22:39:38.606383596Z"
