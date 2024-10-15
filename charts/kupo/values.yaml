@@ -95,6 +95,8 @@ socat:
   host: ""
   port: 0
 
+volumeSize: 20Gi
+
 cardano:
   node:
     image:
