@@ -3,6 +3,16 @@ entries:
   cardano-db-sync:
   - apiVersion: v2
     appVersion: 13.5.0.2
+    created: "2024-10-15T22:42:00.096079505Z"
+    description: A Helm chart for Kubernetes
+    digest: dc984eb92a40f79c1c51e44908cb29a75c7b611e74737f913ec3d6dae5c385de
+    name: cardano-db-sync
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/cardano-db-sync-0.0.1-alpha4/cardano-db-sync-0.0.1-alpha4.tgz
+    version: 0.0.1-alpha4
+  - apiVersion: v2
+    appVersion: 13.5.0.2
     created: "2024-10-15T22:37:47.115349611Z"
     description: A Helm chart for Kubernetes
     digest: 23dd05b866c1f275d61eff803b35efc8ef8e1c2b3324b04adac8c115a0cae88a
@@ -113,4 +123,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ogmios-0.0.1-alpha2/ogmios-0.0.1-alpha2.tgz
     version: 0.0.1-alpha2
-generated: "2024-10-15T22:37:47.115402088Z"
+generated: "2024-10-15T22:42:00.096149756Z"
