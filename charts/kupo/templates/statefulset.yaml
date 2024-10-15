@@ -78,7 +78,7 @@ spec:
             - name: KUPO_DB_PATH
               value: "/db"
             - name: KUPO_PORT
-              value: "1442"
+              value: {{ .Values.service.port | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: http
