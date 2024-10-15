@@ -1,0 +1,135 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "kupo.fullname" . }}
+  labels:
+    {{- include "kupo.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "kupo.selectorLabels" . | nindent 6 }}
+  serviceName: {{ include "kupo.fullname" . }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "kupo.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      initContainers:
+        - name: configure
+          command: [ "sh", "/configmap/init.sh" ]
+          image: bitnami/git
+          imagePullPolicy: IfNotPresent
+          volumeMounts:
+            - name: cardano-node-configmap
+              mountPath: /config
+            - name: kupo-configmap
+              mountPath: /configmap
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          {{- if .Values.sleep | default false }}
+          image: ubuntu
+          command: [ "sh", "-c", "sleep infinity" ]
+          {{- else }}
+          command: [ "sh", "-c" ]
+          args:
+            - kupo --host 0.0.0.0 --port $(KUPO_PORT)
+              --node-socket $(CARDANO_NODE_SOCKET_PATH)
+              --node-config $(CARDANO_NODE_CONFIG_PATH)
+              {{- if .Values.pruneUtxo }}
+              --prune-utxo
+              {{- end }}
+              {{- if .Values.deferDbIndexes }}
+              --defer-db-indexes
+              {{- end }}
+              --since {{ .Values.since | default "origin" }}
+              {{- if .Values.inMemory | default false }}
+              --in-memory
+              {{- else }}
+              --workdir $(KUPO_DB_PATH)
+              {{- end }}
+              {{- if .Values.matches }}
+              {{ join " " .Values.matches }}
+              {{- else }}
+              --match '*'
+              {{- end }}
+          {{- end }}
+          env:
+            - name: CARDANO_NODE_CONFIG_PATH
+              value: "/config/config.json"
+            - name: CARDANO_NODE_SOCKET_PATH
+              value: {{ .Values.nodeSocketPath }}
+            - name: KUPO_DB_PATH
+              value: "/db"
+            - name: KUPO_PORT
+              value: "1442"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          volumeMounts:
+            - mountPath: /node-ipc
+              name: node-ipc
+            - name: cardano-node-configmap
+              mountPath: /config
+            - name: kupo-configmap
+              mountPath: /configmap
+        - name: socat-socket-server
+          image: alpine/socat
+          env:
+            - name: CARDANO_NODE_SOCKET_TCP_HOST
+              value: {{ .Values.socat.host }}
+            - name: CARDANO_NODE_SOCKET_TCP_PORT
+              value: {{ .Values.socat.port | quote }}
+            - name: NODE_SOCKET_PATH
+              value: {{ .Values.nodeSocketPath }}
+          command: ["sh", "-c", "rm -f ${NODE_SOCKET_PATH}; socat UNIX-LISTEN:${NODE_SOCKET_PATH},fork,reuseaddr,unlink-early TCP:${CARDANO_NODE_SOCKET_TCP_HOST}:${CARDANO_NODE_SOCKET_TCP_PORT},ignoreeof"]
+          volumeMounts:
+            - name: node-ipc
+              mountPath: "/node-ipc"
+      volumes:
+        - name: node-ipc
+          emptyDir: {}
+        - name: cardano-node-configmap
+          emptyDir: {}
+        - name: kupo-configmap
+          configMap:
+            name: {{ include "kupo.fullname" . }}
+      {{- with .Values.volumes }}
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
