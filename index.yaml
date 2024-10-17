@@ -3,6 +3,16 @@ entries:
   cardano-db-sync:
   - apiVersion: v2
     appVersion: 13.5.0.2
+    created: "2024-10-17T13:58:42.009726388Z"
+    description: A Helm chart for Kubernetes
+    digest: fc42519df23aa941c7d859700660fb439a8b5b8444afb97030d80e535dc69e09
+    name: cardano-db-sync
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/cardano-db-sync-0.0.1-alpha5/cardano-db-sync-0.0.1-alpha5.tgz
+    version: 0.0.1-alpha5
+  - apiVersion: v2
+    appVersion: 13.5.0.2
     created: "2024-10-15T22:42:00.096079505Z"
     description: A Helm chart for Kubernetes
     digest: dc984eb92a40f79c1c51e44908cb29a75c7b611e74737f913ec3d6dae5c385de
@@ -102,6 +112,17 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/kupo-0.0.1-alpha1/kupo-0.0.1-alpha1.tgz
     version: 0.0.1-alpha1
+  midnight-node:
+  - apiVersion: v2
+    appVersion: 0.6.3-69581601
+    created: "2024-10-17T13:58:42.115992655Z"
+    description: A Helm chart for Kubernetes
+    digest: 0a17c9a8658f29aab700b0e91fbf29689dc4a2981546c56a7dd24d7525bb190c
+    name: midnight-node
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/midnight-node-0.0.1-alpha1/midnight-node-0.0.1-alpha1.tgz
+    version: 0.0.1-alpha1
   ogmios:
   - apiVersion: v2
     appVersion: v6.8.0
@@ -123,4 +144,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ogmios-0.0.1-alpha2/ogmios-0.0.1-alpha2.tgz
     version: 0.0.1-alpha2
-generated: "2024-10-15T22:42:00.096149756Z"
+generated: "2024-10-17T13:58:42.116055402Z"
