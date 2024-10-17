@@ -1,0 +1,151 @@
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "midnight-node.fullname" . }}
+  labels:
+    {{- include "midnight-node.labels" . | nindent 4 }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      {{- include "midnight-node.selectorLabels" . | nindent 6 }}
+  serviceName: {{ include "midnight-node.fullname" . }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "midnight-node.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      containers:
+        - name: {{ .Chart.Name }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+
+          env:
+            - name: CHAIN_ID
+              value: "23"
+
+            - name: MC__FIRST_EPOCH_TIMESTAMP_MILLIS
+              value: "1666656000000"
+            - name: MC__FIRST_EPOCH_NUMBER
+              value: "0"
+            - name: MC__EPOCH_DURATION_MILLIS
+              value: "86400000"
+            - name: MC__FIRST_SLOT_NUMBER
+              value: "0"
+            - name: THRESHOLD_NUMERATOR
+              value: "2"
+            - name: THRESHOLD_DENOMINATOR
+              value: "3"
+
+            - name: POSTGRES_HOST
+              value: {{ .Values.postgres.host }}
+            - name: POSTGRES_PORT
+              value: {{ .Values.postgres.port | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.postgres.dbName }}
+            {{- if .Values.postgres.secret.name }}
+            - name: POSTGRES_USER
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.secret.name }}
+                  key: {{ .Values.postgres.secret.usernameKey }}
+            - name: POSTGRES_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.postgres.secret.name }}
+                  key: {{ .Values.postgres.secret.passwordKey }}
+            {{- else }}
+            - name: POSTGRES_USER
+              value: {{ .Values.postgres.username }}
+            - name: POSTGRES_PASSWORD
+              value: {{ .Values.postgres.password }}
+            {{- end }}
+            - name: DB_SYNC_POSTGRES_CONNECTION_STRING
+              value: psql://postgres:$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):5432/cexplorer
+
+            - name: BASE_PATH
+              value: ./data/chains/partner_chains_template
+
+#            - name: ARGS
+#              value: --chain=/res/testnet/testnetRaw.json --bootnodes /dns/boot-node-01.testnet.midnight.network/tcp/30333/ws/p2p/12D3KooWMjUq13USCvQR9Y6yFzYNYgTQBLNAcmc8psAuPx2UUdnB
+            - name: ARGS
+              value: "--chain=/res/testnet/testnetRaw.json \
+              --bootnodes /dns/boot-node-01.testnet.midnight.network/tcp/30333/ws/p2p/12D3KooWMjUq13USCvQR9Y6yFzYNYgTQBLNAcmc8psAuPx2UUdnB \
+              --bootnodes /dns/boot-node-02.testnet.midnight.network/tcp/30333/ws/p2p/12D3KooWR1cHBUWPCqk3uqhwZqUFekfWj8T7ozK6S18DUT745v4d \
+              --bootnodes /dns/boot-node-03.testnet.midnight.network/tcp/30333/ws/p2p/12D3KooWQxxUgq7ndPfAaCFNbAxtcKYxrAzTxDfRGNktF75SxdX5 \
+              --no-private-ip \
+              --validator"
+
+            - name: CFG_PRESET
+              value: testnet
+
+            - name: NODE_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.node.keys.secretName }}
+                  key: {{ .Values.node.keys.nodeKeyKey }}
+            - name: SEED_PHRASE
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.node.keys.secretName }}
+                  key: {{ .Values.node.keys.seedPhraseKey }}
+
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: health
+              containerPort: 9933
+              protocol: TCP
+            - name: rpc
+              containerPort: 9944
+              protocol: TCP
+            - name: p2p
+              containerPort: 30333
+              protocol: TCP
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          readinessProbe:
+            {{- toYaml .Values.readinessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- with .Values.volumeMounts }}
+          volumeMounts:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
+      {{- with .Values.volumes }}
+      volumes:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  volumeClaimTemplates:
+    - metadata:
+        name: {{ include "midnight-node.fullname" . }}-db
+      spec:
+        accessModes: [ "ReadWriteOnce" ]
+        resources:
+          requests:
+            storage: {{ .Values.volumeSize }}

@@ -49,6 +49,15 @@ affinity: {}
 ## App Configuration
 
 # Path to the socket file
+postgres:
+  host: ""
+  port: 5432
+  dbName: cexplorer
+  secret:
+    name: ""
+    usernameKey: "username"
+    passwordKey: "password"
+
 nodeSocketPath: "/node-ipc/node.socket"
 
 socat:
