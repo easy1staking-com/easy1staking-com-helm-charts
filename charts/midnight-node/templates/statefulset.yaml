@@ -75,7 +75,7 @@ spec:
               value: {{ .Values.postgres.password }}
             {{- end }}
             - name: DB_SYNC_POSTGRES_CONNECTION_STRING
-              value: psql://postgres:$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):5432/cexplorer
+              value: psql://$(POSTGRES_USER):$(POSTGRES_PASSWORD)@$(POSTGRES_HOST):5432/cexplorer
 
             - name: BASE_PATH
               value: ./data/chains/partner_chains_template
