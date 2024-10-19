@@ -114,7 +114,7 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
             - name: {{ include "midnight-node.fullname" . }}-db
-              mountPath: /node
+              mountPath: /data
       {{- with .Values.volumes }}
       volumes:
         {{- toYaml . | nindent 8 }}
