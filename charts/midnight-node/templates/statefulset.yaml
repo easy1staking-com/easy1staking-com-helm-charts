@@ -151,7 +151,7 @@ spec:
         - name: keystore
           secret:
             secretName: {{ .Values.node.keystore.secretName }}
-            defaultMode: 0400
+            defaultMode: 0500
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
