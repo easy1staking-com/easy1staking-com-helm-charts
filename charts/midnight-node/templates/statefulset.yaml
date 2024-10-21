@@ -98,16 +98,20 @@ spec:
             - name: CFG_PRESET
               value: testnet
 
+            {{- if .Values.node.keys.secretName }}
             - name: NODE_KEY
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.node.keys.secretName }}
                   key: {{ .Values.node.keys.nodeKeyKey }}
+            {{- end }}
+            {{- if .Values.node.keys.secretName }}
             - name: SEED_PHRASE
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.node.keys.secretName }}
                   key: {{ .Values.node.keys.seedPhraseKey }}
+            {{- end }}
 
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
