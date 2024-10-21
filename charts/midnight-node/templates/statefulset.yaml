@@ -115,9 +115,12 @@ spec:
           volumeMounts:
             - name: {{ include "midnight-node.fullname" . }}-db
               mountPath: /data
-      {{- with .Values.volumes }}
       volumes:
-        {{- toYaml . | nindent 8 }}
+      {{- if .Values.node.keystore.secretName }}
+        - name: keystore
+          secret:
+            secretName: {{ .Values.node.keystore.secretName }}
+            defaultMode: 0400
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
