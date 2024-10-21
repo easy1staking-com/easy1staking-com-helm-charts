@@ -91,7 +91,6 @@ node:
   keys:
     secretName: ""
     nodeKeyKey: ""
-    seedPhraseKey: ""
   keystore:
     secretName: ""
     sidechainSecretKey: ""
