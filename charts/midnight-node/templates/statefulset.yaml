@@ -120,16 +120,24 @@ spec:
           volumeMounts:
             - name: {{ include "midnight-node.fullname" . }}-db
               mountPath: /data
+            {{- if .Values.node.network.secretName }}
+            - name: network
+              mountPath: /data/chains/partner_chains_template/chains/testnet/network
+            {{- end }}
             {{- if .Values.node.keystore.secretName }}
             - name: keystore
               mountPath: /data/chains/partner_chains_template/chains/testnet/keystore
             {{- end }}
       volumes:
+      {{- if .Values.node.network.secretName }}
+        - name: network
+          secret:
+            secretName: {{ .Values.node.network.secretName }}
+      {{- end }}
       {{- if .Values.node.keystore.secretName }}
         - name: keystore
           secret:
             secretName: {{ .Values.node.keystore.secretName }}
-            defaultMode: 0400
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
