@@ -75,6 +75,9 @@ affinity: {}
 ## App Config
 maintenanceMode: false
 
+debug:
+  enabled: false
+
 postgres:
   host: ""
   port: 5432
