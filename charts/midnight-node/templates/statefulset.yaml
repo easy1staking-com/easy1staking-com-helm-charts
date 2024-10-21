@@ -127,13 +127,13 @@ spec:
             {{- end }}
             {{- if .Values.node.keystore.secretName }}
             - name: keystore
-              mountPath: {{ printf "/data/chains/partner_chains_template/chains/testnet/keystore/sidechain/" .Values.node.keystore.sidechainSecretKey }}
+              mountPath: {{ printf "/data/chains/partner_chains_template/chains/testnet/keystore/" .Values.node.keystore.sidechainSecretKey }}
               subPath: {{ .Values.node.keystore.sidechainSecretKey }}
             - name: keystore
-              mountPath: {{ printf "/data/chains/partner_chains_template/chains/testnet/keystore/sidechain/" .Values.node.keystore.auraSecretKey }}
+              mountPath: {{ printf "/data/chains/partner_chains_template/chains/testnet/keystore/" .Values.node.keystore.auraSecretKey }}
               subPath: {{ .Values.node.keystore.auraSecretKey }}
             - name: keystore
-              mountPath: {{ printf "/data/chains/partner_chains_template/chains/testnet/keystore/sidechain/" .Values.node.keystore.grandpaSecretKey }}
+              mountPath: {{ printf "/data/chains/partner_chains_template/chains/testnet/keystore/" .Values.node.keystore.grandpaSecretKey }}
               subPath: {{ .Values.node.keystore.grandpaSecretKey }}
             {{- end }}
       volumes:
