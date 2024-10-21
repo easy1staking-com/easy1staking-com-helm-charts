@@ -91,5 +91,7 @@ node:
     seedPhraseKey: ""
   keystore:
     secretName: ""
+  network:
+    secretName: ""
 
 volumeSize: 20Gi

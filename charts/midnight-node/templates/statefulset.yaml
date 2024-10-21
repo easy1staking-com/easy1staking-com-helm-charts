@@ -122,10 +122,12 @@ spec:
               mountPath: /data
             {{- if .Values.node.network.secretName }}
             - name: network
+              readOnly: true
               mountPath: /data/chains/partner_chains_template/chains/testnet/network
             {{- end }}
             {{- if .Values.node.keystore.secretName }}
             - name: keystore
+              readOnly: true
               mountPath: /data/chains/partner_chains_template/chains/testnet/keystore
             {{- end }}
       volumes:
