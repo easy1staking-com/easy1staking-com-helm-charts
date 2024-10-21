@@ -127,8 +127,14 @@ spec:
             {{- end }}
             {{- if .Values.node.keystore.secretName }}
             - name: keystore
-              readOnly: true
-              mountPath: /data/chains/partner_chains_template/chains/testnet/keystore
+              mountPath: {{ printf "/data/chains/partner_chains_template/chains/testnet/keystore/sidechain/" .Values.node.keystore.sidechainSecretKey }}
+              subPath: {{ .Values.node.keystore.sidechainSecretKey }}
+            - name: keystore
+              mountPath: {{ printf "/data/chains/partner_chains_template/chains/testnet/keystore/sidechain/" .Values.node.keystore.auraSecretKey }}
+              subPath: {{ .Values.node.keystore.auraSecretKey }}
+            - name: keystore
+              mountPath: {{ printf "/data/chains/partner_chains_template/chains/testnet/keystore/sidechain/" .Values.node.keystore.grandpaSecretKey }}
+              subPath: {{ .Values.node.keystore.grandpaSecretKey }}
             {{- end }}
       volumes:
       {{- if .Values.node.network.secretName }}
@@ -140,6 +146,7 @@ spec:
         - name: keystore
           secret:
             secretName: {{ .Values.node.keystore.secretName }}
+            defaultMode: 0400
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

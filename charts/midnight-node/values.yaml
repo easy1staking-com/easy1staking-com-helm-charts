@@ -93,5 +93,8 @@ node:
     secretName: ""
   network:
     secretName: ""
+    sidechainSecretKey: ""
+    auraSecretKey: ""
+    grandpaSecretKey: ""
 
 volumeSize: 20Gi
