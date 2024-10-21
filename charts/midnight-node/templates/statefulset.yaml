@@ -118,7 +118,7 @@ spec:
             {{- if .Values.node.keystore.secretName }}
             - name: keystore
               mountPath: /data/chains/partner_chains_template/chains/testnet/keystore
-            {{-end }}
+            {{- end }}
       volumes:
       {{- if .Values.node.keystore.secretName }}
         - name: keystore
