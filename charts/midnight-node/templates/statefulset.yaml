@@ -32,7 +32,12 @@ spec:
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
+          {{- if .Values.maintenanceMode }}
+          image: ubuntu
+          command: [ "sh", "-c", "sleep infinity" ]
+          {{- else }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+          {{- end }}
 
           env:
             - name: CHAIN_ID

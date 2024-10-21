@@ -73,6 +73,8 @@ tolerations: []
 affinity: {}
 
 ## App Config
+maintenanceMode: false
+
 postgres:
   host: ""
   port: 5432
