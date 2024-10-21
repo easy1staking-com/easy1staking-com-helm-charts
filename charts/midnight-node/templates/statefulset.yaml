@@ -115,6 +115,10 @@ spec:
           volumeMounts:
             - name: {{ include "midnight-node.fullname" . }}-db
               mountPath: /data
+            {{- if .Values.node.keystore.secretName }}
+            - name: keystore
+              mountPath: /data/chains/partner_chains_template/chains/testnet/keystore
+            {{-end }}
       volumes:
       {{- if .Values.node.keystore.secretName }}
         - name: keystore
