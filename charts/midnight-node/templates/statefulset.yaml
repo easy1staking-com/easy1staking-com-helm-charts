@@ -40,22 +40,6 @@ spec:
           {{- end }}
 
           env:
-            - name: CHAIN_ID
-              value: "23"
-
-            - name: MC__FIRST_EPOCH_TIMESTAMP_MILLIS
-              value: "1666656000000"
-            - name: MC__FIRST_EPOCH_NUMBER
-              value: "0"
-            - name: MC__EPOCH_DURATION_MILLIS
-              value: "86400000"
-            - name: MC__FIRST_SLOT_NUMBER
-              value: "0"
-            - name: THRESHOLD_NUMERATOR
-              value: "2"
-            - name: THRESHOLD_DENOMINATOR
-              value: "3"
-
             {{- if .Values.debug.enabled }}
             - name: RUST_LOG
               value: debug
@@ -90,20 +74,17 @@ spec:
             - name: BASE_PATH
               value: ./data/chains/partner_chains_template
 
-#            - name: ARGS
-#              value: --chain=/res/testnet/testnetRaw.json --bootnodes /dns/boot-node-01.testnet.midnight.network/tcp/30333/ws/p2p/12D3KooWMjUq13USCvQR9Y6yFzYNYgTQBLNAcmc8psAuPx2UUdnB
-            - name: ARGS
+            - name: BOOTNODES
               value: |
-                --chain=/res/testnet/testnetRaw.json \
-                --bootnodes /dns/boot-node-01.testnet.midnight.network/tcp/30333/ws/p2p/12D3KooWMjUq13USCvQR9Y6yFzYNYgTQBLNAcmc8psAuPx2UUdnB \
-                --bootnodes /dns/boot-node-02.testnet.midnight.network/tcp/30333/ws/p2p/12D3KooWR1cHBUWPCqk3uqhwZqUFekfWj8T7ozK6S18DUT745v4d \
-                --bootnodes /dns/boot-node-03.testnet.midnight.network/tcp/30333/ws/p2p/12D3KooWQxxUgq7ndPfAaCFNbAxtcKYxrAzTxDfRGNktF75SxdX5 \
-                --no-private-ip \
-                --validator \
-                --trie-cache-size 0
+                /dns/boot-node-01.testnet-02.midnight.network/tcp/30333/ws/p2p/12D3KooWMjUq13USCvQR9Y6yFzYNYgTQBLNAcmc8psAuPx2UUdnB \
+                /dns/boot-node-02.testnet-02.midnight.network/tcp/30333/ws/p2p/12D3KooWR1cHBUWPCqk3uqhwZqUFekfWj8T7ozK6S18DUT745v4d \
+                /dns/boot-node-03.testnet-02.midnight.network/tcp/30333/ws/p2p/12D3KooWQxxUgq7ndPfAaCFNbAxtcKYxrAzTxDfRGNktF75SxdX5
+
+            - name: APPEND_ARGS
+              value: "--no-private-ip --validator --pool-limit 10 --trie-cache-size 0 --prometheus-external"
 
             - name: CFG_PRESET
-              value: testnet
+              value: testnet-02
 
             {{- if .Values.node.keys.secretName }}
             - name: NODE_KEY
