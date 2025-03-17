@@ -194,6 +194,16 @@ entries:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/midnight-node-0.0.1-alpha3/midnight-node-0.0.1-alpha3.tgz
     version: 0.0.1-alpha3
   - apiVersion: v2
+    appVersion: 0.8.0
+    created: "2025-03-17T22:36:15.265994708Z"
+    description: A Helm chart for Kubernetes
+    digest: a48824a8822c70f38dc754b817d84c697f5fe4330845107dde55c164fb099860
+    name: midnight-node
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/midnight-node-0.0.1-alpha27/midnight-node-0.0.1-alpha27.tgz
+    version: 0.0.1-alpha27
+  - apiVersion: v2
     appVersion: 0.6.3-69581601
     created: "2024-12-12T00:04:25.270906964Z"
     description: A Helm chart for Kubernetes
@@ -404,4 +414,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ogmios-0.0.1-alpha2/ogmios-0.0.1-alpha2.tgz
     version: 0.0.1-alpha2
-generated: "2025-03-17T19:31:09.405046937Z"
+generated: "2025-03-17T22:36:15.266310484Z"
