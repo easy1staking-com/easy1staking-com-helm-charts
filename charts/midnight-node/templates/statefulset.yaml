@@ -84,7 +84,7 @@ spec:
               value: "--no-private-ip --validator --pool-limit 10 --trie-cache-size 0 --prometheus-external"
 
             - name: CFG_PRESET
-              value: testnet-02
+              value: {{ .Value.node.config.preset }}
 
             {{- if .Values.node.keys.secretName }}
             - name: NODE_KEY

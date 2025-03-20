@@ -88,6 +88,8 @@ postgres:
     passwordKey: "password"
     
 node:
+  config:
+    preset: testnet
   keys:
     secretName: ""
     nodeKeyKey: ""
