@@ -81,7 +81,7 @@ spec:
                 /dns/boot-node-03.testnet-02.midnight.network/tcp/30333/ws/p2p/12D3KooWQxxUgq7ndPfAaCFNbAxtcKYxrAzTxDfRGNktF75SxdX5
 
             - name: APPEND_ARGS
-              value: "--no-private-ip --validator --pool-limit 10 --trie-cache-size 0 --prometheus-external"
+              value: {{ .Values.node.appendArgs }}
 
             - name: CFG_PRESET
               value: {{ .Values.node.config.preset }}

@@ -90,6 +90,7 @@ postgres:
 node:
   config:
     preset: testnet
+  appendArgs: ""
   keys:
     secretName: ""
     nodeKeyKey: ""
