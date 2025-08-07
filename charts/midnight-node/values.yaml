@@ -103,3 +103,9 @@ node:
     secretName: ""
 
 volumeSize: 20Gi
+
+monitoring:
+  enabled: false
+  releaseName: kube-prometheus-stack
+  service:
+    port: 9615

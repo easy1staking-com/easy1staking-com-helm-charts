@@ -16,6 +16,12 @@ spec:
       targetPort: p2p
       protocol: TCP
       name: p2p
+    {{- if .Values.monitoring.enabled }}
+    - port: {{ .Values.monitoring.service.port }}
+      targetPort: metrics
+      protocol: TCP
+      name: metrics
+    {{- end }}
   selector:
     {{- include "midnight-node.selectorLabels" . | nindent 4 }}
 ---
