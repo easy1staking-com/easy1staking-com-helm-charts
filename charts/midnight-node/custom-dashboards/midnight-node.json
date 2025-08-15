@@ -64,7 +64,7 @@
         "#299c46"
       ],
       "datasource": "prometheus",
-      "format": "s",
+      "format": "none",
       "gauge": {
         "maxValue": 100,
         "minValue": 0,
@@ -98,7 +98,7 @@
       "pluginVersion": "6.7.0",
       "postfix": "",
       "postfixFontSize": "50%",
-      "prefix": "⏱️ ",
+      "prefix": "💚 ",
       "prefixFontSize": "50%",
       "rangeMaps": [
         {
@@ -118,19 +118,29 @@
       "tableColumn": "",
       "targets": [
         {
-          "expr": "time() - process_start_time_seconds{instance=~\"$instance\", chain=~\"$chain\"}",
+          "expr": "up{instance=~\"$instance\"} or substrate_block_height{instance=~\"$instance\", chain=~\"$chain\"} * 0 + 1",
           "interval": "",
-          "legendFormat": "Uptime",
+          "legendFormat": "Node Status",
           "refId": "A"
         }
       ],
-      "thresholds": "3600,86400",
+      "thresholds": "0.5,0.9",
       "timeFrom": null,
       "timeShift": null,
-      "title": "Node Uptime",
+      "title": "Node Health",
       "type": "singlestat",
       "valueFontSize": "80%",
       "valueMaps": [
+        {
+          "op": "=",
+          "text": "OFFLINE",
+          "value": "0"
+        },
+        {
+          "op": "=",
+          "text": "ONLINE",
+          "value": "1"
+        },
         {
           "op": "=",
           "text": "N/A",
