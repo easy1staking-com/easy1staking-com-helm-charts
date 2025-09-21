@@ -35,6 +35,8 @@ spec:
               value: {{ $.Values.mithril.aggregatorEndpoint }}
             - name: GENESIS_VERIFICATION_KEY
               value: {{ $.Values.mithril.genesisVerificationKey }}
+            - name: ANCILLARY_VERIFICATION_KEY
+              value: {{ $.Values.mithril.ancillaryVerificationKey }}
           imagePullPolicy: "Always"
           volumeMounts:
             - name: "cardano-node-{{ $attributes.name }}"
