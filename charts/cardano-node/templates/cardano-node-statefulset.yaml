@@ -1,0 +1,265 @@
+{{ range $attributes := .Values.nodes }}
+{{ if $attributes.enabled }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: "cardano-node-{{ $attributes.name }}"
+spec:
+  replicas: {{ $attributes.replicas }}
+  serviceName: "cardano-node-{{ $attributes.name }}"
+  selector:
+    matchLabels:
+      app: cardano-node
+      name: {{ $attributes.name }}
+      type: {{ $attributes.type }}
+      network: {{ $.Values.network }}
+  template:
+    metadata:
+      labels:
+        app: cardano-node
+        name: {{ $attributes.name }}
+        type: {{ $attributes.type }}
+        network: {{ $.Values.network }}
+    spec:
+      initContainers:
+        - name: init
+          command: [ "bash", "-x", "/configmap/init.sh" ]
+          image: "{{ $attributes.mithrilRepository | default $.Values.mithril.image.repository }}:{{ $attributes.mithrilImageTag | default $.Values.mithril.image.tag }}"
+          env:
+            - name: RESTORE_SNAPSHOT
+              value: {{ $attributes.sleep | ternary false true | quote }}
+            - name: CARDANO_NODE_DATA_FOLDER
+              value: /data
+            - name: AGGREGATOR_ENDPOINT
+              value: {{ $.Values.mithril.aggregatorEndpoint }}
+            - name: GENESIS_VERIFICATION_KEY
+              value: {{ $.Values.mithril.genesisVerificationKey }}
+          imagePullPolicy: "Always"
+          volumeMounts:
+            - name: "cardano-node-{{ $attributes.name }}"
+              mountPath: /data
+            - name: "cardano-node-init"
+              mountPath: /configmap
+      containers:
+        - name: cardano-node
+          image: "{{ $attributes.repository | default $.Values.image.repository }}:{{ $attributes.imageTag | default $.Values.image.tag }}"
+          {{- if $attributes.sleep }}
+          command: [ "/bin/bash", "-c", "--" ]
+          args: [ "sleep 999999" ]
+          {{- else }}
+          command: [ "cardano-node" ]
+          env:
+            - name: CARDANO_NODE_SOCKET_PATH
+              value: /data/db/node.socket
+          args:
+            {{- if eq $attributes.type "relay" }}
+            - "run"
+            - "+RTS"
+            - "-N2"
+            - "-A16m"
+            - "-qg"
+            - "-qb"
+            - "-RTS"
+            - "--topology"
+            - "/etc/config/{{ $.Values.network }}-topology.json"
+            - "--database-path"
+            - "/data/db"
+            - "--socket-path"
+            - "/data/db/node.socket"
+            - "--host-addr"
+            - "0.0.0.0"
+            - "--port"
+            - {{ $attributes.port | quote }}
+            - "--config"
+            - "/etc/config/{{ $.Values.network }}-config.json"
+            - "--mempool-capacity-override"
+            - "307200"
+            {{- else }}
+            - "run"
+            - "+RTS"
+            - "-N3"
+            - "-A16m"
+            - "-qg"
+            - "-qb"
+            - "-RTS"
+            - "--topology"
+            - "/etc/config/{{ $.Values.network }}-topology.json"
+            - "--database-path"
+            - "/data/db"
+            - "--socket-path"
+            - "/data/db/node.socket"
+            - "--host-addr"
+            - "0.0.0.0"
+            - "--port"
+            - {{ $attributes.port | quote }}
+            - "--config"
+            - "/etc/config/{{ $.Values.network }}-config.json"
+            - "--shelley-kes-key"
+            - "/etc/keys/kes.skey"
+            - "--shelley-vrf-key"
+            - "/etc/keys/vrf.skey"
+            - "--shelley-operational-certificate"
+            - "/etc/keys/node.cert"
+            - "--mempool-capacity-override"
+            - "307200"
+            {{- end }}
+          {{- end }}
+          ports:
+            - name: node
+              containerPort: {{ $attributes.port }}
+            - name: prom
+              containerPort: {{ $attributes.prometheusPort | default 12798 }}
+          {{- if not $attributes.sleep }}
+          livenessProbe:
+            httpGet:
+              path: /metrics
+              port: prom
+            initialDelaySeconds: 120
+            periodSeconds: 30
+            timeoutSeconds: 60
+            failureThreshold: 5
+          readinessProbe:
+            httpGet:
+              path: /metrics
+              port: prom
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 60
+            failureThreshold: 5
+          {{- end }}
+          {{- with $attributes.resources | default $.Values.resources }}
+          resources:
+{{ toYaml . | indent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: config-files
+              mountPath: "/etc/config/{{ $.Values.network }}-topology.json"
+              subPath: "{{ $.Values.network }}-topology.json"
+            - name: config-files
+              mountPath: "/etc/config/{{ $.Values.network }}-config.json"
+              subPath: "{{ $.Values.network }}-config.json"
+            - name: "cardano-node-{{ $attributes.name }}"
+              mountPath: /data
+            - name: "cardano-node-init"
+              mountPath: /configmap
+            {{- if eq $attributes.type "block-producer" }}
+            - name: secret-keys
+              mountPath: /etc/keys/vrf.skey
+              subPath: vrf.skey
+            - name: secret-keys
+              mountPath: /etc/keys/kes.skey
+              subPath: kes.skey
+            - name: secret-keys
+              mountPath: /etc/keys/node.cert
+              subPath: node.cert
+            {{- end }}
+      {{- if and (eq $attributes.type "relay") ($attributes.socatEnabled | default false) }}
+        - name: socat-tcp-server
+          image: alpine/socat
+          env:
+          - name: PORT
+            value: {{ $attributes.socatPort | quote }}
+          command: ["sh", "-c", "socat TCP-LISTEN:${PORT},fork,reuseaddr UNIX-CONNECT:/data/db/node.socket,ignoreeof"]
+          volumeMounts:
+          - name: "cardano-node-{{ $attributes.name }}"
+            mountPath: /data
+          ports:
+          - name: socat
+            containerPort: {{ $attributes.socatPort }}
+      {{- end }}
+      {{- if and $attributes.mithrilSigner $attributes.mithrilSigner.enabled }}
+        - name: mithril-signer
+          image: "{{ $attributes.mithrilSigner.repository | default $.Values.mithril.signer.image.repository }}:{{ $attributes.mithrilSigner.imageTag | default $.Values.mithril.signer.image.tag }}"
+          command: [ "/mithril/mithril-signer" ]
+          args:
+            - -vv
+          env:
+          - name: NETWORK
+            value: {{ $.Values.network }}
+          - name: KES_SECRET_KEY_PATH
+            value: /etc/keys/kes.skey
+          - name: OPERATIONAL_CERTIFICATE_PATH
+            value: /etc/keys/node.cert
+          - name: AGGREGATOR_ENDPOINT
+            value: {{ $.Values.mithril.aggregatorEndpoint }}
+          - name: RUN_INTERVAL
+            value: {{ $.Values.mithril.signer.runInterval | quote }}
+          - name: STORE_RETENTION_LIMIT
+            value: {{ $.Values.mithril.signer.storeRetentionLimit | quote }}
+          - name: DB_DIRECTORY
+            value: /data/db
+          - name: CARDANO_NODE_SOCKET_PATH
+            value: /data/db/node.socket
+          - name: DATA_STORES_DIRECTORY
+            value: /data/mithril/stores
+          - name: ERA_READER_ADAPTER_TYPE
+            value: {{ $.Values.mithril.signer.eraReaderAdapterType }}
+          - name: ERA_READER_ADDRESS
+            value: {{ $.Values.mithril.signer.eraReaderAddress }}
+          - name: ERA_READER_VERIFICATION_KEY
+            value: {{ $.Values.mithril.signer.eraReaderVerificationKey }}
+          - name: ERA_READER_ADAPTER_PARAMS
+            value: |
+              {"address": "$(ERA_READER_ADDRESS)", "verification_key": "$(ERA_READER_VERIFICATION_KEY)"}
+          {{- if and $attributes.mithrilSigner $attributes.mithrilSigner.relayEndpoint }}
+          - name: RELAY_ENDPOINT
+            value: {{ $attributes.mithrilSigner.relayEndpoint }}
+          {{- end }}
+          - name: CARDANO_CLI_PATH
+            value: /cardano-node/bin/cardano-cli
+          imagePullPolicy: "Always"
+          volumeMounts:
+          - name: "cardano-node-{{ $attributes.name }}"
+            mountPath: /data
+          - name: "cardano-node-{{ $attributes.name }}-mithril"
+            mountPath: /data/mithril/stores
+          - name: secret-keys
+            mountPath: /etc/keys/kes.skey
+            subPath: kes.skey
+          - name: secret-keys
+            mountPath: /etc/keys/node.cert
+            subPath: node.cert
+          ports:
+          - name: socat
+            containerPort: {{ $attributes.socatPort }}
+      {{- end }}
+      volumes:
+        - name: config-files
+          configMap:
+            name: node-configuration-{{ $attributes.name }}
+        - name: cardano-node-init
+          configMap:
+            name: cardano-node-init
+        {{- if or (eq $attributes.type "block-producer") (and $attributes.mithrilSigner $attributes.mithrilSigner.enabled) }}
+        - name: secret-keys
+          secret:
+            secretName: {{ printf "%s-secret" $attributes.name }}
+            defaultMode: 0400
+        {{- end }}
+      terminationGracePeriodSeconds: 180
+  volumeClaimTemplates:
+  - metadata:
+      name: "cardano-node-{{ $attributes.name }}"
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      {{- if $attributes.storageClassName }}
+      storageClassName: {{ $attributes.storageClassName }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ $.Values.volumeSize }}
+  {{- if and $attributes.mithrilSigner $attributes.mithrilSigner.enabled }}
+  - metadata:
+      name: "cardano-node-{{ $attributes.name }}-mithril"
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      {{- if $attributes.storageClassName }}
+      storageClassName: {{ $attributes.storageClassName }}
+      {{- end }}
+      resources:
+        requests:
+          storage: 1Gi
+  {{- end }}
+{{ end }}
+{{ end }}

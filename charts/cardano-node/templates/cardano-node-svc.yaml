@@ -1,0 +1,104 @@
+{{ range $attributes := .Values.nodes }}
+{{ if $attributes.enabled }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cardano-node-{{ $attributes.name }}
+  labels:
+    app: cardano-node
+spec:
+  selector:
+    app: cardano-node
+    name: {{ $attributes.name }}
+    type: {{ $attributes.type }}
+    network: {{ $.Values.network }}
+  ports:
+    - protocol: TCP
+      name: node
+      port: {{ $attributes.port }}
+      targetPort: node
+  clusterIP: None
+  type: ClusterIP
+{{ if $attributes.nodePort }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cardano-node-{{ $attributes.name }}-ext
+  labels:
+    app: cardano-node
+spec:
+  selector:
+    app: cardano-node
+    name: {{ $attributes.name }}
+    type: {{ $attributes.type }}
+    network: {{ $.Values.network }}
+  ports:
+    - protocol: TCP
+      name: node
+      port: {{ $attributes.port }}
+      targetPort: node
+      nodePort: {{ $attributes.nodePort }}
+    - protocol: TCP
+      name: prom
+      port: 12798
+    {{- if $attributes.socatEnabled }}
+    - protocol: TCP
+      name: socat
+      port: {{ $attributes.socatPort }}
+      targetPort: socat
+    {{- end }}
+  type: NodePort
+{{ end }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cardano-node-{{ $attributes.name }}-int
+  labels:
+    app: cardano-node
+spec:
+  selector:
+    app: cardano-node
+    name: {{ $attributes.name }}
+    type: {{ $attributes.type }}
+    network: {{ $.Values.network }}
+  ports:
+    - protocol: TCP
+      name: node
+      port: {{ $attributes.port }}
+      targetPort: node
+    - protocol: TCP
+      name: prom
+      port: 12798
+    {{- if $attributes.socatEnabled }}
+    - protocol: TCP
+      name: socat
+      port: {{ $attributes.socatPort }}
+      targetPort: socat
+    {{- end }}
+  type: ClusterIP
+{{ if and $attributes.socatEnabled $attributes.socatNodePort }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: cardano-node-{{ $attributes.name }}-socat
+  labels:
+    app: cardano-node
+spec:
+  selector:
+    app: cardano-node
+    name: {{ $attributes.name }}
+    type: {{ $attributes.type }}
+    network: {{ $.Values.network }}
+  ports:
+    - protocol: TCP
+      name: socat
+      port: {{ $attributes.socatPort }}
+      nodePort: {{ $attributes.socatNodePort }}
+  type: NodePort
+{{ end }}
+{{ end }}
+{{ end }}

@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: cardano-node-init
+data:
+  init.sh: |
+    
+    rm -rf /data/db/lost+found
+    
+    if [[ ! -e /data/db/lock ]] && [[ "${RESTORE_SNAPSHOT}" == "true" ]]
+    then
+      /root/bin/download-cardano-node-db.sh
+    fi
