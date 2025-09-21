@@ -16,6 +16,9 @@ resources:
 
 nodePort: 30000
 
+serviceMonitor:
+  enabled: false
+
 mithril:
   image:
     repository: easy1staking/cardano-node-mithril-db-init
