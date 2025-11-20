@@ -94,6 +94,16 @@ entries:
     version: 0.0.1-beta.1
   kupo:
   - apiVersion: v2
+    appVersion: v2.11.0
+    created: "2025-11-20T09:32:42.841410099Z"
+    description: A Helm chart for Kubernetes
+    digest: 9d127be6eb7eb58bfa3c7df3bec58f85b1690019b8a3968f7b53744a6eaed579
+    name: kupo
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/kupo-0.0.2/kupo-0.0.2.tgz
+    version: 0.0.2
+  - apiVersion: v2
     appVersion: v2.9.0
     created: "2024-10-15T21:35:22.461144834Z"
     description: A Helm chart for Kubernetes
@@ -565,4 +575,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ogmios-0.0.1-alpha2/ogmios-0.0.1-alpha2.tgz
     version: 0.0.1-alpha2
-generated: "2025-11-20T09:21:12.34617916Z"
+generated: "2025-11-20T09:32:42.841622275Z"
