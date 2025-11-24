@@ -20,6 +20,9 @@ serviceMonitor:
   enabled: false
 
 mithril:
+  snapshot:
+    restore:
+      enabled: true
   image:
     repository: easy1staking/cardano-node-mithril-db-init
     pullPolicy: Always

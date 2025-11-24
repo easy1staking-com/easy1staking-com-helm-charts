@@ -28,7 +28,7 @@ spec:
           image: "{{ $attributes.mithrilRepository | default $.Values.mithril.image.repository }}:{{ $attributes.mithrilImageTag | default $.Values.mithril.image.tag }}"
           env:
             - name: RESTORE_SNAPSHOT
-              value: {{ $attributes.sleep | ternary false true | quote }}
+              value: {{ or ($attributes.sleep ( not $.Values.mithril.snapshot.restore.enabled ) ) | ternary false true | quote }}
             - name: CARDANO_NODE_DATA_FOLDER
               value: /data
             - name: AGGREGATOR_ENDPOINT
