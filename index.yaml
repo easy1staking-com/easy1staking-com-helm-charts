@@ -74,6 +74,16 @@ entries:
     version: 0.0.1
   - apiVersion: v2
     appVersion: 10.1.4
+    created: "2025-11-24T12:41:19.454482666Z"
+    description: A Helm chart for the Cardano Node
+    digest: 6718c5d11855d68162a5a5403e0671626eb3f67372af810562e47bce4aac8361
+    name: cardano-node
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/cardano-node-0.0.1-beta.6/cardano-node-0.0.1-beta.6.tgz
+    version: 0.0.1-beta.6
+  - apiVersion: v2
+    appVersion: 10.1.4
     created: "2025-11-24T12:38:13.042733059Z"
     description: A Helm chart for the Cardano Node
     digest: c23ea835093dc1729460d9c10ff0423d2ca29b84bce4e22120a5518ae73797b4
@@ -605,4 +615,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ogmios-0.0.1-alpha2/ogmios-0.0.1-alpha2.tgz
     version: 0.0.1-alpha2
-generated: "2025-11-24T12:38:13.042904139Z"
+generated: "2025-11-24T12:41:19.454675917Z"
