@@ -173,7 +173,7 @@ spec:
       {{- if and $attributes.mithrilSigner $attributes.mithrilSigner.enabled }}
         - name: mithril-signer
           image: "{{ $attributes.mithrilSigner.repository | default $.Values.mithril.signer.image.repository }}:{{ $attributes.mithrilSigner.imageTag | default $.Values.mithril.signer.image.tag }}"
-          command: [ "/mithril/mithril-signer" ]
+          command: [ "/app/bin/mithril-signer" ]
           args:
             - -vv
           env:
