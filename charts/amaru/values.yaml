@@ -1,0 +1,28 @@
+image:
+  repository: easy1staking/amaru
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: c10a8750-dirty
+
+volumeSize: 250Gi
+
+resources:
+  limits:
+    memory: "1Gi"
+    cpu: 1
+  requests:
+    memory: "1Gi"
+    cpu: 1
+
+nodePort: 30000
+
+network: mainnet
+
+config:
+  peerAddress: cardano:3001
+  ledgerDir: /data/db/ledger.db
+  chainDir: /data/db/chain.db
+  configFolder: /data/config
+
+serviceMonitor:
+  enabled: false

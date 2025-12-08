@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: amaru-init
+data:
+  init.sh: |
+    
+    rm -rf /data/db/lost+found
+    
+    if [[ ! -e "${AMARU_LEDGER_DIR}" ]] && [[ ! -e "${AMARU_CHAIN_DIR}" ]]
+    then
+      amaru bootstrap \
+        --config-dir ${CONFIG_FOLDER} \
+        --network=${NETWORK} \
+        --ledger-dir ${AMARU_LEDGER_DIR} \
+        --chain-dir ${AMARU_CHAIN_DIR}
+    fi

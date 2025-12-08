@@ -1,0 +1,106 @@
+{{ range $attributes := .Values.nodes }}
+{{ if $attributes.enabled }}
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: "amaru-{{ $attributes.name }}"
+spec:
+  replicas: {{ $attributes.replicas }}
+  serviceName: "amaru-{{ $attributes.name }}"
+  selector:
+    matchLabels:
+      app: amaru
+      name: {{ $attributes.name }}
+      type: {{ $attributes.type }}
+      network: {{ $.Values.network }}
+  template:
+    metadata:
+      labels:
+        app: amaru
+        name: {{ $attributes.name }}
+        type: {{ $attributes.type }}
+        network: {{ $.Values.network }}
+    spec:
+      initContainers:
+        - name: init
+          command: [ "bash", "-x", "/configmap/init.sh" ]
+          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
+          env:
+            - name: NETWORK
+              value: {{ $.Values.network }}
+            - name: AMARU_PEER_ADDRESS
+              value: {{ $.Values.config.peerAddress }}
+            - name: AMARU_LEDGER_DIR
+              value: {{ $.Values.config.ledgerDir }}
+            - name: AMARU_CHAIN_DIR
+              value: {{ $.Values.config.chainDir }}
+            - name: CONFIG_FOLDER
+              value: {{ $.Values.config.configFolder }}
+          imagePullPolicy: "Always"
+          volumeMounts:
+            - name: "amaru-{{ $attributes.name }}"
+              mountPath: /data/db
+            - name: "amaru-init"
+              mountPath: /configmap
+      containers:
+        - name: amaru
+          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
+          {{- if $attributes.sleep }}
+          command: [ "/bin/bash", "-c", "--" ]
+          args: [ "sleep 999999" ]
+          {{- else }}
+          command: [ "amaru" ]
+          args:
+            - "run"
+            - "--network"
+            - "$(NETWORK)"
+            - "--peer-address"
+            - "$(AMARU_PEER_ADDRESS)"
+            - "--ledger-dir"
+            - "$(AMARU_LEDGER_DIR)"
+            - "--chain-dir"
+            - "$(AMARU_CHAIN_DIR)"
+          {{- end }}
+          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
+          env:
+            - name: NETWORK
+              value: {{ $.Values.network }}
+            - name: AMARU_PEER_ADDRESS
+              value: {{ $.Values.config.peerAddress }}
+            - name: AMARU_LEDGER_DIR
+              value: {{ $.Values.config.ledgerDir }}
+            - name: AMARU_CHAIN_DIR
+              value: {{ $.Values.config.chainDir }}
+            - name: CONFIG_FOLDER
+              value: {{ $.Values.config.configFolder }}
+          ports:
+            - name: node
+              containerPort: {{ $attributes.port }}
+            - name: prom
+              containerPort: {{ $attributes.prometheusPort | default 12798 }}
+          {{- with $attributes.resources | default $.Values.resources }}
+          resources:
+{{ toYaml . | indent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: "amaru-{{ $attributes.name }}"
+              mountPath: /data/db
+      volumes:
+        - name: amaru-init
+          configMap:
+            name: amaru-init
+      terminationGracePeriodSeconds: 180
+  volumeClaimTemplates:
+  - metadata:
+      name: "amaru-{{ $attributes.name }}"
+    spec:
+      accessModes: [ "ReadWriteOnce" ]
+      {{- if $attributes.storageClassName }}
+      storageClassName: {{ $attributes.storageClassName }}
+      {{- end }}
+      resources:
+        requests:
+          storage: {{ $.Values.volumeSize }}
+{{ end }}
+{{ end }}
