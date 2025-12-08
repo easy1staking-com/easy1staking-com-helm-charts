@@ -29,8 +29,6 @@ spec:
           env:
             - name: NETWORK
               value: {{ $.Values.network }}
-            - name: AMARU_PEER_ADDRESS
-              value: {{ $.Values.config.peerAddress }}
             - name: AMARU_LEDGER_DIR
               value: {{ $.Values.config.ledgerDir }}
             - name: AMARU_CHAIN_DIR
@@ -67,13 +65,11 @@ spec:
             - name: NETWORK
               value: {{ $.Values.network }}
             - name: AMARU_PEER_ADDRESS
-              value: {{ $.Values.config.peerAddress }}
+              value: {{ $attributes.peerAddress }}
             - name: AMARU_LEDGER_DIR
               value: {{ $.Values.config.ledgerDir }}
             - name: AMARU_CHAIN_DIR
               value: {{ $.Values.config.chainDir }}
-            - name: CONFIG_FOLDER
-              value: {{ $.Values.config.configFolder }}
           ports:
             - name: node
               containerPort: {{ $attributes.port }}

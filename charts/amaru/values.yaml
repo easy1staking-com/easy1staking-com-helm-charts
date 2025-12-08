@@ -19,7 +19,6 @@ nodePort: 30000
 network: mainnet
 
 config:
-  peerAddress: cardano:3001
   ledgerDir: /data/db/ledger.db
   chainDir: /data/db/chain.db
   configFolder: /data/config
