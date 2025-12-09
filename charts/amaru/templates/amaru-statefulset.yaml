@@ -25,7 +25,7 @@ spec:
       initContainers:
         - name: init
           command: [ "bash", "-x", "/configmap/init.sh" ]
-          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
+          image: "{{ $attributes.repository | default $.Values.image.repository }}:{{ $attributes.imageTag | default $.Values.image.tag }}"
           env:
             - name: NETWORK
               value: {{ $.Values.network }}
@@ -43,7 +43,7 @@ spec:
               mountPath: /configmap
       containers:
         - name: amaru
-          image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
+          image: "{{ $attributes.repository | default $.Values.image.repository }}:{{ $attributes.imageTag | default $.Values.image.tag }}"
           {{- if $attributes.sleep }}
           command: [ "/bin/bash", "-c", "--" ]
           args: [ "sleep 999999" ]
