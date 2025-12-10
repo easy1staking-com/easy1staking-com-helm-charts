@@ -7,7 +7,7 @@ data:
     
     rm -rf /data/db/lost+found
     
-    if [[ ! -e "${AMARU_LEDGER_DIR}" ]] && [[ ! -e "${AMARU_CHAIN_DIR}" ]]
+    if [[ ! -e "${AMARU_LEDGER_DIR}" ]] && [[ ! -e "${AMARU_CHAIN_DIR}" ]] && [[ "${SKIP_BOOTSTRAP}" == "false" ]]
     then
       amaru bootstrap \
         --config-dir ${CONFIG_FOLDER} \
