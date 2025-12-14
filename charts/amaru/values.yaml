@@ -19,6 +19,7 @@ nodePort: 30000
 network: mainnet
 
 config:
+  withOpenTelemetry: false
   ledgerDir: /data/db/ledger.db
   chainDir: /data/db/chain.db
   configFolder: /data/config
