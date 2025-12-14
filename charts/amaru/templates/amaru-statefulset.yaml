@@ -60,9 +60,6 @@ spec:
             - "$(AMARU_LEDGER_DIR)"
             - "--chain-dir"
             - "$(AMARU_CHAIN_DIR)"
-          {{- if $attributes.withOpenTelemetry }}
-            - "--with-open-telemetry"
-          {{- end }}
           {{- end }}
           image: "{{ $attributes.repository | default $.Values.image.repository }}:{{ $attributes.imageTag | default $.Values.image.tag }}"
           env:
@@ -74,6 +71,10 @@ spec:
               value: {{ $.Values.config.ledgerDir }}
             - name: AMARU_CHAIN_DIR
               value: {{ $.Values.config.chainDir }}
+              {{- if $attributes.withOpenTelemetry }}
+            - name: AMARU_WITH_OPEN_TELEMETRY
+              value: ""
+              {{- end }}
           ports:
             - name: node
               containerPort: {{ $attributes.port }}
