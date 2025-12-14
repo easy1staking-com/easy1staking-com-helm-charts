@@ -60,7 +60,7 @@ spec:
             - "$(AMARU_LEDGER_DIR)"
             - "--chain-dir"
             - "$(AMARU_CHAIN_DIR)"
-          {{- if $.Values.config.withOpenTelemetry }}
+          {{- if $attributes.withOpenTelemetry }}
             - "-with-open-telemetry"
           {{- end }}
           {{- end }}
