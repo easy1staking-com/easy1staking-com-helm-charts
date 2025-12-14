@@ -61,7 +61,7 @@ spec:
             - "--chain-dir"
             - "$(AMARU_CHAIN_DIR)"
           {{- if $attributes.withOpenTelemetry }}
-            - "-with-open-telemetry"
+            - "--with-open-telemetry"
           {{- end }}
           {{- end }}
           image: "{{ $attributes.repository | default $.Values.image.repository }}:{{ $attributes.imageTag | default $.Values.image.tag }}"
