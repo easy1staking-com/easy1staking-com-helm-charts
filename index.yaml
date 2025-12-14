@@ -3,6 +3,16 @@ entries:
   amaru:
   - apiVersion: v2
     appVersion: 0.0.1-alpha.1
+    created: "2025-12-14T21:34:59.684883086Z"
+    description: A Helm chart for the Amaru Cardano Node
+    digest: daedc2c6359db79b06d5658fab69ff9f6823d6d800a844c6a29b08802692716c
+    name: amaru
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/amaru-0.0.1-alpha.8/amaru-0.0.1-alpha.8.tgz
+    version: 0.0.1-alpha.8
+  - apiVersion: v2
+    appVersion: 0.0.1-alpha.1
     created: "2025-12-14T21:21:24.837173607Z"
     description: A Helm chart for the Amaru Cardano Node
     digest: fd7f20530a69a68767e2a4b2ff474238b9d28eb29b64fe3092fe442cd43cdad6
@@ -756,4 +766,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ogmios-0.0.1-alpha2/ogmios-0.0.1-alpha2.tgz
     version: 0.0.1-alpha2
-generated: "2025-12-14T21:21:24.837499687Z"
+generated: "2025-12-14T21:34:59.685200885Z"
