@@ -73,7 +73,7 @@ spec:
               value: {{ $.Values.config.chainDir }}
               {{- if $attributes.withOpenTelemetry }}
             - name: AMARU_WITH_OPEN_TELEMETRY
-              value: ""
+              value: "true"
               {{- end }}
           ports:
             - name: node
