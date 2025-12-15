@@ -82,7 +82,7 @@ spec:
               value: {{ $attributes.promOtlpMetricsEndpoint | default "http://prometheus-operated.observe:9090/api/v1/otlp/v1/metrics" }}
             - name: AMARU_OTEL_RESOURCE_ATTRIBUTES
               value: "service.namespace=cardano,deployment.environment=production"
-            - name: AMARU_OTEL_SERVICE_NAME
+            - name: AMARU_OTLP_SERVICE_NAME
               value: "amaru"
               {{- end }}
           ports:
