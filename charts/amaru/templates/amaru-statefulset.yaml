@@ -78,6 +78,8 @@ spec:
               value: "http/protobuf"
             - name: AMARU_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
               value: {{ $attributes.promOtlpMetricsEndpoint | default "http://prometheus-operated.observe:9090/api/v1/otlp/v1/metrics" }}
+            - name: AMARU_OTLP_METRIC_URL
+              value: {{ $attributes.promOtlpMetricsEndpoint | default "http://prometheus-operated.observe:9090/api/v1/otlp/v1/metrics" }}
             - name: AMARU_OTEL_RESOURCE_ATTRIBUTES
               value: "service.namespace=cardano,deployment.environment=production"
             - name: AMARU_OTEL_SERVICE_NAME
