@@ -74,13 +74,13 @@ spec:
               {{- if $attributes.withOpenTelemetry }}
             - name: AMARU_WITH_OPEN_TELEMETRY
               value: "true"
-            - name: OTEL_EXPORTER_OTLP_PROTOCOL
+            - name: AMARU_OTEL_EXPORTER_OTLP_PROTOCOL
               value: "http/protobuf"
-            - name: OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
+            - name: AMARU_OTEL_EXPORTER_OTLP_METRICS_ENDPOINT
               value: {{ $attributes.promOtlpMetricsEndpoint | default "http://prometheus-operated.observe:9090/api/v1/otlp/v1/metrics" }}
-            - name: OTEL_RESOURCE_ATTRIBUTES
+            - name: AMARU_OTEL_RESOURCE_ATTRIBUTES
               value: "service.namespace=cardano,deployment.environment=production"
-            - name: OTEL_SERVICE_NAME
+            - name: AMARU_OTEL_SERVICE_NAME
               value: "amaru"
               {{- end }}
           ports:
