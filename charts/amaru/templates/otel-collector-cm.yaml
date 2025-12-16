@@ -59,9 +59,9 @@ data:
         tls:
           insecure: {{ $collectorConfig.exporters.otlp.insecure | default true }}
       {{- end }}
-      # Logging exporter for debugging
-      logging:
-        loglevel: info
+      # Debug exporter for debugging
+      debug:
+        verbosity: normal
 
     service:
       pipelines:
@@ -97,7 +97,7 @@ data:
             {{- $processors = append $processors "batch" }}
             {{- end }}
             {{- toYaml $processors | nindent 12 }}
-          exporters: [otlp, logging]
+          exporters: [otlp, debug]
         {{- end }}
 {{- end }}
 {{- end }}

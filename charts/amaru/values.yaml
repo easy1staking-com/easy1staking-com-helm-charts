@@ -33,7 +33,7 @@ otelCollector:
   enabled: false
   image:
     repository: otel/opentelemetry-collector-contrib
-    tag: latest
+    tag: "0.93.0"
     pullPolicy: IfNotPresent
 
   # OTLP receiver ports (receives data from Amaru)
