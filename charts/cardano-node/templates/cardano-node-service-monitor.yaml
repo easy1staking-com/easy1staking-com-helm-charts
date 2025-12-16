@@ -10,10 +10,11 @@ spec:
   endpoints:
     - path: /metrics
       port: prom
-      scrapeProtocols:
-        - PrometheusText0.0.4
-        - OpenMetricsText1.0.0
-        - OpenMetricsText0.0.1
+  fallbackScrapeProtocol: PrometheusText0.0.4
+  scrapeProtocols:
+    - PrometheusText0.0.4
+    - OpenMetricsText1.0.0
+    - OpenMetricsText0.0.1
   namespaceSelector:
     matchNames:
       - {{ .Release.Namespace }}
