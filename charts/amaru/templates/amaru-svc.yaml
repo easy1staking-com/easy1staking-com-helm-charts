@@ -40,9 +40,17 @@ spec:
       port: {{ $attributes.port }}
       targetPort: node
       nodePort: {{ $attributes.nodePort }}
+    {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
+    {{- if $collectorConfig.enabled }}
+    - protocol: TCP
+      name: otel-prom
+      port: {{ $collectorConfig.prometheusPort | default 8888 }}
+      targetPort: prometheus
+    {{- else }}
     - protocol: TCP
       name: prom
       port: 12798
+    {{- end }}
     {{- if $attributes.socatEnabled }}
     - protocol: TCP
       name: socat
@@ -69,9 +77,17 @@ spec:
       name: node
       port: {{ $attributes.port }}
       targetPort: node
+    {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
+    {{- if $collectorConfig.enabled }}
+    - protocol: TCP
+      name: otel-prom
+      port: {{ $collectorConfig.prometheusPort | default 8888 }}
+      targetPort: prometheus
+    {{- else }}
     - protocol: TCP
       name: prom
       port: 12798
+    {{- end }}
     {{- if $attributes.socatEnabled }}
     - protocol: TCP
       name: socat

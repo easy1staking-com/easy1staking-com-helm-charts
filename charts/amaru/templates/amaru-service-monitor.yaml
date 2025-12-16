@@ -1,4 +1,13 @@
-{{ if .Values.serviceMonitor.enabled }}
+{{- $anyCollectorEnabled := false }}
+{{- range $attributes := .Values.nodes }}
+{{- if $attributes.enabled }}
+{{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
+{{- if $collectorConfig.enabled }}
+{{- $anyCollectorEnabled = true }}
+{{- end }}
+{{- end }}
+{{- end }}
+{{- if or .Values.serviceMonitor.enabled $anyCollectorEnabled }}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
@@ -9,11 +18,15 @@ metadata:
 spec:
   endpoints:
     - path: /metrics
+      {{- if $anyCollectorEnabled }}
+      port: otel-prom
+      {{- else }}
       port: prom
+      {{- end }}
   namespaceSelector:
     matchNames:
       - {{ .Release.Namespace }}
   selector:
     matchLabels:
       app: amaru
-{{ end }}
+{{- end }}

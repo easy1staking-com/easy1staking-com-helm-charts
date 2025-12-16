@@ -26,3 +26,60 @@ config:
 
 serviceMonitor:
   enabled: false
+
+# OpenTelemetry Collector sidecar configuration
+# This is the default configuration that can be overridden per node
+otelCollector:
+  enabled: false
+  image:
+    repository: otel/opentelemetry-collector-contrib
+    tag: latest
+    pullPolicy: IfNotPresent
+
+  # OTLP receiver ports (receives data from Amaru)
+  otlpGrpcPort: 4317
+  otlpHttpPort: 4318
+
+  # Prometheus scrape endpoint (for Prometheus to scrape)
+  prometheusPort: 8888
+
+  # Exporters configuration
+  exporters:
+    # Local Prometheus scrape endpoint (enabled by default)
+    prometheus:
+      enabled: true
+
+    # Remote write to Prometheus endpoint (disabled by default)
+    prometheusRemoteWrite:
+      enabled: false
+      endpoint: ""  # e.g., "http://prometheus:9090/api/v1/write"
+      # Optional headers for authentication
+      # headers:
+      #   Authorization: "Bearer token"
+
+    # Trace exporters (disabled by default)
+    otlp:
+      enabled: false
+      endpoint: ""  # e.g., "jaeger:4317"
+      insecure: true
+
+  # Processors configuration
+  processors:
+    batch:
+      enabled: true
+      timeout: 10s
+      send_batch_size: 1024
+
+    memory_limiter:
+      enabled: true
+      check_interval: 1s
+      limit_mib: 512
+
+  # Resource limits for the sidecar
+  resources:
+    limits:
+      memory: "512Mi"
+      cpu: "500m"
+    requests:
+      memory: "256Mi"
+      cpu: "100m"

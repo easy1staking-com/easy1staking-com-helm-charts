@@ -71,13 +71,22 @@ spec:
               value: {{ $.Values.config.ledgerDir }}
             - name: AMARU_CHAIN_DIR
               value: {{ $.Values.config.chainDir }}
-              {{- if $attributes.withOpenTelemetry }}
+              {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
+              {{- if or $attributes.withOpenTelemetry $collectorConfig.enabled }}
             - name: AMARU_WITH_OPEN_TELEMETRY
               value: "true"
             - name: AMARU_OTLP_METRIC_URL
+              {{- if $collectorConfig.enabled }}
+              value: "http://localhost:{{ $collectorConfig.otlpHttpPort | default 4318 }}/v1/metrics"
+              {{- else }}
               value: {{ $attributes.otlpMetricUrl | default "http://otel-collector-opentelemetry-collector.observe:4318/v1/metrics" }}
+              {{- end }}
             - name: AMARU_OTLP_SPAN_URL
+              {{- if $collectorConfig.enabled }}
+              value: "http://localhost:{{ $collectorConfig.otlpGrpcPort | default 4317 }}"
+              {{- else }}
               value: {{ $attributes.otlpSpanUrl | default "http://otel-collector-opentelemetry-collector.observe:4317" }}
+              {{- end }}
             - name: AMARU_OTLP_SERVICE_NAME
               value: "amaru"
               {{- end }}
@@ -93,10 +102,46 @@ spec:
           volumeMounts:
             - name: "amaru-{{ $attributes.name }}"
               mountPath: /data/db
+        {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
+        {{- if $collectorConfig.enabled }}
+        - name: otel-collector
+          image: "{{ dig "image" "repository" "otel/opentelemetry-collector-contrib" $collectorConfig }}:{{ dig "image" "tag" "latest" $collectorConfig }}"
+          imagePullPolicy: {{ dig "image" "pullPolicy" "IfNotPresent" $collectorConfig }}
+          args:
+            - "--config=/etc/otel-collector/config.yaml"
+          ports:
+            - name: otlp-grpc
+              containerPort: {{ $collectorConfig.otlpGrpcPort | default 4317 }}
+              protocol: TCP
+            - name: otlp-http
+              containerPort: {{ $collectorConfig.otlpHttpPort | default 4318 }}
+              protocol: TCP
+            - name: prometheus
+              containerPort: {{ $collectorConfig.prometheusPort | default 8888 }}
+              protocol: TCP
+          {{- $collectorResources := dig "resources" dict $collectorConfig }}
+          {{- if not $collectorResources }}
+          {{- $collectorResources = dig "resources" dict $.Values.otelCollector }}
+          {{- end }}
+          {{- if $collectorResources }}
+          resources:
+{{ toYaml $collectorResources | indent 12 }}
+          {{- end }}
+          volumeMounts:
+            - name: otel-collector-config
+              mountPath: /etc/otel-collector
+              readOnly: true
+        {{- end }}
       volumes:
         - name: amaru-init
           configMap:
             name: amaru-init
+        {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
+        {{- if $collectorConfig.enabled }}
+        - name: otel-collector-config
+          configMap:
+            name: "otel-collector-{{ $attributes.name }}"
+        {{- end }}
       terminationGracePeriodSeconds: 180
   volumeClaimTemplates:
   - metadata:

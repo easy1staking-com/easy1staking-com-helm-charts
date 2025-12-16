@@ -1,0 +1,104 @@
+{{- range $attributes := .Values.nodes }}
+{{- if $attributes.enabled }}
+{{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
+{{- if $collectorConfig.enabled }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "otel-collector-{{ $attributes.name }}"
+  labels:
+    app: amaru
+    component: otel-collector
+    node: {{ $attributes.name }}
+data:
+  config.yaml: |
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: "0.0.0.0:{{ $collectorConfig.otlpGrpcPort | default 4317 }}"
+          http:
+            endpoint: "0.0.0.0:{{ $collectorConfig.otlpHttpPort | default 4318 }}"
+
+    processors:
+      {{- if or (dig "processors" "batch" "enabled" true $collectorConfig) (not (hasKey $collectorConfig "processors")) }}
+      batch:
+        timeout: {{ dig "processors" "batch" "timeout" "10s" $collectorConfig }}
+        send_batch_size: {{ dig "processors" "batch" "send_batch_size" 1024 $collectorConfig }}
+      {{- end }}
+      {{- if or (dig "processors" "memory_limiter" "enabled" true $collectorConfig) (not (hasKey $collectorConfig "processors")) }}
+      memory_limiter:
+        check_interval: {{ dig "processors" "memory_limiter" "check_interval" "1s" $collectorConfig }}
+        limit_mib: {{ dig "processors" "memory_limiter" "limit_mib" 512 $collectorConfig }}
+      {{- end }}
+
+    exporters:
+      {{- if or (dig "exporters" "prometheus" "enabled" true $collectorConfig) (not (hasKey $collectorConfig "exporters")) }}
+      # Prometheus exporter - exposes metrics endpoint for scraping
+      prometheus:
+        endpoint: "0.0.0.0:{{ $collectorConfig.prometheusPort | default 8888 }}"
+        namespace: "amaru"
+        const_labels:
+          node: "{{ $attributes.name }}"
+          network: "{{ $.Values.network }}"
+      {{- end }}
+      {{- if dig "exporters" "prometheusRemoteWrite" "enabled" false $collectorConfig }}
+      # Prometheus remote write exporter
+      prometheusremotewrite:
+        endpoint: "{{ $collectorConfig.exporters.prometheusRemoteWrite.endpoint }}"
+        {{- if $collectorConfig.exporters.prometheusRemoteWrite.headers }}
+        headers:
+          {{- toYaml $collectorConfig.exporters.prometheusRemoteWrite.headers | nindent 10 }}
+        {{- end }}
+      {{- end }}
+      {{- if dig "exporters" "otlp" "enabled" false $collectorConfig }}
+      # OTLP exporter for traces
+      otlp:
+        endpoint: "{{ $collectorConfig.exporters.otlp.endpoint }}"
+        tls:
+          insecure: {{ $collectorConfig.exporters.otlp.insecure | default true }}
+      {{- end }}
+      # Logging exporter for debugging
+      logging:
+        loglevel: info
+
+    service:
+      pipelines:
+        metrics:
+          receivers: [otlp]
+          processors:
+            {{- $processors := list }}
+            {{- if or (dig "processors" "memory_limiter" "enabled" true $collectorConfig) (not (hasKey $collectorConfig "processors")) }}
+            {{- $processors = append $processors "memory_limiter" }}
+            {{- end }}
+            {{- if or (dig "processors" "batch" "enabled" true $collectorConfig) (not (hasKey $collectorConfig "processors")) }}
+            {{- $processors = append $processors "batch" }}
+            {{- end }}
+            {{- toYaml $processors | nindent 12 }}
+          exporters:
+            {{- $exporters := list }}
+            {{- if or (dig "exporters" "prometheus" "enabled" true $collectorConfig) (not (hasKey $collectorConfig "exporters")) }}
+            {{- $exporters = append $exporters "prometheus" }}
+            {{- end }}
+            {{- if dig "exporters" "prometheusRemoteWrite" "enabled" false $collectorConfig }}
+            {{- $exporters = append $exporters "prometheusremotewrite" }}
+            {{- end }}
+            {{- toYaml $exporters | nindent 12 }}
+        {{- if dig "exporters" "otlp" "enabled" false $collectorConfig }}
+        traces:
+          receivers: [otlp]
+          processors:
+            {{- $processors := list }}
+            {{- if or (dig "processors" "memory_limiter" "enabled" true $collectorConfig) (not (hasKey $collectorConfig "processors")) }}
+            {{- $processors = append $processors "memory_limiter" }}
+            {{- end }}
+            {{- if or (dig "processors" "batch" "enabled" true $collectorConfig) (not (hasKey $collectorConfig "processors")) }}
+            {{- $processors = append $processors "batch" }}
+            {{- end }}
+            {{- toYaml $processors | nindent 12 }}
+          exporters: [otlp, logging]
+        {{- end }}
+{{- end }}
+{{- end }}
+{{- end }}
