@@ -44,7 +44,7 @@ spec:
     {{- if $collectorConfig.enabled }}
     - protocol: TCP
       name: otel-prom
-      port: {{ $collectorConfig.prometheusPort | default 8888 }}
+      port: {{ $collectorConfig.prometheusPort | default 9464 }}
       targetPort: prometheus
     {{- else }}
     - protocol: TCP
@@ -81,7 +81,7 @@ spec:
     {{- if $collectorConfig.enabled }}
     - protocol: TCP
       name: otel-prom
-      port: {{ $collectorConfig.prometheusPort | default 8888 }}
+      port: {{ $collectorConfig.prometheusPort | default 9464 }}
       targetPort: prometheus
     {{- else }}
     - protocol: TCP

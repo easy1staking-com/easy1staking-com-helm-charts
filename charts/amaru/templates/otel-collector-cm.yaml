@@ -37,7 +37,7 @@ data:
       {{- if or (dig "exporters" "prometheus" "enabled" true $collectorConfig) (not (hasKey $collectorConfig "exporters")) }}
       # Prometheus exporter - exposes metrics endpoint for scraping
       prometheus:
-        endpoint: "0.0.0.0:{{ $collectorConfig.prometheusPort | default 8888 }}"
+        endpoint: "0.0.0.0:{{ $collectorConfig.prometheusPort | default 9464 }}"
         namespace: "amaru"
         const_labels:
           node: "{{ $attributes.name }}"

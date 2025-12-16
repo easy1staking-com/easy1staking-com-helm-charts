@@ -117,7 +117,7 @@ spec:
               containerPort: {{ $collectorConfig.otlpHttpPort | default 4318 }}
               protocol: TCP
             - name: prometheus
-              containerPort: {{ $collectorConfig.prometheusPort | default 8888 }}
+              containerPort: {{ $collectorConfig.prometheusPort | default 9464 }}
               protocol: TCP
           {{- $collectorResources := dig "resources" dict $collectorConfig }}
           {{- if not $collectorResources }}

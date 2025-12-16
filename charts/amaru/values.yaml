@@ -41,7 +41,8 @@ otelCollector:
   otlpHttpPort: 4318
 
   # Prometheus scrape endpoint (for Prometheus to scrape)
-  prometheusPort: 8888
+  # Note: 8888 is used by OTel Collector's own internal metrics
+  prometheusPort: 9464
 
   # Exporters configuration
   exporters:
