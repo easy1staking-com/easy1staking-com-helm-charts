@@ -134,7 +134,7 @@ spec:
             {{- end }}
           annotations:
             summary: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} block density below normal"
-            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} has block density of {{ "{{" }} printf \"%.4f\" $value {{ "}}" }} ({{ "{{" }} printf \"%.1f\" (mul $value 100) {{ "}}" }}%), which is below {{ .Values.alerts.rules.lowDensity.warningThreshold }} (ideal is 0.05/5%) for more than {{ .Values.alerts.rules.lowDensity.for }}. This may indicate early sync degradation."
+            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} has block density of {{ "{{" }} printf \"%.4f\" $value {{ "}}" }}, which is below {{ .Values.alerts.rules.lowDensity.warningThreshold }} (ideal is 0.05/5%) for more than {{ .Values.alerts.rules.lowDensity.for }}. This may indicate early sync degradation."
             {{- with .Values.alerts.rules.lowDensity.annotations }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
@@ -150,7 +150,7 @@ spec:
             {{- end }}
           annotations:
             summary: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} critically low block density"
-            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} has block density of {{ "{{" }} printf \"%.4f\" $value {{ "}}" }} ({{ "{{" }} printf \"%.1f\" (mul $value 100) {{ "}}" }}%), which is critically below {{ .Values.alerts.rules.lowDensity.criticalThreshold }} (ideal is 0.05/5%) for more than {{ .Values.alerts.rules.lowDensity.for }}. This indicates significant sync or network issues."
+            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} has block density of {{ "{{" }} printf \"%.4f\" $value {{ "}}" }}, which is critically below {{ .Values.alerts.rules.lowDensity.criticalThreshold }} (ideal is 0.05/5%) for more than {{ .Values.alerts.rules.lowDensity.for }}. This indicates significant sync or network issues."
             {{- with .Values.alerts.rules.lowDensity.annotations }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
