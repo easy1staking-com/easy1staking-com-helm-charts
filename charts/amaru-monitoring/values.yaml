@@ -91,8 +91,24 @@ alerts:
       annotations: {}
 
     lowDensity:
-      warningThreshold: 0.04   # 4% - slightly below ideal 5%
-      criticalThreshold: 0.03  # 3% - significantly below ideal 5%
+      # Per-network thresholds since different networks have different ideal densities
+      # Network labels come from the amaru chart's "network" label
+      networks:
+        mainnet:
+          warningThreshold: 0.04   # 4% - mainnet ideal is ~5% (d=0)
+          criticalThreshold: 0.03  # 3%
+        preprod:
+          warningThreshold: 0.035   # Adjust based on preprod d parameter
+          criticalThreshold: 0.03
+        preview:
+          warningThreshold: 0.035   # Adjust based on preview d parameter
+          criticalThreshold: 0.03
+        sanchonet:
+          warningThreshold: 0.035   # Adjust based on sanchonet d parameter
+          criticalThreshold: 0.03
+      # Fallback for unknown networks
+      defaultWarningThreshold: 0.04
+      defaultCriticalThreshold: 0.03
       for: 30m
       labels: {}
       annotations: {}

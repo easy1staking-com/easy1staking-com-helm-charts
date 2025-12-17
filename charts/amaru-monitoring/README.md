@@ -212,6 +212,22 @@ alerts:
     syncStalled:
       for: 20m       # Custom duration
 
+    # Per-network block density thresholds
+    # Different Cardano networks have different ideal densities
+    lowDensity:
+      networks:
+        mainnet:
+          warningThreshold: 0.04   # 4%
+          criticalThreshold: 0.03  # 3%
+        preprod:
+          warningThreshold: 0.03   # Adjust for preprod's d parameter
+          criticalThreshold: 0.02
+        preview:
+          warningThreshold: 0.035
+          criticalThreshold: 0.025
+      defaultWarningThreshold: 0.04   # For unknown networks
+      defaultCriticalThreshold: 0.03
+
     # Add runbook links
     nodeDown:
       annotations:

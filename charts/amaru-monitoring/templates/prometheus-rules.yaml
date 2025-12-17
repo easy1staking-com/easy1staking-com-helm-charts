@@ -125,7 +125,15 @@ spec:
             {{- end }}
 
         - alert: AmaruLowBlockDensityWarning
-          expr: amaru_cardano_node_metrics_density_real{job="amaru"} < {{ .Values.alerts.rules.lowDensity.warningThreshold }}
+          expr: |
+            {{- $conditions := list }}
+            {{- range $network, $config := .Values.alerts.rules.lowDensity.networks }}
+            {{- $conditions = append $conditions (printf "(amaru_cardano_node_metrics_density_real{job=\"amaru\",network=\"%s\"} < %v)" $network $config.warningThreshold) }}
+            {{- end }}
+            {{- if .Values.alerts.rules.lowDensity.defaultWarningThreshold }}
+            {{- $conditions = append $conditions (printf "(amaru_cardano_node_metrics_density_real{job=\"amaru\",network!~\"%s\"} < %v)" (join "|" (keys .Values.alerts.rules.lowDensity.networks)) .Values.alerts.rules.lowDensity.defaultWarningThreshold) }}
+            {{- end }}
+            {{ join " or\n            " $conditions }}
           for: {{ .Values.alerts.rules.lowDensity.for }}
           labels:
             severity: warning
@@ -134,14 +142,22 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
           annotations:
-            summary: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} block density below normal"
-            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} has block density of {{ "{{" }} printf \"%.4f\" $value {{ "}}" }}, which is below {{ .Values.alerts.rules.lowDensity.warningThreshold }} (ideal is 0.05/5%) for more than {{ .Values.alerts.rules.lowDensity.for }}. This may indicate early sync degradation."
+            summary: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} ({{ "{{" }} $labels.network {{ "}}" }}) block density below normal"
+            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} on {{ "{{" }} $labels.network {{ "}}" }} has block density of {{ "{{" }} printf \"%.4f\" $value {{ "}}" }}, which is below the warning threshold for this network. This may indicate early sync degradation."
             {{- with .Values.alerts.rules.lowDensity.annotations }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
 
         - alert: AmaruLowBlockDensityCritical
-          expr: amaru_cardano_node_metrics_density_real{job="amaru"} < {{ .Values.alerts.rules.lowDensity.criticalThreshold }}
+          expr: |
+            {{- $conditions := list }}
+            {{- range $network, $config := .Values.alerts.rules.lowDensity.networks }}
+            {{- $conditions = append $conditions (printf "(amaru_cardano_node_metrics_density_real{job=\"amaru\",network=\"%s\"} < %v)" $network $config.criticalThreshold) }}
+            {{- end }}
+            {{- if .Values.alerts.rules.lowDensity.defaultCriticalThreshold }}
+            {{- $conditions = append $conditions (printf "(amaru_cardano_node_metrics_density_real{job=\"amaru\",network!~\"%s\"} < %v)" (join "|" (keys .Values.alerts.rules.lowDensity.networks)) .Values.alerts.rules.lowDensity.defaultCriticalThreshold) }}
+            {{- end }}
+            {{ join " or\n            " $conditions }}
           for: {{ .Values.alerts.rules.lowDensity.for }}
           labels:
             severity: critical
@@ -150,8 +166,8 @@ spec:
             {{- toYaml . | nindent 12 }}
             {{- end }}
           annotations:
-            summary: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} critically low block density"
-            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} has block density of {{ "{{" }} printf \"%.4f\" $value {{ "}}" }}, which is critically below {{ .Values.alerts.rules.lowDensity.criticalThreshold }} (ideal is 0.05/5%) for more than {{ .Values.alerts.rules.lowDensity.for }}. This indicates significant sync or network issues."
+            summary: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} ({{ "{{" }} $labels.network {{ "}}" }}) critically low block density"
+            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} on {{ "{{" }} $labels.network {{ "}}" }} has block density of {{ "{{" }} printf \"%.4f\" $value {{ "}}" }}, which is critically below the threshold for this network. This indicates significant sync or network issues."
             {{- with .Values.alerts.rules.lowDensity.annotations }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
