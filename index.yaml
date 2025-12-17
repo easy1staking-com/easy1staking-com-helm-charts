@@ -194,6 +194,26 @@ entries:
   amaru-monitoring:
   - apiVersion: v2
     appVersion: 1.0.0
+    created: "2025-12-17T11:00:24.242055273Z"
+    description: A Helm chart for Amaru Cardano Node monitoring and alerting
+    digest: 0609c25883b14645018617ac45c838f60ff2f385426996a8b63071b2b58c3e4a
+    home: https://github.com/txpipe/amaru
+    keywords:
+    - cardano
+    - blockchain
+    - amaru
+    - monitoring
+    - grafana
+    - prometheus
+    maintainers:
+    - name: easy1staking
+    name: amaru-monitoring
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/amaru-monitoring-0.2.3/amaru-monitoring-0.2.3.tgz
+    version: 0.2.3
+  - apiVersion: v2
+    appVersion: 1.0.0
     created: "2025-12-17T10:56:39.879249729Z"
     description: A Helm chart for Amaru Cardano Node monitoring and alerting
     digest: f9d89ddb42bf10fbe5e90f2847c7b394296e55539beefc2da5028cdb6ed1b7d4
@@ -927,4 +947,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ogmios-0.0.1-alpha2/ogmios-0.0.1-alpha2.tgz
     version: 0.0.1-alpha2
-generated: "2025-12-17T10:56:39.879598912Z"
+generated: "2025-12-17T11:00:24.242421684Z"
