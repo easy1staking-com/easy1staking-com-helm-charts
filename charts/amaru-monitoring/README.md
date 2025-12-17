@@ -178,7 +178,7 @@ The chart includes comprehensive PrometheusRule alerts for monitoring Amaru node
 
 **Performance (Warning)**
 - `AmaruHighCPUUsage` - CPU usage above 90% (5m)
-- `AmaruHighMemoryUsage` - Memory usage above 90% (5m)
+- `AmaruHighMemoryUsage` - Resident memory above 90% of available virtual memory (dynamic, self-adjusting) (5m)
 - `AmaruHighDiskIOWait` - Sustained high disk I/O (10m)
 
 **Blockchain Sync (Critical/Warning)**

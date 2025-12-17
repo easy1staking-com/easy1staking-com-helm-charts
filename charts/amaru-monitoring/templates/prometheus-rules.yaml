@@ -71,7 +71,7 @@ spec:
 
         - alert: AmaruHighMemoryUsage
           expr: |
-            (amaru_process_memory_live_resident_bytes{job="amaru"} / {{ .Values.alerts.rules.highMemory.nodeMemoryBytes }}) * 100 > {{ .Values.alerts.rules.highMemory.threshold }}
+            (amaru_process_memory_live_resident_bytes{job="amaru"} / amaru_process_memory_available_virtual_bytes{job="amaru"}) * 100 > {{ .Values.alerts.rules.highMemory.threshold }}
           for: {{ .Values.alerts.rules.highMemory.for }}
           labels:
             severity: warning
@@ -81,7 +81,7 @@ spec:
             {{- end }}
           annotations:
             summary: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} high memory usage"
-            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} memory usage is {{ "{{" }} printf \"%.2f\" $value {{ "}}" }}% of allocated memory, which is above the threshold of {{ .Values.alerts.rules.highMemory.threshold }}% for more than {{ .Values.alerts.rules.highMemory.for }}."
+            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} memory usage is {{ "{{" }} printf \"%.2f\" $value {{ "}}" }}% of available virtual memory, which is above the threshold of {{ .Values.alerts.rules.highMemory.threshold }}% for more than {{ .Values.alerts.rules.highMemory.for }}."
             {{- with .Values.alerts.rules.highMemory.annotations }}
             {{- toYaml . | nindent 12 }}
             {{- end }}
