@@ -5,6 +5,12 @@ apiVersion: apps/v1
 kind: StatefulSet
 metadata:
   name: "amaru-{{ $attributes.name }}"
+  labels:
+    app: amaru
+    app.kubernetes.io/name: amaru
+    app.kubernetes.io/component: node
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+    name: {{ $attributes.name }}
 spec:
   replicas: {{ $attributes.replicas }}
   serviceName: "amaru-{{ $attributes.name }}"
@@ -18,6 +24,9 @@ spec:
     metadata:
       labels:
         app: amaru
+        app.kubernetes.io/name: amaru
+        app.kubernetes.io/component: node
+        app.kubernetes.io/instance: {{ $.Release.Name }}
         name: {{ $attributes.name }}
         type: {{ $attributes.type }}
         network: {{ $.Values.network }}

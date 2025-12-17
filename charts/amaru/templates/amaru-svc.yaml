@@ -7,6 +7,9 @@ metadata:
   name: amaru-{{ $attributes.name }}
   labels:
     app: amaru
+    app.kubernetes.io/name: amaru
+    app.kubernetes.io/component: node
+    app.kubernetes.io/instance: {{ $.Release.Name }}
 spec:
   selector:
     app: amaru
@@ -28,6 +31,9 @@ metadata:
   name: amaru-{{ $attributes.name }}-ext
   labels:
     app: amaru
+    app.kubernetes.io/name: amaru
+    app.kubernetes.io/component: node
+    app.kubernetes.io/instance: {{ $.Release.Name }}
 spec:
   selector:
     app: amaru
@@ -66,6 +72,9 @@ metadata:
   name: amaru-{{ $attributes.name }}-int
   labels:
     app: amaru
+    app.kubernetes.io/name: amaru
+    app.kubernetes.io/component: node
+    app.kubernetes.io/instance: {{ $.Release.Name }}
 spec:
   selector:
     app: amaru
@@ -103,6 +112,9 @@ metadata:
   name: amaru-{{ $attributes.name }}-socat
   labels:
     app: amaru
+    app.kubernetes.io/name: amaru
+    app.kubernetes.io/component: node
+    app.kubernetes.io/instance: {{ $.Release.Name }}
 spec:
   selector:
     app: amaru

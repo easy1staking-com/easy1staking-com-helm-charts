@@ -14,6 +14,10 @@ kind: ServiceMonitor
 metadata:
   name: amaru-service-monitor
   labels:
+    app: amaru
+    app.kubernetes.io/name: amaru
+    app.kubernetes.io/component: monitoring
+    app.kubernetes.io/instance: {{ .Release.Name }}
     release: kube-prometheus-stack
 spec:
   endpoints:
@@ -23,10 +27,14 @@ spec:
       {{- else }}
       port: prom
       {{- end }}
+      relabelings:
+        - sourceLabels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+          targetLabel: job
+          replacement: amaru
   namespaceSelector:
     matchNames:
       - {{ .Release.Namespace }}
   selector:
     matchLabels:
-      app: amaru
+      app.kubernetes.io/name: amaru
 {{- end }}

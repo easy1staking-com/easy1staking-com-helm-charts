@@ -1,0 +1,35 @@
+# Amaru Monitoring Chart Values
+
+# Grafana dashboard configuration
+dashboard:
+  # Enable Grafana dashboard deployment
+  enabled: true
+
+  # Namespace selector configuration
+  # By default, the dashboard will scan all namespaces for Amaru instances
+  namespaceSelector:
+    # Set to true to scan all namespaces
+    any: true
+    # Or specify a list of namespaces to monitor
+    # matchNames: []
+
+  # Label selector to find Amaru instances
+  # Uses standard Kubernetes labels set by the Amaru chart
+  labelSelector:
+    app.kubernetes.io/name: amaru
+    app.kubernetes.io/component: node
+
+  # Grafana sidecar label that triggers dashboard import
+  # This should match your kube-prometheus-stack Grafana sidecar configuration
+  grafanaLabel: grafana_dashboard
+  grafanaLabelValue: "1"
+
+  # Dashboard settings
+  refreshInterval: "10s"
+  timeRange:
+    from: "now-1h"
+    to: "now"
+
+# Future: PrometheusRule for alerting
+# alerts:
+#   enabled: false

@@ -1,21 +1,15 @@
-{{- $anyCollectorEnabled := false }}
-{{- range $attributes := .Values.nodes }}
-{{- if $attributes.enabled }}
-{{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
-{{- if $collectorConfig.enabled }}
-{{- $anyCollectorEnabled = true }}
-{{- end }}
-{{- end }}
-{{- end }}
-{{- if $anyCollectorEnabled }}
+{{- if .Values.dashboard.enabled }}
 ---
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: amaru-node-dashboard
+  name: {{ .Release.Name }}-amaru-dashboard
   labels:
-    grafana_dashboard: "1"
-    app: amaru
+    app: amaru-monitoring
+    app.kubernetes.io/name: amaru-monitoring
+    app.kubernetes.io/component: dashboard
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    {{ .Values.dashboard.grafanaLabel }}: {{ .Values.dashboard.grafanaLabelValue | quote }}
 data:
   amaru-node-dashboard.json: |-
     {
@@ -94,7 +88,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_cardano_node_metrics_blockNum_int{node=\"$node\"}",
+              "expr": "amaru_cardano_node_metrics_blockNum_int{namespace=\"$namespace\",node=\"$node\"}",
               "refId": "A"
             }
           ],
@@ -153,7 +147,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_cardano_node_metrics_epoch_int{node=\"$node\"}",
+              "expr": "amaru_cardano_node_metrics_epoch_int{namespace=\"$namespace\",node=\"$node\"}",
               "refId": "A"
             }
           ],
@@ -220,7 +214,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_cardano_node_metrics_slotInEpoch_int{node=\"$node\"}",
+              "expr": "amaru_cardano_node_metrics_slotInEpoch_int{namespace=\"$namespace\",node=\"$node\"}",
               "refId": "A"
             }
           ],
@@ -307,7 +301,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_cardano_node_metrics_density_real{node=\"$node\"} * 100",
+              "expr": "amaru_cardano_node_metrics_density_real{namespace=\"$namespace\",node=\"$node\"} * 100",
               "refId": "A"
             }
           ],
@@ -366,7 +360,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_process_runtime_seconds{node=\"$node\"}",
+              "expr": "amaru_process_runtime_seconds{namespace=\"$namespace\",node=\"$node\"}",
               "refId": "A"
             }
           ],
@@ -425,7 +419,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_process_open_files{node=\"$node\"}",
+              "expr": "amaru_process_open_files{namespace=\"$namespace\",node=\"$node\"}",
               "refId": "A"
             }
           ],
@@ -515,7 +509,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_cardano_node_metrics_blockNum_int{node=\"$node\"}",
+              "expr": "amaru_cardano_node_metrics_blockNum_int{namespace=\"$namespace\",node=\"$node\"}",
               "legendFormat": "Block Number",
               "refId": "A"
             }
@@ -605,7 +599,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "rate(amaru_cardano_node_metrics_txsProcessedNum_int_total{node=\"$node\"}[5m])",
+              "expr": "rate(amaru_cardano_node_metrics_txsProcessedNum_int_total{namespace=\"$namespace\",node=\"$node\"}[5m])",
               "legendFormat": "Tx/s (5m avg)",
               "refId": "A"
             }
@@ -697,7 +691,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_process_cpu_live_percent{node=\"$node\"}",
+              "expr": "amaru_process_cpu_live_percent{namespace=\"$namespace\",node=\"$node\"}",
               "legendFormat": "CPU Usage",
               "refId": "A"
             }
@@ -789,7 +783,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_process_memory_live_resident_bytes{node=\"$node\"}",
+              "expr": "amaru_process_memory_live_resident_bytes{namespace=\"$namespace\",node=\"$node\"}",
               "legendFormat": "Resident Memory",
               "refId": "A"
             },
@@ -798,7 +792,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_process_memory_available_virtual_bytes{node=\"$node\"}",
+              "expr": "amaru_process_memory_available_virtual_bytes{namespace=\"$namespace\",node=\"$node\"}",
               "legendFormat": "Virtual Memory",
               "refId": "B"
             }
@@ -890,7 +884,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "rate(amaru_process_disk_live_read_bytes{node=\"$node\"}[5m])",
+              "expr": "rate(amaru_process_disk_live_read_bytes{namespace=\"$namespace\",node=\"$node\"}[5m])",
               "legendFormat": "Read Rate",
               "refId": "A"
             },
@@ -899,7 +893,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "rate(amaru_process_disk_live_write_bytes{node=\"$node\"}[5m])",
+              "expr": "rate(amaru_process_disk_live_write_bytes{namespace=\"$namespace\",node=\"$node\"}[5m])",
               "legendFormat": "Write Rate",
               "refId": "B"
             }
@@ -989,7 +983,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_process_disk_total_read_bytes{node=\"$node\"}",
+              "expr": "amaru_process_disk_total_read_bytes{namespace=\"$namespace\",node=\"$node\"}",
               "legendFormat": "Total Read",
               "refId": "A"
             },
@@ -998,7 +992,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_process_disk_total_write_bytes{node=\"$node\"}",
+              "expr": "amaru_process_disk_total_write_bytes{namespace=\"$namespace\",node=\"$node\"}",
               "legendFormat": "Total Written",
               "refId": "B"
             }
@@ -1088,7 +1082,7 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_cardano_node_metrics_txsProcessedNum_int_total{node=\"$node\"}",
+              "expr": "amaru_cardano_node_metrics_txsProcessedNum_int_total{namespace=\"$namespace\",node=\"$node\"}",
               "legendFormat": "Total Transactions",
               "refId": "A"
             }
@@ -1097,7 +1091,7 @@ data:
           "type": "timeseries"
         }
       ],
-      "refresh": "10s",
+      "refresh": "{{ .Values.dashboard.refreshInterval }}",
       "schemaVersion": 38,
       "style": "dark",
       "tags": [
@@ -1129,6 +1123,33 @@ data:
           {
             "current": {
               "selected": false,
+              "text": "default",
+              "value": "default"
+            },
+            "datasource": {
+              "type": "prometheus",
+              "uid": "${datasource}"
+            },
+            "definition": "label_values(amaru_cardano_node_metrics_blockNum_int{job=\"amaru\"}, namespace)",
+            "hide": 0,
+            "includeAll": false,
+            "label": "Namespace",
+            "multi": false,
+            "name": "namespace",
+            "options": [],
+            "query": {
+              "query": "label_values(amaru_cardano_node_metrics_blockNum_int{job=\"amaru\"}, namespace)",
+              "refId": "PrometheusVariableQueryEditor-VariableQuery"
+            },
+            "refresh": 1,
+            "regex": "",
+            "skipUrlSync": false,
+            "sort": 1,
+            "type": "query"
+          },
+          {
+            "current": {
+              "selected": false,
               "text": "amaru-node-1",
               "value": "amaru-node-1"
             },
@@ -1136,7 +1157,7 @@ data:
               "type": "prometheus",
               "uid": "${datasource}"
             },
-            "definition": "label_values(amaru_cardano_node_metrics_blockNum_int, node)",
+            "definition": "label_values(amaru_cardano_node_metrics_blockNum_int{job=\"amaru\",namespace=\"$namespace\"}, node)",
             "hide": 0,
             "includeAll": false,
             "label": "Node",
@@ -1144,7 +1165,7 @@ data:
             "name": "node",
             "options": [],
             "query": {
-              "query": "label_values(amaru_cardano_node_metrics_blockNum_int, node)",
+              "query": "label_values(amaru_cardano_node_metrics_blockNum_int{job=\"amaru\",namespace=\"$namespace\"}, node)",
               "refId": "PrometheusVariableQueryEditor-VariableQuery"
             },
             "refresh": 1,
@@ -1156,13 +1177,13 @@ data:
         ]
       },
       "time": {
-        "from": "now-1h",
-        "to": "now"
+        "from": "{{ .Values.dashboard.timeRange.from }}",
+        "to": "{{ .Values.dashboard.timeRange.to }}"
       },
       "timepicker": {},
       "timezone": "",
       "title": "Amaru Node Dashboard",
-      "uid": "amaru-node",
+      "uid": "amaru-node-{{ .Release.Name }}",
       "version": 1,
       "weekStart": ""
     }
