@@ -30,6 +30,83 @@ dashboard:
     from: "now-1h"
     to: "now"
 
-# Future: PrometheusRule for alerting
-# alerts:
-#   enabled: false
+# PrometheusRule for alerting
+alerts:
+  # Enable Prometheus alerting rules
+  enabled: true
+
+  # How often to evaluate alert rules
+  evaluationInterval: 30s
+
+  # Additional labels to add to PrometheusRule (e.g., for routing)
+  additionalLabels: {}
+    # Example: route alerts to specific receiver
+    # team: cardano
+    # environment: production
+
+  # Alert rule configurations
+  rules:
+    # Node availability
+    nodeDown:
+      for: 2m
+      labels: {}
+      annotations: {}
+        # Example: add runbook
+        # runbook_url: https://wiki.example.com/runbooks/amaru-node-down
+
+    nodeRestarted:
+      threshold: 300  # seconds (5 minutes)
+      for: 1m
+      labels: {}
+      annotations: {}
+
+    # Performance alerts
+    highCPU:
+      threshold: 90  # percent
+      for: 5m
+      labels: {}
+      annotations: {}
+
+    highMemory:
+      threshold: 90  # percent of allocated memory
+      nodeMemoryBytes: 1073741824  # 1GB - adjust to your pod memory limit
+      for: 5m
+      labels: {}
+      annotations: {}
+
+    highDiskIO:
+      writeThreshold: 104857600  # 100MB/s
+      readThreshold: 104857600   # 100MB/s
+      for: 10m
+      labels: {}
+      annotations: {}
+
+    # Blockchain sync alerts
+    syncStalled:
+      for: 15m
+      labels: {}
+      annotations: {}
+
+    lowDensity:
+      warningThreshold: 0.04   # 4% - slightly below ideal 5%
+      criticalThreshold: 0.03  # 3% - significantly below ideal 5%
+      for: 30m
+      labels: {}
+      annotations: {}
+
+    epochTransition:
+      for: 10m
+      labels: {}
+      annotations: {}
+
+    # Observability alerts
+    metricsMissing:
+      for: 5m
+      labels: {}
+      annotations: {}
+
+    highFileDescriptors:
+      threshold: 1000
+      for: 5m
+      labels: {}
+      annotations: {}

@@ -166,11 +166,100 @@ nodes:
    kubectl get pods -l app.kubernetes.io/name=amaru -o jsonpath='{.items[*].spec.containers[*].name}'
    ```
 
+## Alerting
+
+The chart includes comprehensive PrometheusRule alerts for monitoring Amaru node health.
+
+### Alert Categories
+
+**Node Availability (Critical)**
+- `AmaruNodeDown` - Node unreachable by Prometheus (2m)
+- `AmaruNodeRestarted` - Node recently restarted, potential instability (5m)
+
+**Performance (Warning)**
+- `AmaruHighCPUUsage` - CPU usage above 90% (5m)
+- `AmaruHighMemoryUsage` - Memory usage above 90% (5m)
+- `AmaruHighDiskIOWait` - Sustained high disk I/O (10m)
+
+**Blockchain Sync (Critical/Warning)**
+- `AmaruSyncStalled` - Block number not increasing (15m) - **Critical**
+- `AmaruLowBlockDensityWarning` - Block density below 4% (ideal is 5%) (30m)
+- `AmaruLowBlockDensityCritical` - Block density below 3% (30m) - **Critical**
+- `AmaruEpochTransitionDelay` - Stuck near epoch boundary (10m)
+
+**Observability (Warning)**
+- `AmaruMetricsMissing` - No metrics in Prometheus (5m)
+- `AmaruHighFileDescriptors` - Too many open files (5m)
+
+### Configuring Alerts
+
+```yaml
+alerts:
+  enabled: true
+  evaluationInterval: 30s
+
+  # Add labels for alert routing
+  additionalLabels:
+    team: cardano
+    environment: production
+
+  rules:
+    # Customize thresholds
+    highCPU:
+      threshold: 85  # Lower threshold
+      for: 10m       # Wait longer before firing
+
+    syncStalled:
+      for: 20m       # Custom duration
+
+    # Add runbook links
+    nodeDown:
+      annotations:
+        runbook_url: https://wiki.example.com/runbooks/amaru-node-down
+```
+
+### Alert Routing
+
+Add labels to route alerts to specific receivers in Alertmanager:
+
+```yaml
+alerts:
+  additionalLabels:
+    team: sre
+    severity_override: page  # For paging integration
+    slack_channel: cardano-alerts
+```
+
+### Disabling Alerts
+
+```yaml
+alerts:
+  enabled: false  # Disable all alerts
+```
+
+Or deploy without alerts:
+```bash
+helm install amaru-mon ./charts/amaru-monitoring --set alerts.enabled=false
+```
+
+### Testing Alerts
+
+```bash
+# Check PrometheusRule is created
+kubectl get prometheusrule -l app.kubernetes.io/name=amaru-monitoring
+
+# View alert rules
+kubectl get prometheusrule <name> -o yaml
+
+# Check alert status in Prometheus UI
+# Navigate to: Alerts → Filter by "amaru"
+```
+
 ## Future Enhancements
 
-- PrometheusRule for alerting
 - Additional dashboards for specific metrics
 - Support for custom dashboard templates
+- Pre-configured Alertmanager routes
 
 ## License
 

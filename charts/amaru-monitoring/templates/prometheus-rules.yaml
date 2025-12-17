@@ -1,0 +1,211 @@
+{{- if .Values.alerts.enabled }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ .Release.Name }}-amaru-alerts
+  labels:
+    app: amaru-monitoring
+    app.kubernetes.io/name: amaru-monitoring
+    app.kubernetes.io/component: alerts
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    {{- with .Values.alerts.additionalLabels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  groups:
+    - name: amaru-node-availability
+      interval: {{ .Values.alerts.evaluationInterval }}
+      rules:
+        - alert: AmaruNodeDown
+          expr: up{job="amaru"} == 0
+          for: {{ .Values.alerts.rules.nodeDown.for }}
+          labels:
+            severity: critical
+            component: amaru-node
+            {{- with .Values.alerts.rules.nodeDown.labels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} is down"
+            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} has been unreachable for more than {{ .Values.alerts.rules.nodeDown.for }}. Prometheus cannot scrape metrics."
+            {{- with .Values.alerts.rules.nodeDown.annotations }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
+        - alert: AmaruNodeRestarted
+          expr: time() - amaru_process_runtime_seconds{job="amaru"} < {{ .Values.alerts.rules.nodeRestarted.threshold }}
+          for: {{ .Values.alerts.rules.nodeRestarted.for }}
+          labels:
+            severity: warning
+            component: amaru-node
+            {{- with .Values.alerts.rules.nodeRestarted.labels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} recently restarted"
+            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} has been running for less than {{ .Values.alerts.rules.nodeRestarted.threshold }} seconds. This may indicate instability."
+            {{- with .Values.alerts.rules.nodeRestarted.annotations }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
+    - name: amaru-node-performance
+      interval: {{ .Values.alerts.evaluationInterval }}
+      rules:
+        - alert: AmaruHighCPUUsage
+          expr: amaru_process_cpu_live_percent{job="amaru"} > {{ .Values.alerts.rules.highCPU.threshold }}
+          for: {{ .Values.alerts.rules.highCPU.for }}
+          labels:
+            severity: warning
+            component: amaru-node
+            {{- with .Values.alerts.rules.highCPU.labels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} high CPU usage"
+            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} CPU usage is {{ "{{" }} printf \"%.2f\" $value {{ "}}" }}%, which is above the threshold of {{ .Values.alerts.rules.highCPU.threshold }}% for more than {{ .Values.alerts.rules.highCPU.for }}."
+            {{- with .Values.alerts.rules.highCPU.annotations }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
+        - alert: AmaruHighMemoryUsage
+          expr: |
+            (amaru_process_memory_live_resident_bytes{job="amaru"} / {{ .Values.alerts.rules.highMemory.nodeMemoryBytes }}) * 100 > {{ .Values.alerts.rules.highMemory.threshold }}
+          for: {{ .Values.alerts.rules.highMemory.for }}
+          labels:
+            severity: warning
+            component: amaru-node
+            {{- with .Values.alerts.rules.highMemory.labels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} high memory usage"
+            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} memory usage is {{ "{{" }} printf \"%.2f\" $value {{ "}}" }}% of allocated memory, which is above the threshold of {{ .Values.alerts.rules.highMemory.threshold }}% for more than {{ .Values.alerts.rules.highMemory.for }}."
+            {{- with .Values.alerts.rules.highMemory.annotations }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
+        - alert: AmaruHighDiskIOWait
+          expr: |
+            rate(amaru_process_disk_live_write_bytes{job="amaru"}[5m]) > {{ .Values.alerts.rules.highDiskIO.writeThreshold }} or
+            rate(amaru_process_disk_live_read_bytes{job="amaru"}[5m]) > {{ .Values.alerts.rules.highDiskIO.readThreshold }}
+          for: {{ .Values.alerts.rules.highDiskIO.for }}
+          labels:
+            severity: warning
+            component: amaru-node
+            {{- with .Values.alerts.rules.highDiskIO.labels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} high disk I/O"
+            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} has sustained high disk I/O ({{ "{{" }} printf \"%.2f\" $value {{ "}}" }} bytes/sec) for more than {{ .Values.alerts.rules.highDiskIO.for }}. This may indicate disk performance issues."
+            {{- with .Values.alerts.rules.highDiskIO.annotations }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
+    - name: amaru-blockchain-sync
+      interval: {{ .Values.alerts.evaluationInterval }}
+      rules:
+        - alert: AmaruSyncStalled
+          expr: |
+            rate(amaru_cardano_node_metrics_blockNum_int{job="amaru"}[10m]) == 0
+          for: {{ .Values.alerts.rules.syncStalled.for }}
+          labels:
+            severity: critical
+            component: amaru-node
+            {{- with .Values.alerts.rules.syncStalled.labels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} sync stalled"
+            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} block number has not increased in the last {{ .Values.alerts.rules.syncStalled.for }}. The node may have stopped syncing. Current block: {{ "{{" }} $value {{ "}}" }}"
+            {{- with .Values.alerts.rules.syncStalled.annotations }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
+        - alert: AmaruLowBlockDensityWarning
+          expr: amaru_cardano_node_metrics_density_real{job="amaru"} < {{ .Values.alerts.rules.lowDensity.warningThreshold }}
+          for: {{ .Values.alerts.rules.lowDensity.for }}
+          labels:
+            severity: warning
+            component: amaru-node
+            {{- with .Values.alerts.rules.lowDensity.labels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} block density below normal"
+            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} has block density of {{ "{{" }} printf \"%.4f\" $value {{ "}}" }} ({{ "{{" }} printf \"%.1f\" (mul $value 100) {{ "}}" }}%), which is below {{ .Values.alerts.rules.lowDensity.warningThreshold }} (ideal is 0.05/5%) for more than {{ .Values.alerts.rules.lowDensity.for }}. This may indicate early sync degradation."
+            {{- with .Values.alerts.rules.lowDensity.annotations }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
+        - alert: AmaruLowBlockDensityCritical
+          expr: amaru_cardano_node_metrics_density_real{job="amaru"} < {{ .Values.alerts.rules.lowDensity.criticalThreshold }}
+          for: {{ .Values.alerts.rules.lowDensity.for }}
+          labels:
+            severity: critical
+            component: amaru-node
+            {{- with .Values.alerts.rules.lowDensity.labels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} critically low block density"
+            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} has block density of {{ "{{" }} printf \"%.4f\" $value {{ "}}" }} ({{ "{{" }} printf \"%.1f\" (mul $value 100) {{ "}}" }}%), which is critically below {{ .Values.alerts.rules.lowDensity.criticalThreshold }} (ideal is 0.05/5%) for more than {{ .Values.alerts.rules.lowDensity.for }}. This indicates significant sync or network issues."
+            {{- with .Values.alerts.rules.lowDensity.annotations }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
+        - alert: AmaruEpochTransitionDelay
+          expr: |
+            (amaru_cardano_node_metrics_slotInEpoch_int{job="amaru"} > 430000) and
+            (amaru_cardano_node_metrics_slotInEpoch_int{job="amaru"} offset 5m > 430000)
+          for: {{ .Values.alerts.rules.epochTransition.for }}
+          labels:
+            severity: warning
+            component: amaru-node
+            {{- with .Values.alerts.rules.epochTransition.labels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} stuck near epoch transition"
+            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} has been stuck near epoch transition (slot {{ "{{" }} $value {{ "}}" }}) for more than {{ .Values.alerts.rules.epochTransition.for }}. This may indicate a sync issue during epoch rollover."
+            {{- with .Values.alerts.rules.epochTransition.annotations }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
+    - name: amaru-observability
+      interval: {{ .Values.alerts.evaluationInterval }}
+      rules:
+        - alert: AmaruMetricsMissing
+          expr: |
+            absent(amaru_cardano_node_metrics_blockNum_int{job="amaru"})
+          for: {{ .Values.alerts.rules.metricsMissing.for }}
+          labels:
+            severity: warning
+            component: otel-collector
+            {{- with .Values.alerts.rules.metricsMissing.labels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: "Amaru metrics missing from Prometheus"
+            description: "No Amaru metrics have been scraped for more than {{ .Values.alerts.rules.metricsMissing.for }}. The OTel collector or ServiceMonitor may be misconfigured."
+            {{- with .Values.alerts.rules.metricsMissing.annotations }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+
+        - alert: AmaruHighFileDescriptors
+          expr: amaru_process_open_files{job="amaru"} > {{ .Values.alerts.rules.highFileDescriptors.threshold }}
+          for: {{ .Values.alerts.rules.highFileDescriptors.for }}
+          labels:
+            severity: warning
+            component: amaru-node
+            {{- with .Values.alerts.rules.highFileDescriptors.labels }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          annotations:
+            summary: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} high open file descriptors"
+            description: "Amaru node {{ "{{" }} $labels.namespace {{ "}}" }}/{{ "{{" }} $labels.node {{ "}}" }} has {{ "{{" }} $value {{ "}}" }} open file descriptors, which is above the threshold of {{ .Values.alerts.rules.highFileDescriptors.threshold }}. This may lead to 'too many open files' errors."
+            {{- with .Values.alerts.rules.highFileDescriptors.annotations }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+{{- end }}
