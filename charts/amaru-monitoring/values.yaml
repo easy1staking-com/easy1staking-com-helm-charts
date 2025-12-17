@@ -38,6 +38,10 @@ alerts:
   # How often to evaluate alert rules
   evaluationInterval: 30s
 
+  # Label for Prometheus Operator to pick up rules
+  # Must match your Prometheus CRD's ruleSelector
+  prometheusRuleLabel: kube-prometheus-stack
+
   # Additional labels to add to PrometheusRule (e.g., for routing)
   additionalLabels: {}
     # Example: route alerts to specific receiver

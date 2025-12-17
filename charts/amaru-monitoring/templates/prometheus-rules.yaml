@@ -9,6 +9,7 @@ metadata:
     app.kubernetes.io/name: amaru-monitoring
     app.kubernetes.io/component: alerts
     app.kubernetes.io/instance: {{ .Release.Name }}
+    release: {{ .Values.alerts.prometheusRuleLabel | default "kube-prometheus-stack" }}
     {{- with .Values.alerts.additionalLabels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}
