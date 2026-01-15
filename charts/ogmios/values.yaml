@@ -31,6 +31,8 @@ securityContext: {}
 service:
   type: ClusterIP
   port: 1337
+  # nodePort: Set this when service.type is NodePort (valid range: 30000-32767)
+  nodePort: ""
 
 ingress:
   enabled: false

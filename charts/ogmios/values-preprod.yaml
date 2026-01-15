@@ -1,1 +1,4 @@
 nodeConfigPath: "/config/preprod/cardano-node/config.json"
+
+service:
+  nodePort: 31347
