@@ -11,7 +11,7 @@ data:
     if [[ ! -e "${CARDANO_NODE_DATA_FOLDER}/db/lock" ]] && [[ "${RESTORE_SNAPSHOT}" == "true" ]]
     then
       cd "${CARDANO_NODE_DATA_FOLDER}"
-      mithril-client \
+      /app/bin/mithril-client \
         --aggregator-endpoint "${AGGREGATOR_ENDPOINT}" \
         cardano-db download latest \
         --genesis-verification-key "${GENESIS_VERIFICATION_KEY}" \
