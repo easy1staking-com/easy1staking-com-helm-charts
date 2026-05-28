@@ -4,10 +4,18 @@ metadata:
   name: cardano-node-init
 data:
   init.sh: |
-    
-    rm -rf /data/db/lost+found
-    
-    if [[ ! -e /data/db/lock ]] && [[ "${RESTORE_SNAPSHOT}" == "true" ]]
+    set -euo pipefail
+
+    rm -rf "${CARDANO_NODE_DATA_FOLDER}/db/lost+found"
+
+    if [[ ! -e "${CARDANO_NODE_DATA_FOLDER}/db/lock" ]] && [[ "${RESTORE_SNAPSHOT}" == "true" ]]
     then
-      /root/bin/download-cardano-node-db.sh
+      cd "${CARDANO_NODE_DATA_FOLDER}"
+      mithril-client \
+        --aggregator-endpoint "${AGGREGATOR_ENDPOINT}" \
+        cardano-db download latest \
+        --genesis-verification-key "${GENESIS_VERIFICATION_KEY}" \
+        --ancillary-verification-key "${ANCILLARY_VERIFICATION_KEY}" \
+        --include-ancillary \
+        --download-dir "${CARDANO_NODE_DATA_FOLDER}"
     fi
