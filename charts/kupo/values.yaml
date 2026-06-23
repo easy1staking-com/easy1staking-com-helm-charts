@@ -89,6 +89,20 @@ tolerations: []
 affinity: {}
 
 ## App Config
+
+# Kupo can source the chain either directly from a cardano-node (default) or
+# from an Ogmios instance. The two modes are mutually exclusive; node mode takes
+# priority and is used unless ogmios.enabled is set to true.
+#
+# - Node mode (ogmios.enabled: false): Kupo connects via --node-socket/--node-config,
+#   using the socat sidecar + config init container below.
+# - Ogmios mode (ogmios.enabled: true): Kupo connects via --ogmios-host/--ogmios-port.
+#   The socat sidecar, config init container and related volumes are dropped.
+ogmios:
+  enabled: false
+  host: ""
+  port: 1337
+
 nodeSocketPath: "/node-ipc/node.socket"
 
 socat:

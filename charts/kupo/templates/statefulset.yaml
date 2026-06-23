@@ -28,6 +28,7 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if not .Values.ogmios.enabled }}
       initContainers:
         - name: configure
           command: [ "sh", "/configmap/init.sh" ]
@@ -38,6 +39,7 @@ spec:
               mountPath: /config
             - name: kupo-configmap
               mountPath: /configmap
+      {{- end }}
       containers:
         - name: {{ .Chart.Name }}
           securityContext:
@@ -50,8 +52,13 @@ spec:
           command: [ "sh", "-c" ]
           args:
             - kupo --host 0.0.0.0 --port $(KUPO_PORT)
+              {{- if .Values.ogmios.enabled }}
+              --ogmios-host {{ .Values.ogmios.host }}
+              --ogmios-port {{ .Values.ogmios.port }}
+              {{- else }}
               --node-socket $(CARDANO_NODE_SOCKET_PATH)
               --node-config $(CARDANO_NODE_CONFIG_PATH)
+              {{- end }}
               {{- if .Values.pruneUtxo }}
               --prune-utxo
               {{- end }}
@@ -91,14 +98,17 @@ spec:
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           volumeMounts:
+            {{- if not .Values.ogmios.enabled }}
             - mountPath: /node-ipc
               name: node-ipc
             - name: cardano-node-configmap
               mountPath: /config
             - name: kupo-configmap
               mountPath: /configmap
+            {{- end }}
             - name: {{ include "kupo.fullname" . }}-db
               mountPath: /db
+        {{- if not .Values.ogmios.enabled }}
         - name: socat-socket-server
           image: alpine/socat
           env:
@@ -112,7 +122,9 @@ spec:
           volumeMounts:
             - name: node-ipc
               mountPath: "/node-ipc"
+        {{- end }}
       volumes:
+        {{- if not .Values.ogmios.enabled }}
         - name: node-ipc
           emptyDir: {}
         - name: cardano-node-configmap
@@ -120,6 +132,7 @@ spec:
         - name: kupo-configmap
           configMap:
             name: {{ include "kupo.fullname" . }}
+        {{- end }}
       {{- with .Values.volumes }}
         {{- toYaml . | nindent 8 }}
       {{- end }}
