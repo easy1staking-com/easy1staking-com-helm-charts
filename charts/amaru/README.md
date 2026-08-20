@@ -150,6 +150,12 @@ Related knobs, all optional and omitted from the command line when unset:
 
 Leaving a source out of the mix formula **disables** it.
 
+> `config.downstreamPeers: 0` is honoured explicitly and means *accept no
+> inbound peers* — the flag is still rendered. This needs saying because the
+> obvious Helm idiom (`with`) treats `0` as falsy and would silently drop it,
+> turning the most restrictive setting into Amaru's permissive default of 10.
+> Keep the explicit nil check in the template if you refactor it.
+
 > The legacy singular `nodes[].peerAddress` is still honoured as a fallback for
 > existing deployment values, but `peerAddresses` is the supported form.
 
