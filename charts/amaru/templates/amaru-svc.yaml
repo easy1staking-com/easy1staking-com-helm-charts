@@ -1,5 +1,17 @@
 {{ range $attributes := .Values.nodes }}
 {{ if $attributes.enabled }}
+{{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
+{{- $submitApi := $.Values.config.submitApi | default dict }}
+{{- /*
+  Three services per relay, mirroring the cardano-node chart:
+    amaru-<name>       headless  — stable per-pod DNS for the p2p port
+    amaru-<name>-int   ClusterIP — ordinary in-cluster access
+    amaru-<name>-ext   NodePort  — optional external inbound, only when nodePort is set
+
+  Amaru has no node-to-client socket, so the only inbound listener is the p2p
+  port (plus the optional HTTP submit API). It has no Prometheus endpoint of its
+  own either: the scrape target is the otel-collector sidecar.
+*/ -}}
 ---
 apiVersion: v1
 kind: Service
@@ -22,6 +34,40 @@ spec:
       port: {{ $attributes.port }}
       targetPort: node
   clusterIP: None
+  type: ClusterIP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: amaru-{{ $attributes.name }}-int
+  labels:
+    app: amaru
+    app.kubernetes.io/name: amaru
+    app.kubernetes.io/component: node
+    app.kubernetes.io/instance: {{ $.Release.Name }}
+spec:
+  selector:
+    app: amaru
+    name: {{ $attributes.name }}
+    type: {{ $attributes.type }}
+    network: {{ $.Values.network }}
+  ports:
+    - protocol: TCP
+      name: node
+      port: {{ $attributes.port }}
+      targetPort: node
+    {{- if $submitApi.enabled }}
+    - protocol: TCP
+      name: submit-api
+      port: {{ $submitApi.port }}
+      targetPort: submit-api
+    {{- end }}
+    {{- if $collectorConfig.enabled }}
+    - protocol: TCP
+      name: otel-prom
+      port: {{ $collectorConfig.prometheusPort | default 9464 }}
+      targetPort: prometheus
+    {{- end }}
   type: ClusterIP
 {{ if $attributes.nodePort }}
 ---
@@ -46,86 +92,13 @@ spec:
       port: {{ $attributes.port }}
       targetPort: node
       nodePort: {{ $attributes.nodePort }}
-    {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
-    {{- if $collectorConfig.enabled }}
+    {{- if and $submitApi.enabled $attributes.submitApiNodePort }}
     - protocol: TCP
-      name: otel-prom
-      port: {{ $collectorConfig.prometheusPort | default 9464 }}
-      targetPort: prometheus
-    {{- else }}
-    - protocol: TCP
-      name: prom
-      port: 12798
+      name: submit-api
+      port: {{ $submitApi.port }}
+      targetPort: submit-api
+      nodePort: {{ $attributes.submitApiNodePort }}
     {{- end }}
-    {{- if $attributes.socatEnabled }}
-    - protocol: TCP
-      name: socat
-      port: {{ $attributes.socatPort }}
-      targetPort: socat
-    {{- end }}
-  type: NodePort
-{{ end }}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: amaru-{{ $attributes.name }}-int
-  labels:
-    app: amaru
-    app.kubernetes.io/name: amaru
-    app.kubernetes.io/component: node
-    app.kubernetes.io/instance: {{ $.Release.Name }}
-spec:
-  selector:
-    app: amaru
-    name: {{ $attributes.name }}
-    type: {{ $attributes.type }}
-    network: {{ $.Values.network }}
-  ports:
-    - protocol: TCP
-      name: node
-      port: {{ $attributes.port }}
-      targetPort: node
-    {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
-    {{- if $collectorConfig.enabled }}
-    - protocol: TCP
-      name: otel-prom
-      port: {{ $collectorConfig.prometheusPort | default 9464 }}
-      targetPort: prometheus
-    {{- else }}
-    - protocol: TCP
-      name: prom
-      port: 12798
-    {{- end }}
-    {{- if $attributes.socatEnabled }}
-    - protocol: TCP
-      name: socat
-      port: {{ $attributes.socatPort }}
-      targetPort: socat
-    {{- end }}
-  type: ClusterIP
-{{ if and $attributes.socatEnabled $attributes.socatNodePort }}
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: amaru-{{ $attributes.name }}-socat
-  labels:
-    app: amaru
-    app.kubernetes.io/name: amaru
-    app.kubernetes.io/component: node
-    app.kubernetes.io/instance: {{ $.Release.Name }}
-spec:
-  selector:
-    app: amaru
-    name: {{ $attributes.name }}
-    type: {{ $attributes.type }}
-    network: {{ $.Values.network }}
-  ports:
-    - protocol: TCP
-      name: socat
-      port: {{ $attributes.socatPort }}
-      nodePort: {{ $attributes.socatNodePort }}
   type: NodePort
 {{ end }}
 {{ end }}

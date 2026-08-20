@@ -1,0 +1,257 @@
+# Amaru
+
+Helm chart for [Amaru](https://github.com/pragma-org/amaru), the Rust Cardano node
+by PRAGMA. This chart deploys one or more **relays**.
+
+Image: `ghcr.io/pragma-org/amaru` · verified against `v10.11.20260820`.
+
+---
+
+## Read this first: what Amaru is and is not, today
+
+Amaru gained relay and peer-sharing capability in `v10.11.20260820`. Two limits
+come straight from upstream's own release notes and shape what this chart can
+promise:
+
+- **Connections are not full-duplex yet.** Amaru can initiate outbound
+  connections and accept inbound ones, but *over two separate TCP bearers* — a
+  peer talking to Amaru does not get one bidirectional session the way it does
+  with a Haskell relay. Amaru is relay-**capable**, not yet a drop-in
+  cardano-node relay replacement.
+- **The VRF key uniqueness rule is not yet enforced.**
+
+Two further facts about the shape of the process, verified from the binary:
+
+- **There is no node-to-client (n2c) interface.** No socket path, no socket
+  option, anywhere in the CLI. Tools that expect `node.socket` (cardano-cli,
+  db-sync, Ogmios, Kupo in node mode) cannot attach to Amaru. The nearest
+  equivalent is the optional HTTP **Submit API** (`config.submitApi`), which
+  serves `POST /api/submit/tx` and nothing else.
+- **There is no Prometheus endpoint.** Amaru exports metrics over OTLP only.
+  The scrape target this chart gives Prometheus is the **otel-collector
+  sidecar**, which receives Amaru's OTLP stream and re-exposes it on port 9464.
+  Disabling the sidecar means no metrics.
+
+## Quick start
+
+```bash
+# Renders/installs a single mainnet relay with the built-in defaults
+helm install amaru ./charts/amaru
+
+# Or pick a network
+helm install amaru ./charts/amaru -f ./charts/amaru/values-preview.yaml
+helm install amaru ./charts/amaru -f ./charts/amaru/values-preprod.yaml
+helm install amaru ./charts/amaru -f ./charts/amaru/values-mainnet.yaml
+```
+
+The chart renders a complete working relay out of the box. Switching network is
+only the `network` value; the three presets contain nothing else.
+
+## Ports
+
+| Port | Direction | Set by | Exposed on | Purpose |
+|---|---|---|---|---|
+| **3001** | **inbound** | `nodes[].port` | headless + ClusterIP, optionally NodePort | node-to-node p2p mini-protocol |
+| 8090 | inbound | `config.submitApi.port` | ClusterIP, optionally NodePort | HTTP Submit API — only when `config.submitApi.enabled` |
+| 9464 | inbound (scrape) | `otelCollector.prometheusPort` | ClusterIP | Prometheus scrape target on the sidecar |
+| 4317 / 4318 | pod-local | `otelCollector.otlpGrpcPort` / `otlpHttpPort` | not exposed | Amaru → sidecar OTLP, over localhost |
+| — | **outbound** | `nodes[].peerAddresses` | — | connections Amaru opens to upstream peers |
+
+Notes on the p2p port:
+
+- `nodes[].port` is the single source of truth. It drives `--listen-address`,
+  the `containerPort`, and every Service port together, so the port Amaru
+  actually listens on cannot drift from the port the cluster advertises.
+- **3001** matches the `cardano-node` chart in this repo. Amaru's own built-in
+  default is `3000`; this chart always passes the address explicitly, so the
+  built-in default never applies.
+- Amaru accepts up to `config.downstreamPeers` inbound connections (upstream
+  default 10). That is the relay's serving capacity.
+
+### Services
+
+Each relay gets the same three services the `cardano-node` chart uses:
+
+| Service | Type | Always? | Use |
+|---|---|---|---|
+| `amaru-<name>` | headless (`clusterIP: None`) | yes | stable per-pod DNS, e.g. `amaru-relay-1-0.amaru-relay-1` |
+| `amaru-<name>-int` | ClusterIP | yes | ordinary in-cluster access; also carries the scrape and submit-api ports |
+| `amaru-<name>-ext` | NodePort | only when `nodes[].nodePort` is set | external inbound |
+
+A relay is therefore **always** reachable inside the cluster, and externally
+only when you ask for it.
+
+### Running several relays on one host
+
+Give each entry in `nodes` its own `nodePort`. The in-pod `port` may stay 3001
+for all of them — each relay is a separate pod with its own network namespace;
+only the NodePorts share the host.
+
+```yaml
+nodes:
+  - name: relay-1
+    enabled: true
+    type: relay
+    replicas: 1
+    port: 3001
+    nodePort: 30000
+  - name: relay-2
+    enabled: true
+    type: relay
+    replicas: 1
+    port: 3001
+    nodePort: 30001
+```
+
+Note that a relay behind a NodePort advertises its **pod** address to the
+peer-sharing protocol, not the node's external address. Inbound works because
+peers dial the NodePort you gave them; automatic peer sharing of *this* relay's
+address to strangers does not, in this topology.
+
+## Upstream peers
+
+Amaru draws outbound peers from four sources, blended by `config.peerMix`:
+
+| Source | Where it comes from | Configure with |
+|---|---|---|
+| `static` | peers you list explicitly | `nodes[].peerAddresses` |
+| `shared` | discovered via the peer-sharing mini-protocol | — |
+| `snapshot` | a `bigLedgerPools` JSON of stake-weighted big-ledger relays | `config.peerSnapshot`, else the snapshot embedded in the image |
+| `ledger` | relays derived from ledger state | — |
+
+To pin exactly who a relay talks to over the p2p mini-protocol, list them:
+
+```yaml
+nodes:
+  - name: relay-1
+    enabled: true
+    type: relay
+    replicas: 1
+    port: 3001
+    peerAddresses:
+      - "cardano-node-relay-1-int:3001"     # your own Haskell relay, in-cluster
+      - "relays.example.com:3001"           # anything reachable
+```
+
+Each entry renders one `--peer-address`. An **empty list emits no flag at all**,
+which is deliberate: Amaru then falls back to its network bootstrap peer plus
+the embedded peer snapshot (637 mainnet relays as of `v10.11.20260820`) and
+ledger-derived peers. So a relay with zero configured peers still finds the
+network — listing peers constrains it, it is not required to make it work.
+
+Related knobs, all optional and omitted from the command line when unset:
+
+| Value | Upstream default | Meaning |
+|---|---|---|
+| `config.upstreamPeers` | 3 | how many upstream peers to hold connections to |
+| `config.downstreamPeers` | 10 | max inbound peers accepted — serving capacity |
+| `config.peerMix` | `static!2@15m, shared~6, snapshot~3@1h, ledger~3@24h` | source blend: floors `!n`, weights `~n`, malus half-lives `@Nd` |
+| `config.peerSnapshot` | embedded | path to a `bigLedgerPools` JSON, cardano-node compatible |
+
+Leaving a source out of the mix formula **disables** it.
+
+> `config.downstreamPeers: 0` is honoured explicitly and means *accept no
+> inbound peers* — the flag is still rendered. This needs saying because the
+> obvious Helm idiom (`with`) treats `0` as falsy and would silently drop it,
+> turning the most restrictive setting into Amaru's permissive default of 10.
+> Keep the explicit nil check in the template if you refactor it.
+
+> The legacy singular `nodes[].peerAddress` is still honoured as a fallback for
+> existing deployment values, but `peerAddresses` is the supported form.
+
+## Config, storage and bootstrap
+
+Amaru takes no topology file and no config directory — everything is CLI flags
+and `AMARU_*` environment variables. This differs from `cardano-node`, which
+mounts `<network>-config.json` and `<network>-topology.json`.
+
+| Value | Default | Flag |
+|---|---|---|
+| `config.ledgerDir` | `/data/db/ledger.db` | `--ledger-dir` |
+| `config.chainDir` | `/data/db/chain.db` | `--chain-dir` |
+| `config.noTui` | `true` | `--no-tui` |
+| `config.migrateChainDb` | `false` | `--migrate-chain-db` |
+
+Both databases live on the per-relay PersistentVolume mounted at `/data/db`,
+sized by `volumeSize`.
+
+**Bootstrap.** An init container runs `amaru node bootstrap`, which downloads a
+ledger snapshot, bootstrap headers and nonces from PRAGMA's snapshot bucket. It
+is skipped once the databases exist, so restarts and upgrades do not re-download.
+It needs outbound HTTPS.
+
+**Chain database v6.** As of `v10.11.20260820` the chain database schema is
+version 6. Version 5 databases migrate automatically **only** with
+`config.migrateChainDb: true`. Anything older must be rebuilt: delete the PVC and
+let the init container bootstrap again.
+
+**Filesystem permissions.** The image runs as non-root uid/gid **10000**. The
+chart sets `podSecurityContext.fsGroup: 10000` so the PersistentVolume is
+writable. Removing it makes Amaru fail at startup with a RocksDB
+`PermissionDenied`.
+
+## Monitoring
+
+`otelCollector.enabled` is **true** by default, because it is the only path from
+Amaru to Prometheus. Amaru pushes OTLP to the sidecar over localhost; the
+sidecar exposes `/metrics` on 9464; the ServiceMonitor scrapes it.
+
+```yaml
+serviceMonitor:
+  enabled: true                      # set false if kube-prometheus-stack is absent
+  releaseName: kube-prometheus-stack # must match your Prometheus release label
+```
+
+The ServiceMonitor renders only when both `serviceMonitor.enabled` and at least
+one collector are on — with no collector there is nothing to scrape.
+
+The sidecar can also remote-write, or forward traces, via
+`otelCollector.exporters`. To ship to a central collector instead of running a
+sidecar, set `otelCollector.enabled: false` and give the node
+`otlpMetricUrl` / `otlpSpanUrl`.
+
+## Health checks
+
+The chart sets a **readiness** probe (TCP connect on the p2p port) and
+deliberately **no liveness probe**. Amaru has no HTTP health endpoint, and a
+liveness probe would restart-loop a node during a long bootstrap or replay.
+Readiness reports "listening" without ever killing a syncing node.
+
+## Debugging
+
+Set `sleep: true` on a node to start the pod idle, with the databases mounted
+but Amaru not running — the same convention as the `cardano-node` chart:
+
+```yaml
+nodes:
+  - name: relay-1
+    enabled: true
+    sleep: true
+```
+
+Then `kubectl exec` in and run `amaru` by hand. `amaru node rollback` recovers
+from a wrongly invalidated block; `amaru node rm --wipe-all-dbs` clears the
+databases for a network.
+
+## Values reference
+
+| Key | Default | Description |
+|---|---|---|
+| `image.repository` | `ghcr.io/pragma-org/amaru` | upstream image |
+| `image.tag` | `""` → chart `appVersion` | pin a release; `:latest` is a nightly |
+| `network` | `mainnet` | `mainnet` \| `preprod` \| `preview` |
+| `volumeSize` | `250Gi` | PVC size per relay |
+| `resources` | 1 CPU / 1Gi | chart-level default, overridable per node |
+| `podSecurityContext.fsGroup` | `10000` | required for PVC write access |
+| `nodes[].name` | `relay-1` | relay name; becomes the object name suffix |
+| `nodes[].enabled` | `true` | render this relay |
+| `nodes[].type` | `relay` | label only |
+| `nodes[].replicas` | `1` | StatefulSet replicas |
+| `nodes[].port` | `3001` | p2p port: listen address, containerPort and services |
+| `nodes[].peerAddresses` | `[]` | explicit upstream peers |
+| `nodes[].nodePort` | `30000` | external exposure; omit for internal-only |
+| `nodes[].submitApiNodePort` | unset | NodePort for the submit API |
+| `nodes[].storageClassName` | unset | PVC storage class |
+| `nodes[].sleep` | unset | start idle for debugging |
+| `otelCollector.enabled` | `true` | the only metrics path |
+| `serviceMonitor.enabled` | `true` | needs the Prometheus Operator CRDs |

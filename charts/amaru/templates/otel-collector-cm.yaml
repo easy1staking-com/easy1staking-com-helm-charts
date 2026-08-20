@@ -6,7 +6,7 @@
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: "otel-collector-{{ $attributes.name }}"
+  name: "otel-collector-{{ $.Release.Name }}-{{ $attributes.name }}"
   labels:
     app: amaru
     component: otel-collector

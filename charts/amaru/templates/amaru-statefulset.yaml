@@ -1,5 +1,18 @@
 {{ range $attributes := .Values.nodes }}
 {{ if $attributes.enabled }}
+{{- /*
+  Upstream peers: prefer the peerAddresses list, fall back to the legacy
+  singular peerAddress so existing deployment values keep working.
+  An empty list emits no --peer-address at all, which lets Amaru fall back to
+  its built-in bootstrap peer, peer snapshot and ledger-derived peers.
+*/ -}}
+{{- $peers := list }}
+{{- if $attributes.peerAddresses }}
+{{- $peers = $attributes.peerAddresses }}
+{{- else if $attributes.peerAddress }}
+{{- $peers = list $attributes.peerAddress }}
+{{- end }}
+{{- $submitApi := $.Values.config.submitApi | default dict }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -31,22 +44,24 @@ spec:
         type: {{ $attributes.type }}
         network: {{ $.Values.network }}
     spec:
+      {{- with $.Values.podSecurityContext }}
+      securityContext:
+{{ toYaml . | indent 8 }}
+      {{- end }}
       initContainers:
         - name: init
           command: [ "bash", "-x", "/configmap/init.sh" ]
-          image: "{{ $attributes.repository | default $.Values.image.repository }}:{{ $attributes.imageTag | default $.Values.image.tag }}"
+          image: "{{ $attributes.repository | default $.Values.image.repository }}:{{ $attributes.imageTag | default $.Values.image.tag | default $.Chart.AppVersion }}"
           env:
             - name: SKIP_BOOTSTRAP
-              value: {{ $attributes.sleep | quote }}
+              value: {{ $attributes.sleep | default false | quote }}
             - name: NETWORK
               value: {{ $.Values.network }}
             - name: AMARU_LEDGER_DIR
               value: {{ $.Values.config.ledgerDir }}
             - name: AMARU_CHAIN_DIR
               value: {{ $.Values.config.chainDir }}
-            - name: CONFIG_FOLDER
-              value: {{ $.Values.config.configFolder }}
-          imagePullPolicy: "Always"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
           volumeMounts:
             - name: "amaru-{{ $attributes.name }}"
               mountPath: /data/db
@@ -60,26 +75,56 @@ spec:
           {{- else }}
           command: [ "amaru" ]
           args:
+            - "node"
             - "run"
             - "--network"
-            - "$(NETWORK)"
-            - "--peer-address"
-            - "$(AMARU_PEER_ADDRESS)"
+            - {{ $.Values.network | quote }}
             - "--ledger-dir"
-            - "$(AMARU_LEDGER_DIR)"
+            - {{ $.Values.config.ledgerDir | quote }}
             - "--chain-dir"
-            - "$(AMARU_CHAIN_DIR)"
+            - {{ $.Values.config.chainDir | quote }}
+            {{- /* Inbound p2p listener. Bound to the same value that drives the
+                   containerPort and every Service port, so the advertised port
+                   can never drift from the real listen address. */}}
+            - "--listen-address"
+            - "0.0.0.0:{{ $attributes.port }}"
+            {{- range $p := $peers }}
+            - "--peer-address"
+            - {{ $p | quote }}
+            {{- end }}
+            {{- if $.Values.config.noTui }}
+            - "--no-tui"
+            {{- end }}
+            {{- if $.Values.config.migrateChainDb }}
+            - "--migrate-chain-db"
+            {{- end }}
+            {{- /* Explicit nil checks, not `with`: 0 is a meaningful value here
+                   (0 downstream peers = accept no inbound), and `with` would
+                   silently drop it and fall back to Amaru's default. */}}
+            {{- if not (kindIs "invalid" $.Values.config.upstreamPeers) }}
+            - "--upstream-peers"
+            - {{ $.Values.config.upstreamPeers | quote }}
+            {{- end }}
+            {{- if not (kindIs "invalid" $.Values.config.downstreamPeers) }}
+            - "--downstream-peers"
+            - {{ $.Values.config.downstreamPeers | quote }}
+            {{- end }}
+            {{- with $.Values.config.peerMix }}
+            - "--peer-mix"
+            - {{ . | quote }}
+            {{- end }}
+            {{- with $.Values.config.peerSnapshot }}
+            - "--peer-snapshot"
+            - {{ . | quote }}
+            {{- end }}
+            {{- if $submitApi.enabled }}
+            - "--submit-api-address"
+            - "0.0.0.0:{{ $submitApi.port }}"
+            {{- end }}
           {{- end }}
-          image: "{{ $attributes.repository | default $.Values.image.repository }}:{{ $attributes.imageTag | default $.Values.image.tag }}"
+          image: "{{ $attributes.repository | default $.Values.image.repository }}:{{ $attributes.imageTag | default $.Values.image.tag | default $.Chart.AppVersion }}"
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
           env:
-            - name: NETWORK
-              value: {{ $.Values.network }}
-            - name: AMARU_PEER_ADDRESS
-              value: {{ $attributes.peerAddress }}
-            - name: AMARU_LEDGER_DIR
-              value: {{ $.Values.config.ledgerDir }}
-            - name: AMARU_CHAIN_DIR
-              value: {{ $.Values.config.chainDir }}
               {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
               {{- if or $attributes.withOpenTelemetry $collectorConfig.enabled }}
             - name: AMARU_WITH_OPEN_TELEMETRY
@@ -102,8 +147,22 @@ spec:
           ports:
             - name: node
               containerPort: {{ $attributes.port }}
-            - name: prom
-              containerPort: {{ $attributes.prometheusPort | default 12798 }}
+            {{- if $submitApi.enabled }}
+            - name: submit-api
+              containerPort: {{ $submitApi.port }}
+            {{- end }}
+          {{- if not $attributes.sleep }}
+          {{- /* Readiness only, deliberately: Amaru exposes no HTTP health
+                 endpoint, and a liveness probe during a long bootstrap or
+                 replay would restart-loop the pod. This reports "listening"
+                 without ever killing a syncing node. */}}
+          readinessProbe:
+            tcpSocket:
+              port: node
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 10
+          {{- end }}
           {{- with $attributes.resources | default $.Values.resources }}
           resources:
 {{ toYaml . | indent 12 }}
@@ -144,12 +203,12 @@ spec:
       volumes:
         - name: amaru-init
           configMap:
-            name: amaru-init
+            name: "amaru-init-{{ $.Release.Name }}"
         {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
         {{- if $collectorConfig.enabled }}
         - name: otel-collector-config
           configMap:
-            name: "otel-collector-{{ $attributes.name }}"
+            name: "otel-collector-{{ $.Release.Name }}-{{ $attributes.name }}"
         {{- end }}
       terminationGracePeriodSeconds: 180
   volumeClaimTemplates:
