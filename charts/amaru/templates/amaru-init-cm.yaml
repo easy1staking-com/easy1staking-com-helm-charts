@@ -9,20 +9,63 @@ metadata:
     app.kubernetes.io/instance: {{ .Release.Name }}
 data:
   init.sh: |
-    set -o pipefail
+    set -euo pipefail
+
+    MARKER="${DATA_DIR}/.bootstrap-complete"
 
     # ext4 PersistentVolumes come with a root-owned lost+found that Amaru trips
-    # over. Removing it is best-effort: it is not fatal if the filesystem does
-    # not have one, or if permissions do not allow it.
-    rm -rf /data/db/lost+found || true
+    # over. Best-effort: not fatal if absent or not removable.
+    rm -rf "${DATA_DIR}/lost+found" || true
+
+    if [[ "${SKIP_BOOTSTRAP}" == "true" ]]; then
+      echo "init: SKIP_BOOTSTRAP set, leaving databases untouched"
+      exit 0
+    fi
+
+    # The marker is written ONLY after a bootstrap returns success, so it means
+    # "these databases are complete" — unlike directory existence, which is also
+    # true of a bootstrap that died halfway.
+    if [[ -f "${MARKER}" ]]; then
+      echo "init: bootstrap already completed, nothing to do"
+      exit 0
+    fi
+
+    populated() {
+      [[ -d "$1" ]] && [[ -n "$(ls -A "$1" 2>/dev/null)" ]]
+    }
+
+    ledger_present=false
+    chain_present=false
+    if populated "${AMARU_LEDGER_DIR}"; then ledger_present=true; fi
+    if populated "${AMARU_CHAIN_DIR}";  then chain_present=true;  fi
+
+    if [[ "${ledger_present}" == "true" ]] && [[ "${chain_present}" == "true" ]]; then
+      # Both databases are populated but there is no marker: this is a volume
+      # from before the marker existed. Adopt it — never destroy data we cannot
+      # prove is broken — and record it as complete.
+      echo "init: existing databases found without a marker, adopting them"
+      touch "${MARKER}"
+      exit 0
+    fi
+
+    if [[ "${ledger_present}" == "true" ]] || [[ "${chain_present}" == "true" ]]; then
+      # Exactly one database is populated. A completed bootstrap always produces
+      # both, so this is an aborted attempt — the signature of a pod evicted
+      # mid-bootstrap. Amaru refuses to bootstrap into an existing directory
+      # ("use another location or remove it manually"), so the partial state has
+      # to go or every subsequent start fails.
+      echo "init: partial bootstrap detected (ledger=${ledger_present} chain=${chain_present}), clearing and starting over"
+      rm -rf "${AMARU_LEDGER_DIR}" "${AMARU_CHAIN_DIR}"
+    fi
 
     # Bootstrap imports a ledger snapshot, bootstrap headers and nonces in one
-    # step, downloading them from the Amaru snapshot bucket. It is skipped once
-    # the databases exist, so restarts and upgrades do not re-download.
-    if [[ ! -e "${AMARU_LEDGER_DIR}" ]] && [[ ! -e "${AMARU_CHAIN_DIR}" ]] && [[ "${SKIP_BOOTSTRAP}" == "false" ]]
-    then
-      amaru node bootstrap \
-        --network="${NETWORK}" \
-        --ledger-dir "${AMARU_LEDGER_DIR}" \
-        --chain-dir "${AMARU_CHAIN_DIR}"
-    fi
+    # step, downloading them from Amaru's snapshot bucket. Needs outbound HTTPS.
+    amaru node bootstrap \
+      --network="${NETWORK}" \
+      --ledger-dir "${AMARU_LEDGER_DIR}" \
+      --chain-dir "${AMARU_CHAIN_DIR}"
+
+    # Only reached when bootstrap exited 0 — `set -e` aborts the script otherwise,
+    # leaving no marker, so the next start retries instead of running a broken node.
+    touch "${MARKER}"
+    echo "init: bootstrap complete"

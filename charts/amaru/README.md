@@ -159,6 +159,71 @@ Leaving a source out of the mix formula **disables** it.
 > The legacy singular `nodes[].peerAddress` is still honoured as a fallback for
 > existing deployment values, but `peerAddresses` is the supported form.
 
+## Bootstrap and Mithril
+
+Two distinct mechanisms, easy to conflate:
+
+| | `amaru node bootstrap` | `amaru mithril sync` |
+|---|---|---|
+| what | imports a ledger snapshot, bootstrap headers and nonces | downloads verified Mithril immutable files and ingests the blocks |
+| source | Amaru's own S3/R2 snapshot bucket | the Mithril aggregator for the network |
+| required? | **yes** — the node cannot start without it | no, an accelerator |
+| chart | always runs, in an init container | opt-in, `config.mithrilSync.enabled` |
+
+**They are sequential, not alternative.** Run standalone against an empty volume,
+`amaru mithril sync` fails immediately with *"Failed to create ledger. Did you
+bootstrap your node?"*. The chart enforces the ordering: the Mithril init
+container refuses to run unless the bootstrap marker is present.
+
+### There is nothing to configure for Mithril
+
+Unlike the `cardano-node` chart in this repo — which passes
+`--aggregator-endpoint`, `--genesis-verification-key` and
+`--ancillary-verification-key` to `mithril-client` — Amaru exposes **no Mithril
+configuration at all**. The aggregator endpoints and genesis verification keys
+are compiled into the binary per network:
+
+```
+mainnet  https://aggregator.release-mainnet.api.mithril.network/aggregator
+preprod  https://aggregator.release-preprod.api.mithril.network/aggregator
+preview  https://aggregator.testing-preview.api.mithril.network/aggregator
+```
+
+The embedded mainnet genesis verification key is byte-identical to the one the
+`cardano-node` chart passes explicitly. The only Mithril knob in the whole binary
+is the snapshots directory. **Consequence:** if PRAGMA ever rotates an aggregator
+or key, you upgrade the image — the chart cannot override it.
+
+### Known issue: Mithril ingest can fail on block validation
+
+Observed with `v10.11.20260820` on **preview**: after a successful bootstrap at
+epoch 1392, Mithril ingest aborted validating a real on-chain block —
+
+```
+Error processing block at point
+  Specific(120355272, d63078a9dccec5c0235ab3d00e4318d01005a93522206cc1e84d314afc6c7d86, 4580253)
+  tx 4c8c5695ce079731b7843f45011943fe61e3c8964a1e48e7b23e92f3ef4d7dcb index 0
+  phase two validation: PlutusV2 script evaluation failure, "Out of budget"
+  consumed cpu 78,466,510 — remaining cpu -12,122
+```
+
+The block is on the real preview chain, so the Haskell node accepted it; Amaru's
+cost accounting overshoots by ~0.015%. Reproduce with:
+
+```bash
+docker run --rm -v $PWD/data:/data ghcr.io/pragma-org/amaru:v10.11.20260820 \
+  node bootstrap --network=preview --ledger-dir /data/ledger.db --chain-dir /data/chain.db
+docker run --rm -v $PWD/data:/data ghcr.io/pragma-org/amaru:v10.11.20260820 \
+  mithril sync --network preview --ledger-dir /data/ledger.db \
+    --chain-dir /data/chain.db --snapshots-dir /data/mithril
+```
+
+This is why `config.mithrilSync.failOnError` defaults to **false**: an ingest
+failure leaves a perfectly valid bootstrapped node that can still reach tip from
+its peers, and treating it as fatal would turn an accelerator into a reason the
+pod never starts. Not established: whether `node run` hits the same block when
+syncing from peers.
+
 ## Config, storage and bootstrap
 
 Amaru takes no topology file and no config directory — everything is CLI flags
@@ -175,10 +240,24 @@ mounts `<network>-config.json` and `<network>-topology.json`.
 Both databases live on the per-relay PersistentVolume mounted at `/data/db`,
 sized by `volumeSize`.
 
-**Bootstrap.** An init container runs `amaru node bootstrap`, which downloads a
-ledger snapshot, bootstrap headers and nonces from PRAGMA's snapshot bucket. It
-is skipped once the databases exist, so restarts and upgrades do not re-download.
-It needs outbound HTTPS.
+**Bootstrap and restarts.** An init container runs `amaru node bootstrap`. It
+needs outbound HTTPS. Completion is recorded with a marker file
+(`<dataDir>/.bootstrap-complete`) written **only** after bootstrap exits 0 — not
+by checking whether the database directories exist. That distinction is
+load-bearing:
+
+- Amaru **refuses** to bootstrap into an existing directory (*"use another
+  location or remove it manually"*) and exits non-zero, so an unguarded re-run
+  would fail every restart.
+- A pod evicted mid-bootstrap leaves *one* database behind. A directory-existence
+  check reads that as "already done" and starts the node on a half-built ledger.
+  A completed bootstrap always produces both databases, so exactly one present
+  and no marker means an aborted attempt: the chart clears it and starts over.
+- Databases that predate the marker are **adopted**, never wiped — the chart does
+  not destroy data it cannot prove is broken.
+
+Preview needs roughly 1.6GB of ledger after bootstrap; mainnet is substantially
+larger. Size `volumeSize` accordingly.
 
 **Chain database v6.** As of `v10.11.20260820` the chain database schema is
 version 6. Version 5 databases migrate automatically **only** with

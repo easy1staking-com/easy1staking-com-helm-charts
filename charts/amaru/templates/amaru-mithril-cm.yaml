@@ -1,0 +1,73 @@
+{{- if .Values.config.mithrilSync.enabled }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "amaru-mithril-{{ .Release.Name }}"
+  labels:
+    app: amaru
+    app.kubernetes.io/name: amaru
+    app.kubernetes.io/component: node
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  mithril-sync.sh: |
+    set -uo pipefail
+
+    MARKER="${DATA_DIR}/.mithril-sync-complete"
+
+    if [[ "${SKIP_BOOTSTRAP}" == "true" ]]; then
+      echo "mithril: SKIP_BOOTSTRAP set, skipping"
+      exit 0
+    fi
+
+    # Mithril sync is an accelerator, not a prerequisite, so it runs once and
+    # then leaves a marker. Without this it would re-ingest on every restart.
+    if [[ -f "${MARKER}" ]]; then
+      echo "mithril: already synced, nothing to do"
+      exit 0
+    fi
+
+    # `amaru mithril sync` REQUIRES an already-bootstrapped node — run standalone
+    # it fails with "Failed to create ledger. Did you bootstrap your node?".
+    # The bootstrap init container therefore has to have completed first.
+    if [[ ! -f "${DATA_DIR}/.bootstrap-complete" ]]; then
+      echo "mithril: node is not bootstrapped, refusing to sync" >&2
+      exit 1
+    fi
+
+    set +e
+    amaru mithril sync \
+      --network "${NETWORK}" \
+      --ledger-dir "${AMARU_LEDGER_DIR}" \
+      --chain-dir "${AMARU_CHAIN_DIR}" \
+      --snapshots-dir "${MITHRIL_SNAPSHOTS_DIR}" \
+      {{- with .Values.config.mithrilSync.ingestUntilSlot }}
+      --ingest-until-slot {{ . }} \
+      {{- end }}
+      {{- with .Values.config.mithrilSync.ingestMaximumBlocks }}
+      --ingest-maximum-blocks {{ . }} \
+      {{- end }}
+      ;
+    rc=$?
+    set -e
+
+    if [[ $rc -eq 0 ]]; then
+      touch "${MARKER}"
+      echo "mithril: sync complete"
+      exit 0
+    fi
+
+    {{- if .Values.config.mithrilSync.failOnError }}
+    echo "mithril: sync FAILED (rc=${rc}) and failOnError is set — blocking startup" >&2
+    exit $rc
+    {{- else }}
+    # Best-effort by default. A Mithril ingest failure must not brick a relay:
+    # the node is already bootstrapped and valid, and can reach tip by pulling
+    # blocks from its upstream peers instead. Amaru v10.11.20260820 is known to
+    # fail block validation partway through ingest on preview (see the chart
+    # README), so a hard failure here would be a common way to never start.
+    echo "mithril: sync failed (rc=${rc}); continuing without it — the node will" >&2
+    echo "mithril: catch up from its upstream peers instead. Set" >&2
+    echo "mithril: config.mithrilSync.failOnError=true to treat this as fatal." >&2
+    exit 0
+    {{- end }}
+{{- end }}

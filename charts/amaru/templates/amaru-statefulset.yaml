@@ -55,6 +55,8 @@ spec:
           env:
             - name: SKIP_BOOTSTRAP
               value: {{ $attributes.sleep | default false | quote }}
+            - name: DATA_DIR
+              value: {{ $.Values.config.dataDir }}
             - name: NETWORK
               value: {{ $.Values.network }}
             - name: AMARU_LEDGER_DIR
@@ -64,9 +66,35 @@ spec:
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
           volumeMounts:
             - name: "amaru-{{ $attributes.name }}"
-              mountPath: /data/db
+              mountPath: {{ $.Values.config.dataDir }}
             - name: "amaru-init"
               mountPath: /configmap
+        {{- if $.Values.config.mithrilSync.enabled }}
+        {{- /* Runs after the bootstrap init container, never in parallel:
+               mithril sync refuses to run against a non-bootstrapped node. */}}
+        - name: mithril-sync
+          command: [ "bash", "-x", "/mithril/mithril-sync.sh" ]
+          image: "{{ $attributes.repository | default $.Values.image.repository }}:{{ $attributes.imageTag | default $.Values.image.tag | default $.Chart.AppVersion }}"
+          env:
+            - name: SKIP_BOOTSTRAP
+              value: {{ $attributes.sleep | default false | quote }}
+            - name: DATA_DIR
+              value: {{ $.Values.config.dataDir }}
+            - name: NETWORK
+              value: {{ $.Values.network }}
+            - name: AMARU_LEDGER_DIR
+              value: {{ $.Values.config.ledgerDir }}
+            - name: AMARU_CHAIN_DIR
+              value: {{ $.Values.config.chainDir }}
+            - name: MITHRIL_SNAPSHOTS_DIR
+              value: {{ $.Values.config.mithrilSync.snapshotsDir }}
+          imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          volumeMounts:
+            - name: "amaru-{{ $attributes.name }}"
+              mountPath: {{ $.Values.config.dataDir }}
+            - name: "amaru-mithril"
+              mountPath: /mithril
+        {{- end }}
       containers:
         - name: amaru
           {{- if $attributes.sleep }}
@@ -169,7 +197,7 @@ spec:
           {{- end }}
           volumeMounts:
             - name: "amaru-{{ $attributes.name }}"
-              mountPath: /data/db
+              mountPath: {{ $.Values.config.dataDir }}
         {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
         {{- if $collectorConfig.enabled }}
         - name: otel-collector
@@ -204,6 +232,11 @@ spec:
         - name: amaru-init
           configMap:
             name: "amaru-init-{{ $.Release.Name }}"
+        {{- if $.Values.config.mithrilSync.enabled }}
+        - name: amaru-mithril
+          configMap:
+            name: "amaru-mithril-{{ $.Release.Name }}"
+        {{- end }}
         {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
         {{- if $collectorConfig.enabled }}
         - name: otel-collector-config

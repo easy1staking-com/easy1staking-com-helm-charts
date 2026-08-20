@@ -36,7 +36,11 @@ podSecurityContext:
 ## App Config
 
 config:
-  # On-disk storage. Both live on the per-node PersistentVolume at /data/db.
+  # Mount point of the per-relay PersistentVolume. Both databases and the
+  # bootstrap completion marker live under it.
+  dataDir: /data/db
+
+  # On-disk storage. Both live on the PersistentVolume at dataDir.
   ledgerDir: /data/db/ledger.db
   chainDir: /data/db/chain.db
 
@@ -66,6 +70,30 @@ config:
   # with cardano-node's mainnet-peer-snapshot.json. Unset uses the snapshot
   # embedded in the image for known networks.
   peerSnapshot: ""
+
+  # Optional Mithril sync, run once after bootstrap and before the node starts.
+  #
+  # This is an ACCELERATOR, not an alternative to bootstrap: `amaru mithril sync`
+  # fails standalone with "Did you bootstrap your node?". It downloads verified
+  # Mithril immutable files and ingests the blocks, which reaches tip faster than
+  # pulling them from peers — most useful on mainnet, where the gap between the
+  # bootstrap snapshot epoch and the tip is large.
+  #
+  # Aggregator endpoints and genesis verification keys are COMPILED INTO the
+  # image per network and cannot be configured — unlike the cardano-node chart,
+  # which passes them explicitly to mithril-client. There is nothing to set here.
+  #
+  # Off by default. Failures are non-fatal unless failOnError is set: see the
+  # chart README for the known block-validation failure on preview.
+  mithrilSync:
+    enabled: false
+    failOnError: false
+    # Where the downloaded Mithril immutable files are kept. Sizeable — 35MB for
+    # preview at the time of writing, far more on mainnet. Lives on the PVC.
+    snapshotsDir: /data/db/mithril
+    # Optional bounds on how much is ingested. Unset ingests everything available.
+    ingestUntilSlot: null
+    ingestMaximumBlocks: null
 
   # Optional HTTP Cardano Submit API (POST /api/submit/tx).
   # Amaru has no node-to-client (n2c) socket; this is the nearest equivalent.
