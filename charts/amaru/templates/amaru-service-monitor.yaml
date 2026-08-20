@@ -1,3 +1,8 @@
+{{- /*
+  Amaru has no Prometheus endpoint of its own — it exports over OTLP only.
+  The scrape target is therefore the otel-collector sidecar, and a ServiceMonitor
+  is only meaningful when at least one node runs that sidecar.
+*/ -}}
 {{- $anyCollectorEnabled := false }}
 {{- range $attributes := .Values.nodes }}
 {{- if $attributes.enabled }}
@@ -7,7 +12,7 @@
 {{- end }}
 {{- end }}
 {{- end }}
-{{- if or .Values.serviceMonitor.enabled $anyCollectorEnabled }}
+{{- if and .Values.serviceMonitor.enabled $anyCollectorEnabled }}
 ---
 apiVersion: monitoring.coreos.com/v1
 kind: ServiceMonitor
@@ -18,15 +23,11 @@ metadata:
     app.kubernetes.io/name: amaru
     app.kubernetes.io/component: monitoring
     app.kubernetes.io/instance: {{ .Release.Name }}
-    release: kube-prometheus-stack
+    release: {{ .Values.serviceMonitor.releaseName | default "kube-prometheus-stack" }}
 spec:
   endpoints:
     - path: /metrics
-      {{- if $anyCollectorEnabled }}
       port: otel-prom
-      {{- else }}
-      port: prom
-      {{- end }}
       relabelings:
         - sourceLabels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
           targetLabel: job
