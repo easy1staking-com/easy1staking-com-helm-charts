@@ -1,0 +1,22 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ft-aquarium-node.fullname" . }}
+  labels:
+    {{- include "ft-aquarium-node.labels" . | nindent 4 }}
+spec:
+  {{- /*
+    ClusterIP only. The node dials out to everything it needs — the relay,
+    Blockfrost, the FluidTokens oracle — and nothing outside the cluster needs
+    to reach it. This Service exists for the kubelet's probes and for
+    Prometheus. There is no NodePort value and no Ingress template: see
+    README.md, "No ingress, deliberately".
+  */}}
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "ft-aquarium-node.selectorLabels" . | nindent 4 }}

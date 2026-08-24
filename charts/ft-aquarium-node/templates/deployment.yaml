@@ -1,0 +1,184 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ft-aquarium-node.fullname" . }}
+  labels:
+    {{- include "ft-aquarium-node.labels" . | nindent 4 }}
+spec:
+  {{- /*
+    SINGLETON, and deliberately not a value.
+
+    The node signs and submits from ONE wallet. Two pods running at once race
+    the same UTxO set, which is how the same liquidation gets submitted twice.
+    Recreate rather than RollingUpdate for the same reason: a rolling update
+    overlaps the old and new pods, which is exactly the state being avoided.
+
+    This bounds concurrency; it does not make double-submission impossible.
+    Only the application can do that, by keying submission on something on
+    chain. No Kubernetes primitive closes that gap.
+  */}}
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "ft-aquarium-node.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "ft-aquarium-node.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.waitForPostgres.enabled }}
+      initContainers:
+        - name: wait-for-postgres
+          image: "{{ .Values.waitForPostgres.image.repository }}:{{ .Values.waitForPostgres.image.tag }}"
+          imagePullPolicy: {{ .Values.waitForPostgres.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ .Values.config.db.host }} {{ .Values.config.db.port }}; do
+                echo "waiting for postgres at {{ .Values.config.db.host }}:{{ .Values.config.db.port }}"
+                sleep 5
+              done
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ include "ft-aquarium-node.image" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.config.springProfile | quote }}
+            {{- if and .Values.secret.name (eq .Values.secret.mode "file") }}
+            {{- /*
+              Spring Boot config tree: every file under this directory becomes a
+              property named for the file, with the file's contents as its
+              value. "optional:" so that a missing mount still lets the process
+              start far enough to fail with a NAMED error rather than a path error.
+            */}}
+            - name: SPRING_CONFIG_IMPORT
+              value: "optional:configtree:{{ .Values.secret.mountPath }}/"
+            {{- end }}
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ .Values.jvm.opts | quote }}
+            - name: DB_DRIVER
+              value: {{ .Values.config.db.driver | quote }}
+            - name: DB_DIALECT
+              value: {{ .Values.config.db.dialect | quote }}
+            - name: POSTGRES_HOST
+              value: {{ .Values.config.db.host | quote }}
+            - name: POSTGRES_PORT
+              value: {{ .Values.config.db.port | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.config.db.database | quote }}
+            - name: DB_SCHEMA
+              value: {{ .Values.config.db.schema | quote }}
+            - name: DB_USERNAME
+              value: {{ .Values.config.db.username | quote }}
+            - name: DB_URL
+              value: {{ include "ft-aquarium-node.dbUrl" . | quote }}
+            - name: STORE_CARDANO_HOST
+              value: {{ .Values.config.store.cardano.host | quote }}
+            - name: STORE_CARDANO_PORT
+              value: {{ .Values.config.store.cardano.port | quote }}
+            {{- if and .Values.secret.name (eq .Values.secret.mode "env") }}
+            {{- /*
+              env mode: the three secrets as secretKeyRef variables. Still by
+              reference — there is no plaintext fallback in either mode — but
+              visible in `kubectl describe pod` and in Argo's UI, which is why
+              `file` is the default. DB_PASSWORD feeds both the datasource and
+              Flyway: the application's own configuration points both password
+              properties at this one variable.
+            */}}
+            - name: WALLET_MNEMONIC
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secret.name }}
+                  key: {{ .Values.secret.keys.walletMnemonic }}
+            - name: BLOCKFROST_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secret.name }}
+                  key: {{ .Values.secret.keys.blockfrostKey }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secret.name }}
+                  key: {{ .Values.secret.keys.dbPassword }}
+            {{- end }}
+            {{- range $k, $v := .Values.extraEnv }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          {{- /*
+            No readinessProbe. /healthcheck answers 200 with the body
+            "...syncing..." during the initial sync, so no endpoint currently
+            means "ready"; gating on one would restart-loop the pod through
+            ~49 million slots of chain. See values.yaml and README.md.
+          */}}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if and .Values.secret.name (eq .Values.secret.mode "file") }}
+          volumeMounts:
+            - name: secrets
+              mountPath: {{ .Values.secret.mountPath }}
+              readOnly: true
+          {{- end }}
+      {{- if and .Values.secret.name (eq .Values.secret.mode "file") }}
+      volumes:
+        - name: secrets
+          secret:
+            secretName: {{ .Values.secret.name }}
+            defaultMode: 0400
+            {{- /*
+              One key per property file. db-password is projected TWICE, on
+              purpose: Flyway has its own password property, separate from the
+              datasource, and a migration that cannot authenticate fails while
+              the application itself would have connected fine.
+            */}}
+            items:
+              - key: {{ .Values.secret.keys.walletMnemonic }}
+                path: wallet.mnemonic
+              - key: {{ .Values.secret.keys.blockfrostKey }}
+                path: blockfrost.key
+              - key: {{ .Values.secret.keys.dbPassword }}
+                path: spring.datasource.password
+              - key: {{ .Values.secret.keys.dbPassword }}
+                path: spring.flyway.password
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

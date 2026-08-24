@@ -1,0 +1,276 @@
+# Default values for the ft-aquarium-node chart.
+#
+# The Aquarium node is a Spring Boot service that indexes Cardano preview with
+# yaci-store into Postgres, serves a read-only loans API, and runs the
+# FluidTokens Lending v4 liquidation bot. It is a CLIENT of everything it talks
+# to: it needs no inbound access from outside the cluster.
+#
+# Quick start:
+#   helm template t ./charts/ft-aquarium-node
+#   helm install  t ./charts/ft-aquarium-node -f ./charts/ft-aquarium-node/values-preview.yaml \
+#     --set config.db.host=<pg> --set secret.name=<sealed-secret-name>
+#
+# See README.md before setting anything. Three things there will bite otherwise:
+# the syncing-200, the two arming flags, and what losing the Postgres volume costs.
+
+image:
+  # FluidTokens' own Docker Hub build. We do not build or publish this image.
+  repository: fluidtokens/ft-aquarium-node
+  pullPolicy: IfNotPresent
+
+  # Overrides the tag, whose default is the chart appVersion (2026.07.13).
+  # Do NOT use "latest": it currently resolves to the same digest as
+  # 2026.07.13, but a tag describes while a digest resolves, and "latest"
+  # is free to move under you.
+  tag: ""
+
+  # When set, the image is pinned BY DIGEST and the tag above is ignored.
+  # This is the form the GitOps handoff wants — a digest cannot drift.
+  # linux/amd64 ONLY: confirm the node's architecture before deploying.
+  digest: "sha256:3e016ea1aeb0cb38dda13ec29bb16a40f560abaf345378b7cb335fe9875eeb2a"
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+podAnnotations: {}
+podLabels: {}
+
+# The image declares no USER, so it runs as root today. There is no
+# PersistentVolume on this pod, so unlike the amaru chart there is no fsGroup
+# problem to solve here. Running non-root is untested against this image.
+podSecurityContext: {}
+securityContext: {}
+
+service:
+  type: ClusterIP
+  # Spring Boot default. The image sets no server.port. Everything is served
+  # here: /healthcheck, /actuator/health, /actuator/prometheus, /api/v1/**.
+  port: 8080
+
+# NOTE — there is deliberately NO ingress in this chart, and no ingress.enabled
+# value. See README.md ("No ingress, deliberately"): the unauthenticated
+# /api/v1 API and the Spring actuator share this one port, on a pod that holds a
+# wallet seed. Reachability for debugging is `kubectl port-forward`.
+
+# Sizing. THERE IS NO MEASURED FIGURE FOR THIS APPLICATION — not "not tuned",
+# but none. The compose file's JAVA_OPTS was never read by the entrypoint (see
+# jvm.opts below), so every number derived from it, including the application
+# repo's own suggestion, carries no weight. These are a deliberate starting
+# point. The INITIAL SYNC is the peak, and it is ~49 million slots: measure
+# there, on the first real run, and correct these.
+#
+# CEILING, and the reason this is a knob: the target node schedules by REQUESTS,
+# and ~64% of its memory is already reserved by other workloads, leaving roughly
+# 10Gi of request headroom. A namespace is an authorisation boundary, not a
+# resource boundary on a single node — so a request that exceeds that headroom
+# leaves the pod Pending regardless of which namespace it lands in. 512Mi is
+# comfortably inside it; raise it deliberately, not reflexively.
+resources:
+  requests:
+    memory: 512Mi
+    cpu: 250m
+  limits:
+    memory: 1Gi
+    cpu: 1
+
+# Passed to the JVM via JAVA_TOOL_OPTIONS.
+#
+# NOT via JAVA_OPTS: the image's entrypoint is the exec form
+# ["java","-jar","app.jar"], with no shell to expand a variable, so the
+# JAVA_OPTS the compose file sets has never had any effect. JAVA_TOOL_OPTIONS is
+# read by the JVM itself and does.
+#
+# MaxRAMPercentage rather than a fixed -Xmx so the heap tracks
+# resources.limits.memory instead of silently diverging from it: 75% of the 1Gi
+# limit is ~768Mi of heap, leaving ~256Mi for metaspace, code cache, thread
+# stacks and direct buffers. A JVM whose heap does not fit inside the container
+# limit is OOMKilled by the kernel, not by the JVM, and leaves no stack trace.
+# 75 is the application authors' own recommendation; if the pod is OOMKilled
+# without a Java OutOfMemoryError, non-heap is the overrun — lower this rather
+# than raising the limit blindly.
+jvm:
+  opts: "-XX:MaxRAMPercentage=75"
+
+# How long Kubernetes waits for a clean shutdown before SIGKILL.
+# UNVERIFIED: whether the node has in-flight transaction work that must not be
+# torn in half has not been confirmed upstream. 60s is a conservative default.
+terminationGracePeriodSeconds: 60
+
+## Probes
+#
+# READ THIS BEFORE ADDING A READINESS PROBE.
+#
+# /healthcheck returns HTTP 200 with the plain body "...syncing..." while the
+# node is still syncing, and a JSON body only once it is caught up. A 200 from
+# it therefore does NOT mean ready. There is currently no endpoint that means
+# ready.
+#
+# The initial preview sync starts at slot 71,971,209 against a tip near
+# 120,955,928 — roughly 49 million slots, about 567 days of chain. A liveness or
+# readiness gate that fails while that runs restarts the pod, which restarts the
+# sync, forever. That is why there is no readiness probe here and why liveness
+# is on /actuator/health (Spring's own health: process and datasource) rather
+# than on /healthcheck.
+#
+# The startupProbe is what makes a tight liveness probe safe: liveness does not
+# begin until startup succeeds, so a slow Flyway migration on an empty database
+# cannot be mistaken for a dead process.
+startupProbe:
+  # 60 x 10s = 10 minutes for the app to answer /actuator/health on an empty
+  # database. UNVERIFIED — the real boot-to-healthy time has not been measured.
+  # Generous on purpose: too short here is a CrashLoopBackOff before the node
+  # ever reaches its first block.
+  httpGet:
+    path: /actuator/health
+    port: http
+  periodSeconds: 10
+  failureThreshold: 60
+  timeoutSeconds: 5
+
+livenessProbe:
+  httpGet:
+    path: /actuator/health
+    port: http
+  periodSeconds: 30
+  failureThreshold: 5
+  timeoutSeconds: 5
+
+## App configuration
+#
+# Every value below is passed as an environment variable. Spring's relaxed
+# binding maps them onto application.yaml keys.
+config:
+  # REQUIRED by the application. `preview` is the only network this deployment
+  # supports: the code hard-codes SUBMITTABLE_NETWORK to preview, so mainnet is
+  # fail-closed regardless of configuration. There is deliberately no
+  # values-mainnet.yaml in this chart.
+  springProfile: preview
+
+  # Postgres. CONSUMED, never deployed — this chart creates no database.
+  # See README.md: the durable volume the node depends on belongs to Postgres,
+  # not to this pod, and losing it costs a full ~49M-slot re-index.
+  db:
+    driver: org.postgresql.Driver
+    dialect: org.hibernate.dialect.PostgreSQLDialect
+    host: ""
+    port: 5432
+    database: aquarium
+    schema: public
+    username: postgres
+    # The JDBC URL is composed from the five values above so it cannot drift
+    # from them. Set this only to override that composition entirely.
+    url: ""
+
+  # Cardano relay to sync from, over node-to-node. The node dials out to this;
+  # nothing dials in.
+  #
+  # Defaults to the public preview relay so the chart works out of the box. An
+  # operator running their own relay should point this at it instead — and if
+  # that relay is on the LAN rather than the internet, the pod needs egress to
+  # a private address range, which is not the default assumption anywhere.
+  # A specific LAN address is deployment state and does not belong in this
+  # public chart; set it in your own values.
+  store:
+    cardano:
+      host: preview-node.world.dev.cardano.org
+      port: 3001
+
+## Secrets
+#
+# THREE, and only three: the wallet seed, the Blockfrost key and the Postgres
+# password. Nothing else in this chart is a secret.
+#
+# This chart NEVER creates a Secret and has NO plaintext fallback — a deliberate
+# divergence from the cardano-db-sync and midnight-node charts in this repo,
+# which do offer one. Those guard a database password; this one guards a BIP-39
+# wallet seed whose blast radius is total loss of that wallet's funds, in a
+# repository that is public. A fallback path is a place for it to be typed.
+#
+# Leave `name` empty and the secrets are simply absent from the render — the
+# application then fails at startup with a named error, which is correct.
+# Create the Secret out of band (sealed-secrets is the mechanism in use).
+secret:
+  name: ""
+
+  # HOW the secret reaches the process. Default `file`, and prefer it.
+  #
+  #   file — the Secret is mounted at `mountPath` with 0400 files named for the
+  #          Spring properties, and read via SPRING_CONFIG_IMPORT config trees.
+  #          An environment variable is visible in `kubectl describe pod`, in
+  #          the pod spec and in Argo CD's UI; this process signs and submits
+  #          transactions with that seed. A file is strictly better — and a file
+  #          has no word-splitting, which removes the mnemonic quoting hazard at
+  #          the root rather than warning about it.
+  #
+  #   env  — classic secretKeyRef environment variables. Kept because the
+  #          config-tree path is REASONED, NOT BOOTED against this image: it is
+  #          Spring's documented behaviour, but nobody has started the app to
+  #          watch it bind. If `file` mode fails with "wallet.mnemonic has no
+  #          default", switch to `env` and the deployment proceeds while the
+  #          question gets answered. Being wrong should be cheap, not blocking.
+  #
+  # Both modes read the SAME Secret with the same keys; only the projection
+  # differs. Neither puts a secret in this repository.
+  mode: file
+
+  # Keys within the Secret. These are the key names, not the values.
+  keys:
+    walletMnemonic: wallet-mnemonic
+    blockfrostKey: blockfrost-key
+    dbPassword: db-password
+
+  # file mode only. Files are named for the Spring properties they set:
+  #   wallet.mnemonic
+  #   blockfrost.key
+  #   spring.datasource.password
+  #   spring.flyway.password        <- Flyway has its OWN password property,
+  #                                    separate from the datasource. The one
+  #                                    db-password key feeds both; miss the
+  #                                    second and the migration fails while the
+  #                                    application itself connects fine.
+  mountPath: /etc/aquarium-secrets
+
+## Extra environment variables — passthrough, and load-bearing.
+#
+# The contract coordinates the node derives its whole script tree from
+# (aquarium.genesis.*, aquarium.config.policy-id, aquarium.lm-config.policy-id,
+# and the liquidation reference-script coordinates) are baked into the image's
+# preview profile, and that deployment has already been redeployed three times.
+# Spring's relaxed binding means each of them is reachable by environment
+# variable, so this map lets an operator follow a contract redeploy without
+# waiting for a new image.
+#
+# ⚠ DO NOT put an arming flag here. See README.md "Safety".
+extraEnv: {}
+  # AQUARIUM_CONFIG_POLICY_ID: "c45d5306a7c0f7ba361af5fcdfa9bdbe0ba67f105caa2d2d4032aaa9"
+
+## Optional init container that blocks until Postgres accepts TCP.
+#
+# Off by default, so the chart declares no image it does not need. With it off,
+# an unreachable database means Flyway fails at startup and Kubernetes restarts
+# the pod with backoff — noisy in the event log, but self-healing and correct.
+# Turn it on if you would rather see one waiting init container than a
+# CrashLoopBackOff.
+waitForPostgres:
+  enabled: false
+  image:
+    repository: busybox
+    tag: "1.36"
+    pullPolicy: IfNotPresent
+
+## ServiceMonitor for kube-prometheus-stack.
+#
+# Default OFF: a ServiceMonitor referencing a CRD that is not installed fails
+# the whole install, and whether kube-prometheus-stack is present on the target
+# cluster is the deployer's knowledge, not the chart's.
+serviceMonitor:
+  enabled: false
+  releaseName: kube-prometheus-stack
+  path: /actuator/prometheus
+  interval: 30s
+  scrapeTimeout: 10s
+
+nodeSelector: {}
+tolerations: []
+affinity: {}

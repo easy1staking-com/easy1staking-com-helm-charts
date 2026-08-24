@@ -1,0 +1,26 @@
+{{- if .Values.serviceMonitor.enabled }}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "ft-aquarium-node.fullname" . }}
+  labels:
+    {{- include "ft-aquarium-node.labels" . | nindent 4 }}
+    release: {{ .Values.serviceMonitor.releaseName }}
+spec:
+  endpoints:
+    - port: http
+      path: {{ .Values.serviceMonitor.path }}
+      interval: {{ .Values.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  {{- /*
+    Selector on the selector labels only, not on the full label set: the common
+    labels carry helm.sh/chart and app.kubernetes.io/version, so matching on
+    them would silently stop matching the Service on the next chart bump.
+  */}}
+  selector:
+    matchLabels:
+      {{- include "ft-aquarium-node.selectorLabels" . | nindent 6 }}
+{{- end }}
