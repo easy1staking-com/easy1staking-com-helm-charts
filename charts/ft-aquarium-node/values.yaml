@@ -157,7 +157,22 @@ config:
     port: 5432
     database: aquarium
     schema: public
-    username: postgres
+
+    # The ROLE that owns `database` above — NOT the superuser.
+    #
+    # This must be the same role the Secret's db-password belongs to. Get that
+    # pairing wrong and the application presents the RIGHT PASSWORD AS THE WRONG
+    # USER, which Postgres reports as an authentication failure — so it reads as
+    # a bad secret, and the secret is where everyone looks first. Defaulting this
+    # to `postgres` made the superuser the thing you had to notice was wrong.
+    #
+    # Defaulting instead to the role of the same name as the database matches the
+    # app-owned-database story the README tells, and it is also what Postgres 15+
+    # needs: PG15 revoked CREATE on the `public` schema from PUBLIC, so Flyway's
+    # startup migration needs a role that OWNS the database (which carries the
+    # schema through pg_database_owner) or has been granted CREATE on `public`
+    # explicitly. A non-owning role fails at the first migration, not at connect.
+    username: aquarium
     # The JDBC URL is composed from the five values above so it cannot drift
     # from them. Set this only to override that composition entirely.
     url: ""

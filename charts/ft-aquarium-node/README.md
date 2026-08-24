@@ -192,8 +192,23 @@ perfectly healthy while it does, reporting `...syncing...` and doing nothing
 useful. Whoever provisions Postgres owns that volume, its storage class and its
 backup posture.
 
-**Flyway needs DDL privileges on an empty database** — it creates the schema
-objects at startup — and must reach Postgres before the application is usable.
+**`config.db.username` must be the role that owns the database, and the same
+role the Secret's `db-password` belongs to.** The default is `aquarium`,
+matching the database name, not `postgres`. Two reasons, and the first is the
+one that costs a night:
+
+- **A right-password-wrong-user mismatch is reported by Postgres as an
+  authentication failure**, so it reads as a bad secret — and on a first deploy
+  the hand-created Secret is exactly where everyone looks. The username is not a
+  suspect until much later.
+- **Flyway needs DDL on an empty database**, and on **Postgres 15+** that is not
+  automatic for any role: PG15 revoked `CREATE` on the `public` schema from
+  `PUBLIC`. The role must **own the database** — ownership reaches the schema
+  through `pg_database_owner` — or have been granted `CREATE` on `public`
+  explicitly. A connecting-but-non-owning role fails at the first migration
+  rather than at connect, which again points away from the real cause.
+
+Flyway must also reach Postgres before the application is usable.
 `waitForPostgres.enabled` adds an init container that blocks until Postgres
 accepts TCP. It is **off by default** so the chart declares no image it does not
 need; with it off, an unreachable database means Flyway fails and Kubernetes
@@ -356,7 +371,7 @@ one-line application change, not something this chart can fix.
 | `terminationGracePeriodSeconds` | `60` | app has no graceful shutdown |
 | `startupProbe` / `livenessProbe` | `/actuator/health` | no readiness probe — §2 |
 | `config.springProfile` | `preview` | required by the app; the only supported network |
-| `config.db.*` | host `""`, port 5432, db `aquarium`, schema `public` | Postgres is consumed, not deployed |
+| `config.db.*` | host `""`, port 5432, db `aquarium`, schema `public`, user `aquarium` | Postgres is consumed, not deployed — §7 on the username |
 | `config.db.url` | `""` | composed from the parts above unless overridden |
 | `config.store.cardano.host` / `.port` | public preview relay / `3001` | |
 | `secret.name` | `""` | empty → no secrets in the render |
