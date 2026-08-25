@@ -155,21 +155,32 @@ spec:
           env:
               {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
               {{- if or $attributes.withOpenTelemetry $collectorConfig.enabled }}
+            {{- /*
+              AMARU_WITH_OPEN_TELEMETRY is real and is what turns export on.
+              The endpoint, however, is NOT an AMARU_ variable: this binary
+              contains no AMARU_OTLP_* string at all, and reads the standard
+              OpenTelemetry SDK environment instead. The three AMARU_OTLP_*
+              variables this chart used to set were introduced in 2025-12
+              against appVersion 0.0.1-alpha.1 and have been silently ignored
+              ever since; export reached the sidecar only because the SDK's
+              default endpoint happens to be localhost:4317.
+
+              gRPC on 4317 measured as the transport actually carrying every
+              signal, so one endpoint variable suffices — no signal-specific
+              pair and no OTEL_EXPORTER_OTLP_PROTOCOL. otlpGrpcPort is now a
+              real knob; before this it moved the collector's listener while
+              the exporter kept sending to the default, killing telemetry
+              silently.
+            */}}
             - name: AMARU_WITH_OPEN_TELEMETRY
               value: "true"
-            - name: AMARU_OTLP_METRIC_URL
-              {{- if $collectorConfig.enabled }}
-              value: "http://localhost:{{ $collectorConfig.otlpHttpPort | default 4318 }}/v1/metrics"
-              {{- else }}
-              value: {{ $attributes.otlpMetricUrl | default "http://otel-collector-opentelemetry-collector.observe:4318/v1/metrics" }}
-              {{- end }}
-            - name: AMARU_OTLP_SPAN_URL
+            - name: OTEL_EXPORTER_OTLP_ENDPOINT
               {{- if $collectorConfig.enabled }}
               value: "http://localhost:{{ $collectorConfig.otlpGrpcPort | default 4317 }}"
               {{- else }}
-              value: {{ $attributes.otlpSpanUrl | default "http://otel-collector-opentelemetry-collector.observe:4317" }}
+              value: {{ $attributes.otlpEndpoint | default "http://otel-collector-opentelemetry-collector.observe:4317" | quote }}
               {{- end }}
-            - name: AMARU_OTLP_SERVICE_NAME
+            - name: OTEL_SERVICE_NAME
               value: "amaru"
               {{- end }}
           ports:
