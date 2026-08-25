@@ -137,6 +137,32 @@ spec:
                   name: {{ .Values.secret.name }}
                   key: {{ .Values.secret.keys.dbPassword }}
             {{- end }}
+            {{- /*
+              Arming flags. `toString` then `empty` rather than a bare `if`, so a
+              YAML boolean and a quoted string behave the same and an explicit
+              `false` still reaches the container rather than being dropped as
+              falsy — the same reason the amaru chart uses kindIs over `with`.
+
+              `mode` is validated: a typo silently means "not armed", and an
+              operator who believes they armed the bot and did not is a worse
+              failure than a refused render.
+            */}}
+            {{- $mode := toString .Values.liquidation.mode }}
+            {{- if not (empty $mode) }}
+            {{- if not (has $mode (list "disabled" "shadow" "live")) }}
+            {{- fail (printf "liquidation.mode must be one of disabled|shadow|live, got %q" $mode) }}
+            {{- end }}
+            - name: AQUARIUM_LIQUIDATION_MODE
+              value: {{ $mode | quote }}
+            {{- end }}
+            {{- $armed := toString .Values.liquidation.enabled }}
+            {{- if not (empty $armed) }}
+            {{- if not (has $armed (list "true" "false")) }}
+            {{- fail (printf "liquidation.enabled must be true or false, got %q" $armed) }}
+            {{- end }}
+            - name: AQUARIUM_LIQUIDATION_ENABLED
+              value: {{ $armed | quote }}
+            {{- end }}
             {{- range $k, $v := .Values.extraEnv }}
             - name: {{ $k }}
               value: {{ $v | quote }}

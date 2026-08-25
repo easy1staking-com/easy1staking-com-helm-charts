@@ -143,12 +143,43 @@ does nothing:
 | `AQUARIUM_LIQUIDATION_MODE` | `shadow` |
 | `AQUARIUM_LIQUIDATION_ENABLED` | `false` |
 
+The chart exposes them as typed keys, **empty by default**:
+
+```yaml
+liquidation:
+  mode: ""       # "" | disabled | shadow | live
+  enabled: ""    # "" | false | true
+```
+
+Empty means the chart sets nothing and the image's own profile governs. **Both are
+required to submit** — `mode: live` alone does nothing, `enabled: true` alone does
+nothing. Invalid values are **refused at render time** rather than silently
+treated as not-armed, because an operator who believes they armed the bot and did
+not is a worse failure than a failed `helm template`.
+
 **No values file in this chart sets either one, and none ever should** — not even
 commented out and ready. This chart is published to a public repository and is
 installable by anyone; a preset that arms a transaction-signing bot arms it for
 everybody who runs `helm install`. Arming is a deliberate act in the deploying
 operator's own values, outside this repo. **If a future reader finds no `live`
 preset here, that is the design and not an omission.**
+
+**Why these are their own keys and not `extraEnv` entries**, when `extraEnv` would
+carry them perfectly well: in a values diff, *"operator set a policy id"* and
+*"operator armed a bot that moves other people's collateral"* look identical
+inside a passthrough map. A safety-critical flag needs a home where a reviewer can
+see it for what it is.
+
+> **⚠ Setting either key restarts the pod, and restart is where the fatal boot
+> verifiers run again (§3).** A node that has been up and quiet may not come back
+> — and that would be the system working, not the arming failing. Read the first
+> thirty seconds of logs and expect a *named* error. `strategy: Recreate` means
+> the old pod is deleted before the new one starts, so expect a brief gap.
+
+> **⚠ Nothing has ever armed this bot, in any environment.** The rendering above
+> is verified; every step downstream of it — that the app reads these from the
+> environment, that `live` + `true` actually arms, that anything then works — is
+> unexercised. Treat a first arming as an experiment, not a deployment.
 
 A default install therefore **scans, builds, prices and records liquidations but
 never submits** — the `MODE_NOT_LIVE` veto stops it. That is the intended
@@ -429,6 +460,8 @@ one-line application change, not something this chart can fix.
 | `secret.mode` | `file` | or `env` — same Secret, different projection |
 | `secret.keys.*` | `wallet-mnemonic`, `blockfrost-key`, `db-password` | keys within that Secret |
 | `secret.mountPath` | `/etc/aquarium-secrets` | `file` mode only |
+| `liquidation.mode` | `""` | `disabled\|shadow\|live`; empty → image default. **§5** |
+| `liquidation.enabled` | `""` | second arming switch; **both required**. **§5** |
 | `extraEnv` | `{}` | Spring property passthrough — **read §4 first** |
 | `waitForPostgres.enabled` | `false` | optional TCP-wait init container |
 | `serviceMonitor.enabled` | `false` | **off**: a ServiceMonitor against absent CRDs fails the install |

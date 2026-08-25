@@ -309,6 +309,43 @@ secret:
   #                                    application itself connects fine.
   mountPath: /etc/aquarium-secrets
 
+## Liquidation bot arming.
+#
+# ⚠ SUBMITTING A LIQUIDATION BURNS A LOAN NFT AND MOVES SOMEONE ELSE'S
+# COLLATERAL. Read README §5 before setting either of these.
+#
+# ARMING TAKES BOTH, BY DESIGN. `mode: live` alone does nothing; `enabled: true`
+# alone does nothing. Two independent switches exist so that one flipped by
+# accident is inert — do not "simplify" that by collapsing them.
+#
+# Empty means THE CHART SETS NOTHING and the image's own profile governs, which
+# on preview is `shadow` / `false`: the bot scans, builds, prices and records
+# liquidations but never submits. That is the intended default posture, not an
+# incomplete configuration.
+#
+# ⚠ NO VALUES FILE IN THIS REPOSITORY MAY EVER SET THESE — not to `live`, not to
+# `true`, not commented-out-and-ready. This chart is public and installable by
+# anyone; a preset that arms a transaction-signing bot arms it for everybody who
+# runs `helm install`. Arming is a deliberate act in the DEPLOYING OPERATOR'S own
+# values, outside this repo.
+#
+# They live here, rather than in extraEnv, so that a values diff can tell them
+# apart from ordinary configuration. In a passthrough map, "operator set a policy
+# id" and "operator armed the bot" look identical to a reviewer.
+#
+# ⚠ SETTING THESE RESTARTS THE POD, and restart is where the fatal boot
+# verifiers run again (README §3). A node that has been up and quiet may not come
+# back — that would be the system working, not the arming failing. Read the first
+# thirty seconds of logs and expect a NAMED error.
+#
+# NOTHING HAS EVER ARMED THIS BOT, in any environment. The whole path below is
+# unexercised.
+liquidation:
+  # "" | disabled | shadow | live
+  mode: ""
+  # "" | false | true
+  enabled: ""
+
 ## Extra environment variables — passthrough, and load-bearing.
 #
 # The contract coordinates the node derives its whole script tree from
@@ -319,7 +356,10 @@ secret:
 # variable, so this map lets an operator follow a contract redeploy without
 # waiting for a new image.
 #
-# ⚠ DO NOT put an arming flag here. See README.md "Safety".
+# ⚠ DO NOT arm the bot from here. The arming flags have their own typed keys
+# under `liquidation:` above, specifically so a reviewer can see them in a diff.
+# Setting AQUARIUM_LIQUIDATION_MODE or _ENABLED through this map would work and
+# would hide what it is doing, which is the reason it has a proper home.
 extraEnv: {}
   # AQUARIUM_CONFIG_POLICY_ID: "c45d5306a7c0f7ba361af5fcdfa9bdbe0ba67f105caa2d2d4032aaa9"
 
