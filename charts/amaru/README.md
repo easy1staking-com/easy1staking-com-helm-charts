@@ -398,6 +398,31 @@ them, which is what stops the retry loop.
 ERROR stream returns. Amaru has no `/metrics` endpoint and no way to be told to
 stop exporting, so the sidecar is the only place this can be handled.
 
+## The `job` label is a contract with `amaru-monitoring`
+
+The ServiceMonitor this chart renders deliberately relabels the scrape job to the
+literal string `amaru`:
+
+```yaml
+relabelings:
+  - sourceLabels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+    targetLabel: job
+    replacement: amaru
+```
+
+Without it the job would take the Service's own name (`amaru-relay-1-int`), which
+varies per relay. **The `amaru-monitoring` chart's alert rules and dashboard
+variables all query `job="amaru"`, so that relabel is load-bearing across the two
+charts.**
+
+**Remove or "simplify" it and every alert rule silently stops matching** — no
+error, no failed rule, just alerts that never fire and dashboard dropdowns that
+come back empty. That is the failure mode where a monitoring system reports
+nothing and looks healthy doing it, which is worse than having no rules at all.
+
+If you do change it, change `amaru-monitoring` in the same commit.
+
+
 ## Health checks
 
 The chart sets a **readiness** probe (TCP connect on the p2p port) and
