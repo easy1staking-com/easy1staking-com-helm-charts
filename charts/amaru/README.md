@@ -194,6 +194,38 @@ The embedded mainnet genesis verification key is byte-identical to the one the
 is the snapshots directory. **Consequence:** if PRAGMA ever rotates an aggregator
 or key, you upgrade the image — the chart cannot override it.
 
+### Known issue: preview sync halts permanently at block 4,588,007
+
+**On `v10.11.20260820` a preview relay reaches block 4,588,006 and then stops
+forever**, rejecting 4,588,007 and every block after it as *"descends from an
+invalid block"* while watching upstream tips advance in real time:
+
+```
+BlockValidationError … transaction failed PHASE ONE validation: invalid inputs:
+inputs included in both reference inputs and spent inputs
+parent=…(4588006)   failed_tip=120569440…(4588007)
+```
+
+**No chart configuration changes this.** All four combinations of upstream peers ×
+Mithril sync were run on a live cluster and every one halted on the same block and
+the same transaction. **Mithril changes where the node STARTS, not where it
+STOPS** — a cell with both a healthy local relay peer and a Mithril snapshot
+halted identically.
+
+**It is not a peering problem, which is what it looks like.** Amaru ↔ cardano-node
+11.0.1 node-to-node interop was verified working in the same run: handshake
+completed, intersect found, upstream tip 4,602,448 visible. The node is connected;
+the height is blocked by block *content*.
+
+**DERIVED, and it wants someone who owns the ledger rules:** Conway removed
+Babbage's requirement that reference inputs and spent inputs be disjoint, and
+Amaru appears to still enforce it. **OBSERVED:** the block is on the real preview
+chain and cardano-node 11.0.1 accepted it.
+
+If you deploy this chart on preview and the height stops at 4,588,006, **that is
+this, and it is expected** — not a misconfiguration, and not worth investigating
+again.
+
 ### Known issue: Mithril ingest can fail on block validation
 
 Observed with `v10.11.20260820` on **preview**: after a successful bootstrap at
@@ -281,8 +313,21 @@ asymmetry sets the direction: a storage class with `ALLOWVOLUMEEXPANSION=false` 
 k3s's default `local-path` included — cannot grow a PVC that turns out too small,
 so **under-sizing is not "adjust later", it is destroy the volume, re-bootstrap
 and re-sync**, while over-sizing costs only a nominal claim (`local-path` does not
-preallocate — a 250Gi claim binds instantly and consumes nothing). Refine downward
-once a preview relay has actually reached tip.
+preallocate — a 250Gi claim binds instantly and consumes nothing).
+
+**⚠ These figures cannot currently be refined, and that is a property of Amaru,
+not of the chart.** Sizing wants the usage of a relay that has reached tip, and on
+`v10.11.20260820` **no preview relay can reach tip** — see *Known issue: preview
+sync halts permanently* below. Both routes out are closed: the pinned image is the
+newest versioned tag `ghcr.io/pragma-org/amaru` publishes (observed), and a newer
+Mithril snapshot cannot help because ingest **replays forward from the ledger's
+current position** rather than relocating it — only `amaru node bootstrap` sets
+the start point, and that snapshot is compiled into the image.
+
+So `volumeSizeByNetwork` and `resources` are **not merely unmeasured — they are
+unmeasurable until upstream ships a fix.** They are over-estimates justified by
+the asymmetry above, and the first person who *can* measure them should be someone
+running a build that gets past block 4,588,007.
 
 > **⚠ Resizing a RUNNING relay does not work.** A StatefulSet's
 > `volumeClaimTemplates` are immutable, so an upgrade that changes the size is
