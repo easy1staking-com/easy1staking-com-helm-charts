@@ -18,7 +18,40 @@ image:
 # Use the matching values-<network>.yaml preset to switch.
 network: mainnet
 
-volumeSize: 250Gi
+# PVC size per relay.
+#
+# Leave empty to derive it from `network` via volumeSizeByNetwork below. Set it
+# to a value here to override that derivation entirely.
+#
+# It is derived rather than defaulted BECAUSE THE PRESET FILES CANNOT BE RELIED
+# ON. GitOps tools commonly supply values INLINE, and an operator who writes
+# `network: preview` inline never reads values-preview.yaml — so a size that
+# lived only in that file silently handed them MAINNET sizing on preview, with
+# nothing to warn them. Deriving from the network makes that mistake
+# unavailable instead of merely documented.
+volumeSize: ""
+
+# Per-network sizes used when volumeSize is empty. An unknown network falls back
+# to the mainnet figure, which is the safe direction: too large costs a nominal
+# claim, too small costs the entire sync (see below).
+#
+# THESE ARE NOT MEASURED TO TIP. Known: ledger.db is ~1.6GB after bootstrap on
+# preview (observed). Unmeasured: chain-db growth from the bootstrap epoch to
+# tip, and Mithril snapshots, which share this volume when enabled.
+#
+# Deliberately generous, because the two error directions are not symmetric. A
+# storage class with ALLOWVOLUMEEXPANSION=false — k3s's default local-path
+# included — cannot grow a PVC that turns out too small, so under-sizing is not
+# "adjust it later", it is destroy the volume, re-bootstrap and re-sync.
+#
+# ⚠ AND CHANGING THIS ON A RUNNING RELAY DOES NOT WORK: a StatefulSet's
+# volumeClaimTemplates are immutable, so an upgrade that alters the size is
+# rejected by the API server. Resizing means deleting the StatefulSet
+# (`--cascade=orphan` keeps the pods) and re-applying, or replacing the PVC.
+volumeSizeByNetwork:
+  mainnet: 250Gi
+  preprod: 250Gi
+  preview: 50Gi
 
 resources:
   limits:
@@ -36,7 +69,11 @@ podSecurityContext:
 ## App Config
 
 config:
-  # On-disk storage. Both live on the per-node PersistentVolume at /data/db.
+  # Mount point of the per-relay PersistentVolume. Both databases and the
+  # bootstrap completion marker live under it.
+  dataDir: /data/db
+
+  # On-disk storage. Both live on the PersistentVolume at dataDir.
   ledgerDir: /data/db/ledger.db
   chainDir: /data/db/chain.db
 
@@ -66,6 +103,30 @@ config:
   # with cardano-node's mainnet-peer-snapshot.json. Unset uses the snapshot
   # embedded in the image for known networks.
   peerSnapshot: ""
+
+  # Optional Mithril sync, run once after bootstrap and before the node starts.
+  #
+  # This is an ACCELERATOR, not an alternative to bootstrap: `amaru mithril sync`
+  # fails standalone with "Did you bootstrap your node?". It downloads verified
+  # Mithril immutable files and ingests the blocks, which reaches tip faster than
+  # pulling them from peers — most useful on mainnet, where the gap between the
+  # bootstrap snapshot epoch and the tip is large.
+  #
+  # Aggregator endpoints and genesis verification keys are COMPILED INTO the
+  # image per network and cannot be configured — unlike the cardano-node chart,
+  # which passes them explicitly to mithril-client. There is nothing to set here.
+  #
+  # Off by default. Failures are non-fatal unless failOnError is set: see the
+  # chart README for the known block-validation failure on preview.
+  mithrilSync:
+    enabled: false
+    failOnError: false
+    # Where the downloaded Mithril immutable files are kept. Sizeable — 35MB for
+    # preview at the time of writing, far more on mainnet. Lives on the PVC.
+    snapshotsDir: /data/db/mithril
+    # Optional bounds on how much is ingested. Unset ingests everything available.
+    ingestUntilSlot: null
+    ingestMaximumBlocks: null
 
   # Optional HTTP Cardano Submit API (POST /api/submit/tx).
   # Amaru has no node-to-client (n2c) socket; this is the nearest equivalent.
@@ -128,6 +189,31 @@ otelCollector:
   # OTLP receiver ports (receives data from Amaru over localhost)
   otlpGrpcPort: 4317
   otlpHttpPort: 4318
+
+  # Amaru exports METRICS, LOGS AND TRACES over OTLP — not metrics alone.
+  #
+  # A collector wired for metrics only answers `Unimplemented` to the other two,
+  # and Amaru's exporters retry every ~5 seconds forever, writing an ERROR line
+  # each time into AMARU'S OWN LOG:
+  #
+  #   ERROR opentelemetry_sdk: TonicLogsClient   export failed … Unimplemented
+  #   ERROR opentelemetry_sdk: TonicTracesClient export failed … Unimplemented
+  #
+  # That is not cosmetic. Amaru reports block-validation failures — the thing you
+  # actually need to see — at WARN, so a continuous stream of routine ERRORs
+  # OUTRANKS the diagnostics and buries them. It nearly cost a real investigation
+  # its answer. A log whose routine failures outrank its findings is worse than a
+  # quiet one, and every future investigation on this chart pays that cost.
+  #
+  # Setting this true gives both signals a pipeline that terminates in the debug
+  # exporter, so Amaru receives success and stops retrying. The summaries land in
+  # the SIDECAR's stdout, not Amaru's, so severity stays where it belongs.
+  # Traces additionally go to exporters.otlp when that is enabled.
+  acceptLogsAndTraces: true
+
+  # Verbosity of the debug exporter that terminates those pipelines.
+  # `basic` is one summary line per batch; `normal` and `detailed` print payloads.
+  debugVerbosity: basic
 
   # Prometheus scrape endpoint (for Prometheus to scrape)
   # Note: 8888 is used by OTel Collector's own internal metrics

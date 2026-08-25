@@ -159,6 +159,71 @@ Leaving a source out of the mix formula **disables** it.
 > The legacy singular `nodes[].peerAddress` is still honoured as a fallback for
 > existing deployment values, but `peerAddresses` is the supported form.
 
+## Bootstrap and Mithril
+
+Two distinct mechanisms, easy to conflate:
+
+| | `amaru node bootstrap` | `amaru mithril sync` |
+|---|---|---|
+| what | imports a ledger snapshot, bootstrap headers and nonces | downloads verified Mithril immutable files and ingests the blocks |
+| source | Amaru's own S3/R2 snapshot bucket | the Mithril aggregator for the network |
+| required? | **yes** — the node cannot start without it | no, an accelerator |
+| chart | always runs, in an init container | opt-in, `config.mithrilSync.enabled` |
+
+**They are sequential, not alternative.** Run standalone against an empty volume,
+`amaru mithril sync` fails immediately with *"Failed to create ledger. Did you
+bootstrap your node?"*. The chart enforces the ordering: the Mithril init
+container refuses to run unless the bootstrap marker is present.
+
+### There is nothing to configure for Mithril
+
+Unlike the `cardano-node` chart in this repo — which passes
+`--aggregator-endpoint`, `--genesis-verification-key` and
+`--ancillary-verification-key` to `mithril-client` — Amaru exposes **no Mithril
+configuration at all**. The aggregator endpoints and genesis verification keys
+are compiled into the binary per network:
+
+```
+mainnet  https://aggregator.release-mainnet.api.mithril.network/aggregator
+preprod  https://aggregator.release-preprod.api.mithril.network/aggregator
+preview  https://aggregator.testing-preview.api.mithril.network/aggregator
+```
+
+The embedded mainnet genesis verification key is byte-identical to the one the
+`cardano-node` chart passes explicitly. The only Mithril knob in the whole binary
+is the snapshots directory. **Consequence:** if PRAGMA ever rotates an aggregator
+or key, you upgrade the image — the chart cannot override it.
+
+### Known issue: Mithril ingest can fail on block validation
+
+Observed with `v10.11.20260820` on **preview**: after a successful bootstrap at
+epoch 1392, Mithril ingest aborted validating a real on-chain block —
+
+```
+Error processing block at point
+  Specific(120355272, d63078a9dccec5c0235ab3d00e4318d01005a93522206cc1e84d314afc6c7d86, 4580253)
+  tx 4c8c5695ce079731b7843f45011943fe61e3c8964a1e48e7b23e92f3ef4d7dcb index 0
+  phase two validation: PlutusV2 script evaluation failure, "Out of budget"
+  consumed cpu 78,466,510 — remaining cpu -12,122
+```
+
+The block is on the real preview chain, so the Haskell node accepted it; Amaru's
+cost accounting overshoots by ~0.015%. Reproduce with:
+
+```bash
+docker run --rm -v $PWD/data:/data ghcr.io/pragma-org/amaru:v10.11.20260820 \
+  node bootstrap --network=preview --ledger-dir /data/ledger.db --chain-dir /data/chain.db
+docker run --rm -v $PWD/data:/data ghcr.io/pragma-org/amaru:v10.11.20260820 \
+  mithril sync --network preview --ledger-dir /data/ledger.db \
+    --chain-dir /data/chain.db --snapshots-dir /data/mithril
+```
+
+This is why `config.mithrilSync.failOnError` defaults to **false**: an ingest
+failure leaves a perfectly valid bootstrapped node that can still reach tip from
+its peers, and treating it as fatal would turn an accelerator into a reason the
+pod never starts. Not established: whether `node run` hits the same block when
+syncing from peers.
+
 ## Config, storage and bootstrap
 
 Amaru takes no topology file and no config directory — everything is CLI flags
@@ -175,10 +240,54 @@ mounts `<network>-config.json` and `<network>-topology.json`.
 Both databases live on the per-relay PersistentVolume mounted at `/data/db`,
 sized by `volumeSize`.
 
-**Bootstrap.** An init container runs `amaru node bootstrap`, which downloads a
-ledger snapshot, bootstrap headers and nonces from PRAGMA's snapshot bucket. It
-is skipped once the databases exist, so restarts and upgrades do not re-download.
-It needs outbound HTTPS.
+**Bootstrap and restarts.** An init container runs `amaru node bootstrap`. It
+needs outbound HTTPS. Completion is recorded with a marker file
+(`<dataDir>/.bootstrap-complete`) written **only** after bootstrap exits 0 — not
+by checking whether the database directories exist. That distinction is
+load-bearing:
+
+- Amaru **refuses** to bootstrap into an existing directory (*"use another
+  location or remove it manually"*) and exits non-zero, so an unguarded re-run
+  would fail every restart.
+- A pod evicted mid-bootstrap leaves *one* database behind. A directory-existence
+  check reads that as "already done" and starts the node on a half-built ledger.
+  A completed bootstrap always produces both databases, so exactly one present
+  and no marker means an aborted attempt: the chart clears it and starts over.
+- Databases that predate the marker are **adopted**, never wiped — the chart does
+  not destroy data it cannot prove is broken.
+
+Preview needs roughly 1.6GB of ledger after bootstrap; mainnet is substantially
+larger. Size `volumeSize` accordingly.
+
+**The PVC size is DERIVED FROM `network`, not defaulted.** `volumeSizeByNetwork`
+maps mainnet and preprod to `250Gi` and preview to `50Gi`; an unknown network
+falls back to the mainnet figure. Setting `volumeSize` overrides the derivation
+entirely.
+
+**It is derived rather than left to the preset files for a specific reason.**
+GitOps tools commonly supply values *inline*, and an operator who writes
+`network: preview` inline never opens `values-preview.yaml` — so a size that lived
+only in that file handed them **mainnet sizing on preview**, silently, with
+nothing to warn them. Deriving from the network makes that mistake unavailable
+rather than merely documented. (This happened; it is not hypothetical.)
+
+Preprod stays at the mainnet figure deliberately: it is far nearer mainnet than
+preview is, and no measurement exists that would justify a specific smaller number.
+
+**50Gi is an over-estimate on purpose, not a measurement.** The ledger is ~1.6GB
+after bootstrap (observed); chain-db growth from the bootstrap epoch to tip is
+**unmeasured**, and Mithril snapshots share the same volume when enabled. The
+asymmetry sets the direction: a storage class with `ALLOWVOLUMEEXPANSION=false` —
+k3s's default `local-path` included — cannot grow a PVC that turns out too small,
+so **under-sizing is not "adjust later", it is destroy the volume, re-bootstrap
+and re-sync**, while over-sizing costs only a nominal claim (`local-path` does not
+preallocate — a 250Gi claim binds instantly and consumes nothing). Refine downward
+once a preview relay has actually reached tip.
+
+> **⚠ Resizing a RUNNING relay does not work.** A StatefulSet's
+> `volumeClaimTemplates` are immutable, so an upgrade that changes the size is
+> rejected by the API server. Resizing means deleting the StatefulSet
+> (`--cascade=orphan` keeps the pods) and re-applying, or replacing the PVC.
 
 **Chain database v6.** As of `v10.11.20260820` the chain database schema is
 version 6. Version 5 databases migrate automatically **only** with
@@ -210,6 +319,40 @@ The sidecar can also remote-write, or forward traces, via
 sidecar, set `otelCollector.enabled: false` and give the node
 `otlpMetricUrl` / `otlpSpanUrl`.
 
+## Logging, and why the sidecar must accept logs and traces
+
+**Amaru exports metrics, logs AND traces over OTLP.** A collector wired only for
+metrics answers `Unimplemented` to the other two, and Amaru's exporters retry
+every ~5 seconds, forever, writing an ERROR line into **Amaru's own log** each
+time:
+
+```
+ERROR opentelemetry_sdk: TonicLogsClient   export failed … gRPC code: Unimplemented
+ERROR opentelemetry_sdk: TonicTracesClient export failed … gRPC code: Unimplemented
+```
+
+**This is not cosmetic noise, and the reason is worth stating plainly: it inverts
+severity.** Amaru reports block-validation failures — the messages that explain
+why a node has stopped advancing — at **WARN**. A continuous stream of routine
+**ERROR**s therefore outranks the diagnostics and buries them. During a real
+investigation on this chart, the one WARN that contained the entire answer was
+very nearly missed in that stream. A log whose routine failures outrank its
+findings is worse than a quiet one, and every future investigation pays the cost.
+
+`otelCollector.acceptLogsAndTraces` (default `true`) gives both signals a pipeline
+terminating in the collector's `debug` exporter, so Amaru receives success and
+stops retrying. The summaries land in the **sidecar's** stdout, not Amaru's, so
+severity stays where it belongs; `otelCollector.debugVerbosity` (default `basic`,
+one line per batch) controls how much they say.
+
+Traces additionally reach a real backend when `otelCollector.exporters.otlp` is
+enabled. There is no such route for logs — the collector accepts and discards
+them, which is what stops the retry loop.
+
+**If you disable the sidecar entirely**, Amaru has nowhere to push and the same
+ERROR stream returns. Amaru has no `/metrics` endpoint and no way to be told to
+stop exporting, so the sidecar is the only place this can be handled.
+
 ## Health checks
 
 The chart sets a **readiness** probe (TCP connect on the p2p port) and
@@ -240,7 +383,10 @@ databases for a network.
 | `image.repository` | `ghcr.io/pragma-org/amaru` | upstream image |
 | `image.tag` | `""` → chart `appVersion` | pin a release; `:latest` is a nightly |
 | `network` | `mainnet` | `mainnet` \| `preprod` \| `preview` |
-| `volumeSize` | `250Gi` | PVC size per relay |
+| `volumeSize` | `""` | explicit PVC size; overrides the derivation |
+| `volumeSizeByNetwork` | mainnet/preprod `250Gi`, preview `50Gi` | PVC size derived from `network` — see Storage |
+| `otelCollector.acceptLogsAndTraces` | `true` | give Amaru's log/trace exporters a pipeline — see Logging |
+| `otelCollector.debugVerbosity` | `basic` | verbosity of the exporter terminating those pipelines |
 | `resources` | 1 CPU / 1Gi | chart-level default, overridable per node |
 | `podSecurityContext.fsGroup` | `10000` | required for PVC write access |
 | `nodes[].name` | `relay-1` | relay name; becomes the object name suffix |
