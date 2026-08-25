@@ -252,8 +252,16 @@ spec:
       {{- if $attributes.storageClassName }}
       storageClassName: {{ $attributes.storageClassName }}
       {{- end }}
+      {{- /*
+        Size derived from `network` unless volumeSize overrides it. Derived
+        rather than defaulted because GitOps consumers supply values INLINE and
+        never read values-<network>.yaml — a size living only in that file gave
+        them mainnet sizing on preview with no warning. Unknown networks fall
+        back to the mainnet figure, which is the safe direction.
+      */}}
+      {{- $size := $.Values.volumeSize | default (index ($.Values.volumeSizeByNetwork | default dict) ($.Values.network | toString)) | default "250Gi" }}
       resources:
         requests:
-          storage: {{ $.Values.volumeSize }}
+          storage: {{ $size }}
 {{ end }}
 {{ end }}

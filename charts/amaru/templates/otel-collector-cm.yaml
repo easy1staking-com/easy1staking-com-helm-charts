@@ -59,9 +59,11 @@ data:
         tls:
           insecure: {{ $collectorConfig.exporters.otlp.insecure | default true }}
       {{- end }}
-      # Debug exporter for debugging
+      # Debug exporter. Terminates the logs/traces pipelines when
+      # acceptLogsAndTraces is on, so Amaru's exporters get a success response
+      # instead of Unimplemented. Its output goes to THIS container's stdout.
       debug:
-        verbosity: normal
+        verbosity: {{ $collectorConfig.debugVerbosity | default "basic" }}
 
     service:
       pipelines:
@@ -85,7 +87,14 @@ data:
             {{- $exporters = append $exporters "prometheusremotewrite" }}
             {{- end }}
             {{- toYaml $exporters | nindent 12 }}
-        {{- if dig "exporters" "otlp" "enabled" false $collectorConfig }}
+        {{- /*
+          Amaru exports logs and traces as well as metrics. Without pipelines for
+          them the collector answers Unimplemented and Amaru retries every ~5s,
+          writing ERROR lines into its own log that outrank the WARN-level
+          block-validation messages an operator actually needs to read.
+        */}}
+        {{- $wantTraces := or (dig "exporters" "otlp" "enabled" false $collectorConfig) ($collectorConfig.acceptLogsAndTraces | default false) }}
+        {{- if $wantTraces }}
         traces:
           receivers: [otlp]
           processors:
@@ -97,7 +106,21 @@ data:
             {{- $processors = append $processors "batch" }}
             {{- end }}
             {{- toYaml $processors | nindent 12 }}
-          exporters: [otlp, debug]
+          exporters: [{{ if dig "exporters" "otlp" "enabled" false $collectorConfig }}otlp, {{ end }}debug]
+        {{- end }}
+        {{- if $collectorConfig.acceptLogsAndTraces | default false }}
+        logs:
+          receivers: [otlp]
+          processors:
+            {{- $processors := list }}
+            {{- if or (dig "processors" "memory_limiter" "enabled" true $collectorConfig) (not (hasKey $collectorConfig "processors")) }}
+            {{- $processors = append $processors "memory_limiter" }}
+            {{- end }}
+            {{- if or (dig "processors" "batch" "enabled" true $collectorConfig) (not (hasKey $collectorConfig "processors")) }}
+            {{- $processors = append $processors "batch" }}
+            {{- end }}
+            {{- toYaml $processors | nindent 12 }}
+          exporters: [debug]
         {{- end }}
 {{- end }}
 {{- end }}

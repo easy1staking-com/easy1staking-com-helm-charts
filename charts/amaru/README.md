@@ -259,21 +259,35 @@ load-bearing:
 Preview needs roughly 1.6GB of ledger after bootstrap; mainnet is substantially
 larger. Size `volumeSize` accordingly.
 
-**`volumeSize` defaults to 250Gi, which is a MAINNET figure**, so every network
-preset that does not override it inherits mainnet's storage. `values-preview.yaml`
-overrides it to **50Gi**; `values-preprod.yaml` deliberately does not, because
-preprod is far nearer mainnet than preview is and no measurement exists to justify
-a specific smaller number.
+**The PVC size is DERIVED FROM `network`, not defaulted.** `volumeSizeByNetwork`
+maps mainnet and preprod to `250Gi` and preview to `50Gi`; an unknown network
+falls back to the mainnet figure. Setting `volumeSize` overrides the derivation
+entirely.
+
+**It is derived rather than left to the preset files for a specific reason.**
+GitOps tools commonly supply values *inline*, and an operator who writes
+`network: preview` inline never opens `values-preview.yaml` — so a size that lived
+only in that file handed them **mainnet sizing on preview**, silently, with
+nothing to warn them. Deriving from the network makes that mistake unavailable
+rather than merely documented. (This happened; it is not hypothetical.)
+
+Preprod stays at the mainnet figure deliberately: it is far nearer mainnet than
+preview is, and no measurement exists that would justify a specific smaller number.
 
 **50Gi is an over-estimate on purpose, not a measurement.** The ledger is ~1.6GB
 after bootstrap (observed); chain-db growth from the bootstrap epoch to tip is
 **unmeasured**, and Mithril snapshots share the same volume when enabled. The
-asymmetry is what sets the direction: a storage class with
-`ALLOWVOLUMEEXPANSION=false` — which includes k3s's default `local-path` — cannot
-grow a PVC that turns out too small, so **under-sizing is not "adjust later", it
-is destroy the volume, re-bootstrap and re-sync**, while over-sizing merely claims
-disk on a shared node. Refine downward once a preview relay has actually reached
-tip.
+asymmetry sets the direction: a storage class with `ALLOWVOLUMEEXPANSION=false` —
+k3s's default `local-path` included — cannot grow a PVC that turns out too small,
+so **under-sizing is not "adjust later", it is destroy the volume, re-bootstrap
+and re-sync**, while over-sizing costs only a nominal claim (`local-path` does not
+preallocate — a 250Gi claim binds instantly and consumes nothing). Refine downward
+once a preview relay has actually reached tip.
+
+> **⚠ Resizing a RUNNING relay does not work.** A StatefulSet's
+> `volumeClaimTemplates` are immutable, so an upgrade that changes the size is
+> rejected by the API server. Resizing means deleting the StatefulSet
+> (`--cascade=orphan` keeps the pods) and re-applying, or replacing the PVC.
 
 **Chain database v6.** As of `v10.11.20260820` the chain database schema is
 version 6. Version 5 databases migrate automatically **only** with
@@ -305,6 +319,40 @@ The sidecar can also remote-write, or forward traces, via
 sidecar, set `otelCollector.enabled: false` and give the node
 `otlpMetricUrl` / `otlpSpanUrl`.
 
+## Logging, and why the sidecar must accept logs and traces
+
+**Amaru exports metrics, logs AND traces over OTLP.** A collector wired only for
+metrics answers `Unimplemented` to the other two, and Amaru's exporters retry
+every ~5 seconds, forever, writing an ERROR line into **Amaru's own log** each
+time:
+
+```
+ERROR opentelemetry_sdk: TonicLogsClient   export failed … gRPC code: Unimplemented
+ERROR opentelemetry_sdk: TonicTracesClient export failed … gRPC code: Unimplemented
+```
+
+**This is not cosmetic noise, and the reason is worth stating plainly: it inverts
+severity.** Amaru reports block-validation failures — the messages that explain
+why a node has stopped advancing — at **WARN**. A continuous stream of routine
+**ERROR**s therefore outranks the diagnostics and buries them. During a real
+investigation on this chart, the one WARN that contained the entire answer was
+very nearly missed in that stream. A log whose routine failures outrank its
+findings is worse than a quiet one, and every future investigation pays the cost.
+
+`otelCollector.acceptLogsAndTraces` (default `true`) gives both signals a pipeline
+terminating in the collector's `debug` exporter, so Amaru receives success and
+stops retrying. The summaries land in the **sidecar's** stdout, not Amaru's, so
+severity stays where it belongs; `otelCollector.debugVerbosity` (default `basic`,
+one line per batch) controls how much they say.
+
+Traces additionally reach a real backend when `otelCollector.exporters.otlp` is
+enabled. There is no such route for logs — the collector accepts and discards
+them, which is what stops the retry loop.
+
+**If you disable the sidecar entirely**, Amaru has nowhere to push and the same
+ERROR stream returns. Amaru has no `/metrics` endpoint and no way to be told to
+stop exporting, so the sidecar is the only place this can be handled.
+
 ## Health checks
 
 The chart sets a **readiness** probe (TCP connect on the p2p port) and
@@ -335,7 +383,10 @@ databases for a network.
 | `image.repository` | `ghcr.io/pragma-org/amaru` | upstream image |
 | `image.tag` | `""` → chart `appVersion` | pin a release; `:latest` is a nightly |
 | `network` | `mainnet` | `mainnet` \| `preprod` \| `preview` |
-| `volumeSize` | `250Gi` (mainnet); **`50Gi` on preview** | PVC size per relay — over-estimate, see Storage |
+| `volumeSize` | `""` | explicit PVC size; overrides the derivation |
+| `volumeSizeByNetwork` | mainnet/preprod `250Gi`, preview `50Gi` | PVC size derived from `network` — see Storage |
+| `otelCollector.acceptLogsAndTraces` | `true` | give Amaru's log/trace exporters a pipeline — see Logging |
+| `otelCollector.debugVerbosity` | `basic` | verbosity of the exporter terminating those pipelines |
 | `resources` | 1 CPU / 1Gi | chart-level default, overridable per node |
 | `podSecurityContext.fsGroup` | `10000` | required for PVC write access |
 | `nodes[].name` | `relay-1` | relay name; becomes the object name suffix |
