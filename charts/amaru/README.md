@@ -316,8 +316,29 @@ one collector are on — with no collector there is nothing to scrape.
 
 The sidecar can also remote-write, or forward traces, via
 `otelCollector.exporters`. To ship to a central collector instead of running a
-sidecar, set `otelCollector.enabled: false` and give the node
-`otlpMetricUrl` / `otlpSpanUrl`.
+sidecar, set `otelCollector.enabled: false` and give the node `otlpEndpoint`.
+
+### How Amaru is pointed at the collector
+
+`AMARU_WITH_OPEN_TELEMETRY` turns export on. **The endpoint is not an `AMARU_`
+variable** — this binary contains no `AMARU_OTLP_*` string at all and reads the
+**standard OpenTelemetry SDK environment**, so the chart sets
+`OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME`.
+
+Until `0.0.1-alpha.22` the chart set `AMARU_OTLP_METRIC_URL`,
+`AMARU_OTLP_SPAN_URL` and `AMARU_OTLP_SERVICE_NAME` instead. Those were
+introduced in December 2025 against appVersion `0.0.1-alpha.1` and **silently
+ignored ever since**; telemetry worked only because the SDK's default endpoint is
+`localhost:4317`, which is where the sidecar listens. **`otelCollector.otlpGrpcPort`
+was therefore a trap: moving it moved the collector's listener while the exporter
+kept sending to 4317, and metrics stopped with every value in the chart looking
+correctly applied.** It is a real knob now.
+
+> **⚠ `otelCollector.otlpHttpPort` carries no traffic.** Measured from the
+> collector's own internal telemetry, every signal — metrics, logs and spans —
+> arrives over **gRPC on `otlpGrpcPort`**. The HTTP receiver is configured and
+> unused. Two port values invite the reading that both are live paths; only one
+> is, and only one needs changing if you move ports.
 
 ## Logging, and why the sidecar must accept logs and traces
 
