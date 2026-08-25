@@ -217,10 +217,43 @@ halted identically.
 completed, intersect found, upstream tip 4,602,448 visible. The node is connected;
 the height is blocked by block *content*.
 
-**DERIVED, and it wants someone who owns the ledger rules:** Conway removed
-Babbage's requirement that reference inputs and spent inputs be disjoint, and
-Amaru appears to still enforce it. **OBSERVED:** the block is on the real preview
-chain and cardano-node 11.0.1 accepted it.
+**The cause is confirmed upstream, and a fix exists but is not released.**
+[`pragma-org/amaru` PR #1255, *"Fix Disjoint Inputs Check(s)"*](https://github.com/pragma-org/amaru/pull/1255)
+states it directly: *"In pv11+, the reference inputs and the inputs do NOT need
+to be disjoint sets."* Preview is on `protocol_major` 11, so that conditional
+applies here.
+
+**That PR is OPEN and UNMERGED**, which is exactly why no image escapes this:
+`v10.11.20260820` halts, and so does `latest`, because the fix lives on a branch
+rather than in a release. **There is nothing to upgrade to.** The wait is for
+#1255 to merge *and* a release to be cut.
+
+> Provenance, since this chart is careful about it elsewhere: we reached
+> "Conway removed the disjointness requirement" as a **DERIVED** hypothesis and
+> labelled it one, having no standing on ledger rules. Upstream's own PR
+> description says the same thing, which makes it **DOCUMENTED** — by them, not
+> by us. The two agree; only the second is citable.
+
+Reproducing it takes about a minute on bare Docker, no Kubernetes and no chart —
+bootstrap lands at 4,580,250 and the wall is 7,757 blocks later:
+
+```bash
+docker volume create amaru-repro
+# the image runs as uid 10000; a fresh volume is root-owned
+docker run --rm -u 0 -v amaru-repro:/data --entrypoint sh \
+  ghcr.io/pragma-org/amaru:v10.11.20260820 -c 'chown -R 10000:10000 /data'
+
+docker run --rm -v amaru-repro:/data ghcr.io/pragma-org/amaru:v10.11.20260820 \
+  node bootstrap --network preview \
+  --ledger-dir /data/ledger.db --chain-dir /data/chain.db
+
+docker run --rm -v amaru-repro:/data ghcr.io/pragma-org/amaru:v10.11.20260820 \
+  node run --network preview \
+  --ledger-dir /data/ledger.db --chain-dir /data/chain.db --no-tui
+```
+
+The rejected transaction is `97df1aec…228dc4` at index 0, and the input Amaru
+finds in both sets is `fbe65e04…30611e#0`.
 
 If you deploy this chart on preview and the height stops at 4,588,006, **that is
 this, and it is expected** — not a misconfiguration, and not worth investigating
