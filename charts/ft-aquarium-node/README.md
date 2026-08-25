@@ -244,6 +244,55 @@ leaves the pod `Pending` no matter how much memory is actually free — and **a
 namespace is an authorisation boundary, not a resource boundary on a single
 node.** Raise `resources.requests.memory` against the target node's real headroom.
 
+### 9. Cursor cleanup — undocumented upstream, and the reason a fresh sync OOMs
+
+**This is the one that took the node down.** A first deploy synced for ~45 minutes, reached the
+end of its sync, and then crash-looped **60 times**. The chart was not the cause and the memory
+limit was not the fix.
+
+`yaci-store`'s `CursorCleanupScheduler` deletes aged cursor rows with a Spring Data **derived
+delete** — no `@Modifying`, no `@Query` — so **every matching row is loaded as a managed entity
+before deletion**, inside one transaction. The ~45-minute sync accumulated ~1.65M rows, the first
+post-sync run tried to materialise all of them, and the pod died of `OutOfMemoryError` → GC
+thrash → liveness timeout → `SIGTERM`.
+
+**It could not recover on its own.** The scheduler's `initialDelay` is 30 seconds, so every fresh
+pod re-attempted the same oversized delete half a minute in, before it could make any progress.
+That is a **self-perpetuating** restart loop, not a flapping one — no number of restarts helps.
+
+**The lever is the interval, not the limit.** Each run deletes only what aged past the window
+since the *previous* run, so the working set is set by how often it runs:
+
+| Property | Env var | Upstream default | This chart |
+|---|---|---|---|
+| `store.cardano.cursor-cleanup-interval` | `STORE_CARDANO_CURSOR_CLEANUP_INTERVAL` | `3600` | **`60`** |
+| `store.cardano.cursor-no-of-blocks-to-keep` | `STORE_CARDANO_CURSOR_NO_OF_BLOCKS_TO_KEEP` | `2160` | `2160` |
+
+At 3600 a fresh sync hands its entire backlog to the first run. At 60 the same sync drains a
+minute at a time — order ~36k rows per run instead of 1.65M. The divergence from the upstream
+default is deliberate: **this chart's normal case is a from-genesis sync**, which is exactly the
+case 3600 fails. Set either value to `null` to omit the variable and inherit upstream's.
+
+> **⚠ Do not set `cursorNoOfBlocksToKeep` to `0`.** Zero does not mean "keep nothing" — it
+> disables the cleanup bean entirely, trading a bounded OOM for **unbounded disk growth**
+> (~1.65M rows per 45 minutes of sync) and giving up the rollback window with it. The chart
+> honours an explicit `0` rather than silently dropping it, so nothing stops you but this line.
+
+**The honest limit: this bounds a sync that is still running. It does not drain a backlog that
+already exists.** A node that has already accumulated the rows must survive one large delete
+regardless — raising `limits.memory` temporarily is the way through that, and then put it back.
+
+**And the reason this matters more than the incident it came from: the margin was proportion, not
+design.** 3Gi happened to fit a 45-minute preview sync at 94% of the ceiling. A modestly longer
+sync exceeds any limit you pick, and on mainnet the same mechanism recurs at a larger scale.
+
+**Why configuration rather than an upgrade:** it *is* fixed upstream — `2764ca6`, 2026-08-02,
+set-based deletes with constant memory. But the latest release is `v2.0.2.1` from 2026-07-10,
+which predates the fix, and the gap from what this image pins is `0.1.7 → 2.0.2.x` — a major
+migration, for a fix that release would not even carry. Configuration is not the better answer
+here; it is the only one.
+
+
 ---
 
 ## Secrets
@@ -366,7 +415,7 @@ one-line application change, not something this chart can fix.
 | `image.tag` | `""` → chart `appVersion` (`2026.07.13`) | ignored when `image.digest` is set |
 | `image.digest` | `sha256:3e016ea1…5eeb2a` | pins; wins over the tag |
 | `service.type` / `service.port` | `ClusterIP` / `8080` | no NodePort, no Ingress |
-| `resources` | 512Mi/1Gi, 250m/1 | §8 — no measured figure exists |
+| `resources` | 512Mi/1Gi, 250m/1 | §8 — adequate at steady state; do not size from the §9 peak |
 | `jvm.opts` | `-XX:MaxRAMPercentage=75` | via `JAVA_TOOL_OPTIONS`; `JAVA_OPTS` is read by nothing |
 | `terminationGracePeriodSeconds` | `60` | app has no graceful shutdown |
 | `startupProbe` / `livenessProbe` | `/actuator/health` | no readiness probe — §2 |
@@ -374,6 +423,8 @@ one-line application change, not something this chart can fix.
 | `config.db.*` | host `""`, port 5432, db `aquarium`, schema `public`, user `aquarium` | Postgres is consumed, not deployed — §7 on the username |
 | `config.db.url` | `""` | composed from the parts above unless overridden |
 | `config.store.cardano.host` / `.port` | public preview relay / `3001` | |
+| `config.store.cardano.cursorCleanupIntervalSeconds` | `60` | **diverges from upstream's `3600`** — §9; `null` inherits |
+| `config.store.cardano.cursorNoOfBlocksToKeep` | `2160` | upstream default; **`0` disables cleanup entirely** — §9 |
 | `secret.name` | `""` | empty → no secrets in the render |
 | `secret.mode` | `file` | or `env` — same Secret, different projection |
 | `secret.keys.*` | `wallet-mnemonic`, `blockfrost-key`, `db-password` | keys within that Secret |

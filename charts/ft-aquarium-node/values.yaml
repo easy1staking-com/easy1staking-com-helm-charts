@@ -53,7 +53,21 @@ service:
 # /api/v1 API and the Spring actuator share this one port, on a pod that holds a
 # wallet seed. Reachability for debugging is `kubectl port-forward`.
 
-# Sizing. THERE IS NO MEASURED FIGURE FOR THIS APPLICATION — not "not tuned",
+# Sizing. These are now REPORTED ADEQUATE FOR STEADY STATE from a real preview
+# deployment that reached tip — the first evidence this chart has ever had.
+#
+# ⚠ Do NOT size from the ~2.8Gi peak observed during that deployment's initial
+# sync. That peak was the cursor-cleanup defect described under
+# config.store.cardano, not a memory requirement: the fix is the cleanup
+# INTERVAL, and sizing the limit to fit an unbounded delete only buys a larger
+# sync before the same failure returns. A number taken from a pathology looks
+# exactly like a measurement, which is how it becomes permanent.
+#
+# What remains genuinely unmeasured is the peak of a HEALTHY initial sync, with
+# the cleanup interval at 60. The original state of this comment follows,
+# because it is still true of that number:
+#
+# THERE IS NO MEASURED FIGURE FOR THIS APPLICATION — not "not tuned",
 # but none. The compose file's JAVA_OPTS was never read by the entrypoint (see
 # jvm.opts below), so every number derived from it, including the application
 # repo's own suggestion, carries no weight. These are a deliberate starting
@@ -190,6 +204,55 @@ config:
     cardano:
       host: preview-node.world.dev.cardano.org
       port: 3001
+
+      # --- Cursor cleanup: UNDOCUMENTED UPSTREAM, and load-bearing ---
+      #
+      # yaci-store's CursorCleanupScheduler deletes aged cursor rows with a
+      # Spring Data DERIVED delete (no @Modifying, no @Query), so every matching
+      # row is loaded as a MANAGED ENTITY before deletion, in one transaction.
+      # The working set is therefore whatever accumulated since the LAST run —
+      # which makes the INTERVAL the lever, and the memory limit not.
+      #
+      # Neither property below appears anywhere in yaci-store's documentation.
+      # They exist only in its source. That is why they are surfaced here: an
+      # operator could not discover them.
+      #
+      # THE FAILURE THIS PREVENTS, observed on this chart's first deploy: a
+      # ~45-minute initial sync accumulated ~1.65M rows, the first post-sync
+      # cleanup tried to materialise all of them at once, and the pod died of
+      # OutOfMemoryError → GC thrash → liveness timeout → SIGTERM. Sixty times,
+      # because the scheduler's 30s initialDelay meant every fresh pod
+      # re-attempted the same oversized delete before it could make progress —
+      # a self-perpetuating restart loop, not a flapping one.
+      #
+      # 60 rather than yaci-store's own default of 3600 — a DELIBERATE
+      # divergence. At 3600 a fresh sync presents its entire backlog to the
+      # first run; at 60 the same sync drains a minute at a time, order ~36k
+      # rows per run instead of 1.65M. No code change, reversible, and it costs
+      # only a slightly more frequent small transaction.
+      #
+      # THE HONEST LIMIT: this bounds a sync that is still running. It does NOT
+      # drain a backlog that already exists — a node that has already
+      # accumulated the rows must survive one large delete regardless. So this
+      # is prophylaxis for the NEXT initial sync, which is the case that
+      # matters: the margin in the observed incident was PROPORTION, NOT DESIGN.
+      # A modestly longer sync exceeds any limit you pick, and on mainnet this
+      # recurs at a larger scale.
+      #
+      # Set to null to omit the variable and inherit yaci-store's 3600.
+      cursorCleanupIntervalSeconds: 60
+
+      # Rollback window, in blocks. Upstream default, deliberately unchanged.
+      #
+      # ⚠ DO NOT SET THIS TO 0. Zero does not mean "keep nothing" — it disables
+      # the cleanup bean entirely (@ConditionalOnExpression), trading a bounded
+      # OOM for unbounded disk growth (~1.65M rows per 45 minutes of sync) and
+      # surrendering the rollback window with it. It is honoured explicitly if
+      # you set it — Helm's `with` would silently drop a 0 and this chart does
+      # not use it — so nothing protects you from that choice but this comment.
+      #
+      # Set to null to omit the variable and inherit yaci-store's 2160.
+      cursorNoOfBlocksToKeep: 2160
 
 ## Secrets
 #

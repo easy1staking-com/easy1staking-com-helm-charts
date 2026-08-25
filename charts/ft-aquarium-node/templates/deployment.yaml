@@ -97,6 +97,21 @@ spec:
               value: {{ .Values.config.store.cardano.host | quote }}
             - name: STORE_CARDANO_PORT
               value: {{ .Values.config.store.cardano.port | quote }}
+            {{- /*
+              Cursor cleanup, undocumented upstream. `kindIs "invalid"` rather
+              than `with`, so an explicit 0 reaches the application instead of
+              being silently dropped as falsy — see the warnings in values.yaml
+              about what 0 does to noOfBlocksToKeep. null omits the variable and
+              inherits yaci-store's own default.
+            */}}
+            {{- if not (kindIs "invalid" .Values.config.store.cardano.cursorCleanupIntervalSeconds) }}
+            - name: STORE_CARDANO_CURSOR_CLEANUP_INTERVAL
+              value: {{ .Values.config.store.cardano.cursorCleanupIntervalSeconds | quote }}
+            {{- end }}
+            {{- if not (kindIs "invalid" .Values.config.store.cardano.cursorNoOfBlocksToKeep) }}
+            - name: STORE_CARDANO_CURSOR_NO_OF_BLOCKS_TO_KEEP
+              value: {{ .Values.config.store.cardano.cursorNoOfBlocksToKeep | quote }}
+            {{- end }}
             {{- if and .Values.secret.name (eq .Values.secret.mode "env") }}
             {{- /*
               env mode: the three secrets as secretKeyRef variables. Still by
