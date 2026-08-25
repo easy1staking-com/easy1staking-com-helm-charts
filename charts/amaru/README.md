@@ -217,22 +217,33 @@ halted identically.
 completed, intersect found, upstream tip 4,602,448 visible. The node is connected;
 the height is blocked by block *content*.
 
-**The cause is confirmed upstream, and a fix exists but is not released.**
+**A likely fix exists upstream and is not released.**
 [`pragma-org/amaru` PR #1255, *"Fix Disjoint Inputs Check(s)"*](https://github.com/pragma-org/amaru/pull/1255)
-states it directly: *"In pv11+, the reference inputs and the inputs do NOT need
-to be disjoint sets."* Preview is on `protocol_major` 11, so that conditional
-applies here.
+says: *"In pv11+, the reference inputs and the inputs do NOT need to be disjoint
+sets."* Preview is on `protocol_major` 11, so that conditional applies here, and
+it matches the rule, the protocol version and the symptom.
 
-**That PR is OPEN and UNMERGED**, which is exactly why no image escapes this:
-`v10.11.20260820` halts, and so does `latest`, because the fix lives on a branch
-rather than in a release. **There is nothing to upgrade to.** The wait is for
-#1255 to merge *and* a release to be cut.
+> **⚠ That match rests on one thing nobody has checked yet: is the overlap
+> actually present on chain?** If transaction `97df1aec…` really does list
+> `fbe65e04…#0` in both its reference inputs and its spent inputs, Amaru's *facts*
+> are right, the only question is whether pv11 permits it, and #1255 is the fix.
+> **If it does not, Amaru is misparsing the transaction** — a different and more
+> serious defect, with no PR in flight, and #1255 would not address this case at
+> all. One chain lookup settles it. Until it is run, treat #1255 as a strong
+> candidate rather than the confirmed cause.
+
+**That PR is OPEN and UNMERGED**, which is why no image escapes this. Both
+`v10.11.20260820` and `latest` (digest `b3f8594…`, a different build and a
+different commit) halt on the identical block — **so the halt is not a stale-image
+problem and there is nothing to upgrade to.** The wait is for #1255 to merge *and*
+a release to be cut.
 
 > Provenance, since this chart is careful about it elsewhere: we reached
 > "Conway removed the disjointness requirement" as a **DERIVED** hypothesis and
 > labelled it one, having no standing on ledger rules. Upstream's own PR
-> description says the same thing, which makes it **DOCUMENTED** — by them, not
-> by us. The two agree; only the second is citable.
+> description says the same thing, which makes **the rule** DOCUMENTED — by them,
+> not by us. That the rule is documented does not make **this block** an instance
+> of it; that is the lookup above.
 
 Reproducing it takes about a minute on bare Docker, no Kubernetes and no chart —
 bootstrap lands at 4,580,250 and the wall is 7,757 blocks later:
