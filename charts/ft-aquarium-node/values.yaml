@@ -24,10 +24,28 @@ image:
   # is free to move under you.
   tag: ""
 
-  # When set, the image is pinned BY DIGEST and the tag above is ignored.
-  # This is the form the GitOps handoff wants — a digest cannot drift.
-  # linux/amd64 ONLY: confirm the node's architecture before deploying.
-  digest: "sha256:3e016ea1aeb0cb38dda13ec29bb16a40f560abaf345378b7cb335fe9875eeb2a"
+  # Optional digest pin. When set, the image becomes `repository@digest` and the
+  # tag is IGNORED — so setting both is refused at render rather than silently
+  # resolving one of them.
+  #
+  # ⚠ A DIGEST IS NOT REPOSITORY-INDEPENDENT. It identifies a manifest inside one
+  # repository. Point `repository` somewhere else — a mirror, a private registry,
+  # your own rebuild — and this digest almost certainly does not exist there.
+  # The chart cannot detect that, because it cannot know which repository a digest
+  # came from; the failure surfaces later as an ImagePullBackOff naming a digest
+  # nobody typed.
+  #
+  # **Empty by default, and that is a fix rather than an omission.** This chart
+  # used to ship FluidTokens' published digest here. An operator who set
+  # `repository` and `tag` to their own rebuild got that digest appended to THEIR
+  # repository and an image that could never exist. A default digest can only ever
+  # be correct for one deployer.
+  #
+  # If you pin, pin a digest you resolved from the repository you configured.
+  # For reference, FluidTokens' published `2026.07.13` is
+  # sha256:3e016ea1aeb0cb38dda13ec29bb16a40f560abaf345378b7cb335fe9875eeb2a —
+  # information, not a default.
+  digest: ""
 
 imagePullSecrets: []
 nameOverride: ""

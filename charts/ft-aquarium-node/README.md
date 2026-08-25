@@ -29,7 +29,7 @@ Each of these has a specific way of wasting a day.
 |---|---|
 | repository | `fluidtokens/ft-aquarium-node` |
 | tag | `2026.07.13` (`latest` currently resolves to the same digest) |
-| digest | `sha256:3e016ea1aeb0cb38dda13ec29bb16a40f560abaf345378b7cb335fe9875eeb2a` |
+| digest (informational, **not** a default) | `sha256:3e016ea1aeb0cb38dda13ec29bb16a40f560abaf345378b7cb335fe9875eeb2a` |
 | platform | **linux/amd64 only** — confirm the node's architecture before deploying |
 
 **This is FluidTokens' build from their `main`. It does NOT contain the
@@ -42,8 +42,21 @@ So: **if the bot appears to do nothing on this image, that is expected**, not a
 defect and not a chart bug. Closing the gap is a build-pipeline question on
 FluidTokens' side; we neither build nor publish this image.
 
-The chart pins **by digest** by default, and `image.digest` wins over
-`image.tag` when both are set. A tag describes; only a digest resolves.
+**`image.digest` is empty by default, and that is deliberate.** The chart used to
+ship FluidTokens' published digest as the default — which meant an operator who
+pointed `repository` and `tag` at their own rebuild got *that* digest appended to
+*their* repository, and an image that could not exist. **A default digest can only
+ever be correct for one deployer.** The failure surfaced as an `ImagePullBackOff`
+naming a digest nobody had typed.
+
+**A digest is not repository-independent**: it identifies a manifest inside one
+repository, and the chart has no way to tell whether a digest belongs to the
+repository you configured. So pin a digest you resolved *from the repository you
+set*, and expect no help from the chart if you do not. Two things it can and does
+check: a digest set alongside an explicit `tag` is **refused at render** rather
+than silently winning, and a digest that is not `sha256:` plus 64 hex characters
+is refused too — which catches a truncated paste, and catches a *config* digest
+mistaken for a manifest digest before it becomes a pull failure.
 
 ### 2. A 200 from `/healthcheck` does not mean ready
 
@@ -443,8 +456,8 @@ one-line application change, not something this chart can fix.
 | Key | Default | Notes |
 |---|---|---|
 | `image.repository` | `fluidtokens/ft-aquarium-node` | FluidTokens' build, not ours |
-| `image.tag` | `""` → chart `appVersion` (`2026.07.13`) | ignored when `image.digest` is set |
-| `image.digest` | `sha256:3e016ea1…5eeb2a` | pins; wins over the tag |
+| `image.tag` | `""` → chart `appVersion` (`2026.07.13`) | refused if `image.digest` is also set |
+| `image.digest` | `""` | optional pin; **must belong to `image.repository`** — see §1 |
 | `service.type` / `service.port` | `ClusterIP` / `8080` | no NodePort, no Ingress |
 | `resources` | 512Mi/1Gi, 250m/1 | §8 — adequate at steady state; do not size from the §9 peak |
 | `jvm.opts` | `-XX:MaxRAMPercentage=75` | via `JAVA_TOOL_OPTIONS`; `JAVA_OPTS` is read by nothing |

@@ -59,6 +59,26 @@ believe the tag was verified when only the digest was.
 */}}
 {{- define "ft-aquarium-node.image" -}}
 {{- if .Values.image.digest -}}
+{{- /*
+  A digest identifies a manifest inside ONE repository, so it is only meaningful
+  next to the repository it came from. Two guards, because the silent version of
+  each has no defensible reading:
+
+  - digest AND an explicit tag: refuse. The digest would win and the tag would
+    look applied. An operator who set a tag expects the tag.
+  - a digest that is not sha256:<64 hex>: refuse. Catches a truncated paste and a
+    config digest mistaken for a manifest digest early, rather than at pull time.
+
+  What the chart CANNOT check is whether the digest belongs to the configured
+  repository — it has no way to know. That is why the default is empty; see the
+  warning at image.digest in values.yaml.
+*/ -}}
+{{- if .Values.image.tag -}}
+{{- fail "image.digest and image.tag are both set: a digest pin ignores the tag. Set one or the other." -}}
+{{- end -}}
+{{- if not (regexMatch "^sha256:[0-9a-f]{64}$" .Values.image.digest) -}}
+{{- fail (printf "image.digest must be sha256:<64 hex chars>, got %q" .Values.image.digest) -}}
+{{- end -}}
 {{ .Values.image.repository }}@{{ .Values.image.digest }}
 {{- else -}}
 {{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}
