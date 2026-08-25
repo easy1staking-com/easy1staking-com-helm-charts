@@ -259,6 +259,22 @@ load-bearing:
 Preview needs roughly 1.6GB of ledger after bootstrap; mainnet is substantially
 larger. Size `volumeSize` accordingly.
 
+**`volumeSize` defaults to 250Gi, which is a MAINNET figure**, so every network
+preset that does not override it inherits mainnet's storage. `values-preview.yaml`
+overrides it to **50Gi**; `values-preprod.yaml` deliberately does not, because
+preprod is far nearer mainnet than preview is and no measurement exists to justify
+a specific smaller number.
+
+**50Gi is an over-estimate on purpose, not a measurement.** The ledger is ~1.6GB
+after bootstrap (observed); chain-db growth from the bootstrap epoch to tip is
+**unmeasured**, and Mithril snapshots share the same volume when enabled. The
+asymmetry is what sets the direction: a storage class with
+`ALLOWVOLUMEEXPANSION=false` — which includes k3s's default `local-path` — cannot
+grow a PVC that turns out too small, so **under-sizing is not "adjust later", it
+is destroy the volume, re-bootstrap and re-sync**, while over-sizing merely claims
+disk on a shared node. Refine downward once a preview relay has actually reached
+tip.
+
 **Chain database v6.** As of `v10.11.20260820` the chain database schema is
 version 6. Version 5 databases migrate automatically **only** with
 `config.migrateChainDb: true`. Anything older must be rebuilt: delete the PVC and
@@ -319,7 +335,7 @@ databases for a network.
 | `image.repository` | `ghcr.io/pragma-org/amaru` | upstream image |
 | `image.tag` | `""` → chart `appVersion` | pin a release; `:latest` is a nightly |
 | `network` | `mainnet` | `mainnet` \| `preprod` \| `preview` |
-| `volumeSize` | `250Gi` | PVC size per relay |
+| `volumeSize` | `250Gi` (mainnet); **`50Gi` on preview** | PVC size per relay — over-estimate, see Storage |
 | `resources` | 1 CPU / 1Gi | chart-level default, overridable per node |
 | `podSecurityContext.fsGroup` | `10000` | required for PVC write access |
 | `nodes[].name` | `relay-1` | relay name; becomes the object name suffix |

@@ -1,1 +1,23 @@
 network: preview
+
+# Preview needs a fraction of mainnet's storage, and the chart default
+# (250Gi) is sized for mainnet. Without this override a preview relay claims
+# 250Gi it will never use.
+#
+# THE FIGURE IS NOT MEASURED TO TIP. What is known:
+#   - ledger.db after bootstrap on preview: ~1.6GB, OBSERVED (see README)
+#   - chain.db growth from the bootstrap epoch to tip: UNMEASURED
+#   - mithril snapshots, when config.mithrilSync.enabled: ~35MB at the time of
+#     writing, and they live on this same volume
+#
+# 50Gi is therefore a deliberate over-estimate, not a measurement. It is chosen
+# generous on purpose: a storage class with ALLOWVOLUMEEXPANSION=false — which
+# includes k3s's default local-path — cannot grow a PVC that turns out too
+# small. An under-estimate is not "adjust it later", it is destroy the volume,
+# re-bootstrap and re-sync. Over-estimating costs claimed disk on a shared node;
+# under-estimating costs the whole sync. They are not symmetric.
+#
+# Refine this DOWNWARD once a real preview relay has reached tip and the actual
+# usage is known — and only against a storage class that can expand, or as part
+# of a deliberate re-provision.
+volumeSize: 50Gi
