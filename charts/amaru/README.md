@@ -194,6 +194,98 @@ The embedded mainnet genesis verification key is byte-identical to the one the
 is the snapshots directory. **Consequence:** if PRAGMA ever rotates an aggregator
 or key, you upgrade the image — the chart cannot override it.
 
+### Known issue: preview sync halts permanently at block 4,588,007
+
+**On `v10.11.20260820` a preview relay reaches block 4,588,006 and then stops
+forever**, rejecting 4,588,007 and every block after it as *"descends from an
+invalid block"* while watching upstream tips advance in real time:
+
+```
+BlockValidationError … transaction failed PHASE ONE validation: invalid inputs:
+inputs included in both reference inputs and spent inputs
+parent=…(4588006)   failed_tip=120569440…(4588007)
+```
+
+**No chart configuration changes this.** All four combinations of upstream peers ×
+Mithril sync were run on a live cluster and every one halted on the same block and
+the same transaction. **Mithril changes where the node STARTS, not where it
+STOPS** — a cell with both a healthy local relay peer and a Mithril snapshot
+halted identically.
+
+**It is not a peering problem, which is what it looks like.** Amaru ↔ cardano-node
+11.0.1 node-to-node interop was verified working in the same run: handshake
+completed, intersect found, upstream tip 4,602,448 visible. The node is connected;
+the height is blocked by block *content*.
+
+**The fix exists upstream, is verified to work, and is NOT MERGED.**
+[`pragma-org/amaru` PR #1255, *"Fix Disjoint Inputs Check(s)"*](https://github.com/pragma-org/amaru/pull/1255)
+says: *"In pv11+, the reference inputs and the inputs do NOT need to be disjoint
+sets."* Preview is on `protocol_major` 11, so that conditional applies here.
+
+**We tested it. OBSERVED, 2026-08-25:** built from the PR head `db5961c`, swapped
+into the published `v10.11.20260820` image so that the binary was the only
+difference, and run against a fresh volume with the two commands below. It
+**stepped over the failing block without stopping** — `…4587545 → 4588321 →
+4588731…` — and reached **block 4,602,721 with `max_block_height` equal to it**,
+i.e. caught up to the upstream tip. Zero `BlockValidationError`, zero occurrences
+of 4,588,007, nothing suppressed. **A preview node syncs normally on that branch.**
+
+> **⚠ "Verified" is not "available".** The PR is **open and unmerged**, so no
+> published image contains it. Both `v10.11.20260820` and `latest` (digest
+> `b3f8594…`, a different build from a different commit) halt on the identical
+> block — the halt is not a stale-image problem. **There is still nothing to
+> upgrade to; the difference is that the wait now has a specific end**, namely
+> #1255 merging and a release being cut, rather than being open-ended.
+
+**Two facts a chart operator needs about the halted state itself:**
+
+- **A halted Amaru is a *running* Amaru.** It does not exit. It stays up and
+  refuses each successive block as *"descends from an invalid block"*, so the
+  process is alive, the port is open and `/actuator`-style liveness has nothing
+  to complain about. **This is the concrete reason the probes stay green** — see
+  the retry warning under the probe section, which this is a second instance of.
+- **Nothing in the chart's configuration changes it.** All four combinations of
+  upstream peers × Mithril sync halt on the same block and the same transaction.
+
+The three checks that establish where the defect is not: the overlap really is on
+chain (transaction `97df1aec…` lists `fbe65e04…#0` in both its inputs and its
+reference inputs); the transaction executes **no PlutusV3**, so #1255's own
+carve-out — *"script executions in PlutusV3 must have disjoint sets regardless of
+the protocol version"* — does not cover it; and the failure reproduces on bare
+Docker with no chart and no Kubernetes involved at all.
+
+> Provenance, since this chart is careful about it elsewhere: we reached
+> "Conway removed the disjointness requirement" as a **DERIVED** hypothesis and
+> labelled it one, having no standing on ledger rules. Upstream's own PR
+> description says the same thing, which makes **the rule** DOCUMENTED — by them,
+> not by us. That the rule is documented would not by itself make **this block**
+> an instance of it; the on-chain lookup is what does that, and it is `OBSERVED`.
+
+Reproducing it takes about a minute on bare Docker, no Kubernetes and no chart —
+bootstrap lands at 4,580,250 and the wall is 7,757 blocks later:
+
+```bash
+docker volume create amaru-repro
+# the image runs as uid 10000; a fresh volume is root-owned
+docker run --rm -u 0 -v amaru-repro:/data --entrypoint sh \
+  ghcr.io/pragma-org/amaru:v10.11.20260820 -c 'chown -R 10000:10000 /data'
+
+docker run --rm -v amaru-repro:/data ghcr.io/pragma-org/amaru:v10.11.20260820 \
+  node bootstrap --network preview \
+  --ledger-dir /data/ledger.db --chain-dir /data/chain.db
+
+docker run --rm -v amaru-repro:/data ghcr.io/pragma-org/amaru:v10.11.20260820 \
+  node run --network preview \
+  --ledger-dir /data/ledger.db --chain-dir /data/chain.db --no-tui
+```
+
+The rejected transaction is `97df1aec…228dc4` at index 0, and the input Amaru
+finds in both sets is `fbe65e04…30611e#0`.
+
+If you deploy this chart on preview and the height stops at 4,588,006, **that is
+this, and it is expected** — not a misconfiguration, and not worth investigating
+again.
+
 ### Known issue: Mithril ingest can fail on block validation
 
 Observed with `v10.11.20260820` on **preview**: after a successful bootstrap at
@@ -281,8 +373,21 @@ asymmetry sets the direction: a storage class with `ALLOWVOLUMEEXPANSION=false` 
 k3s's default `local-path` included — cannot grow a PVC that turns out too small,
 so **under-sizing is not "adjust later", it is destroy the volume, re-bootstrap
 and re-sync**, while over-sizing costs only a nominal claim (`local-path` does not
-preallocate — a 250Gi claim binds instantly and consumes nothing). Refine downward
-once a preview relay has actually reached tip.
+preallocate — a 250Gi claim binds instantly and consumes nothing).
+
+**⚠ These figures cannot currently be refined, and that is a property of Amaru,
+not of the chart.** Sizing wants the usage of a relay that has reached tip, and on
+`v10.11.20260820` **no preview relay can reach tip** — see *Known issue: preview
+sync halts permanently* below. Both routes out are closed: the pinned image is the
+newest versioned tag `ghcr.io/pragma-org/amaru` publishes (observed), and a newer
+Mithril snapshot cannot help because ingest **replays forward from the ledger's
+current position** rather than relocating it — only `amaru node bootstrap` sets
+the start point, and that snapshot is compiled into the image.
+
+So `volumeSizeByNetwork` and `resources` are **not merely unmeasured — they are
+unmeasurable until upstream ships a fix.** They are over-estimates justified by
+the asymmetry above, and the first person who *can* measure them should be someone
+running a build that gets past block 4,588,007.
 
 > **⚠ Resizing a RUNNING relay does not work.** A StatefulSet's
 > `volumeClaimTemplates` are immutable, so an upgrade that changes the size is
@@ -316,8 +421,29 @@ one collector are on — with no collector there is nothing to scrape.
 
 The sidecar can also remote-write, or forward traces, via
 `otelCollector.exporters`. To ship to a central collector instead of running a
-sidecar, set `otelCollector.enabled: false` and give the node
-`otlpMetricUrl` / `otlpSpanUrl`.
+sidecar, set `otelCollector.enabled: false` and give the node `otlpEndpoint`.
+
+### How Amaru is pointed at the collector
+
+`AMARU_WITH_OPEN_TELEMETRY` turns export on. **The endpoint is not an `AMARU_`
+variable** — this binary contains no `AMARU_OTLP_*` string at all and reads the
+**standard OpenTelemetry SDK environment**, so the chart sets
+`OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME`.
+
+Until `0.0.1-alpha.22` the chart set `AMARU_OTLP_METRIC_URL`,
+`AMARU_OTLP_SPAN_URL` and `AMARU_OTLP_SERVICE_NAME` instead. Those were
+introduced in December 2025 against appVersion `0.0.1-alpha.1` and **silently
+ignored ever since**; telemetry worked only because the SDK's default endpoint is
+`localhost:4317`, which is where the sidecar listens. **`otelCollector.otlpGrpcPort`
+was therefore a trap: moving it moved the collector's listener while the exporter
+kept sending to 4317, and metrics stopped with every value in the chart looking
+correctly applied.** It is a real knob now.
+
+> **⚠ `otelCollector.otlpHttpPort` carries no traffic.** Measured from the
+> collector's own internal telemetry, every signal — metrics, logs and spans —
+> arrives over **gRPC on `otlpGrpcPort`**. The HTTP receiver is configured and
+> unused. Two port values invite the reading that both are live paths; only one
+> is, and only one needs changing if you move ports.
 
 ## Logging, and why the sidecar must accept logs and traces
 
@@ -352,6 +478,31 @@ them, which is what stops the retry loop.
 **If you disable the sidecar entirely**, Amaru has nowhere to push and the same
 ERROR stream returns. Amaru has no `/metrics` endpoint and no way to be told to
 stop exporting, so the sidecar is the only place this can be handled.
+
+## The `job` label is a contract with `amaru-monitoring`
+
+The ServiceMonitor this chart renders deliberately relabels the scrape job to the
+literal string `amaru`:
+
+```yaml
+relabelings:
+  - sourceLabels: [__meta_kubernetes_service_label_app_kubernetes_io_name]
+    targetLabel: job
+    replacement: amaru
+```
+
+Without it the job would take the Service's own name (`amaru-relay-1-int`), which
+varies per relay. **The `amaru-monitoring` chart's alert rules and dashboard
+variables all query `job="amaru"`, so that relabel is load-bearing across the two
+charts.**
+
+**Remove or "simplify" it and every alert rule silently stops matching** — no
+error, no failed rule, just alerts that never fire and dashboard dropdowns that
+come back empty. That is the failure mode where a monitoring system reports
+nothing and looks healthy doing it, which is worse than having no rules at all.
+
+If you do change it, change `amaru-monitoring` in the same commit.
+
 
 ## Health checks
 

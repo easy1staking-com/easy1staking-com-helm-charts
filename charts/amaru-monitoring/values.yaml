@@ -5,19 +5,17 @@ dashboard:
   # Enable Grafana dashboard deployment
   enabled: true
 
-  # Namespace selector configuration
-  # By default, the dashboard will scan all namespaces for Amaru instances
-  namespaceSelector:
-    # Set to true to scan all namespaces
-    any: true
-    # Or specify a list of namespaces to monitor
-    # matchNames: []
-
-  # Label selector to find Amaru instances
-  # Uses standard Kubernetes labels set by the Amaru chart
-  labelSelector:
-    app.kubernetes.io/name: amaru
-    app.kubernetes.io/component: node
+  # NOTE — there is deliberately no namespaceSelector or labelSelector here.
+  #
+  # Both existed until 0.3.2 and neither was referenced by any template: setting
+  # them did nothing at all, while values.yaml and the README described what they
+  # would do. Removed rather than wired up, because there is nothing for them to
+  # wire to — this chart renders no ServiceMonitor and does no selecting.
+  #
+  # The dashboard scopes at VIEW time instead, through its own Grafana `namespace`
+  # and `node` variables, populated by label_values() against whatever the
+  # datasource holds. So it does span every namespace, but that is a property of
+  # the queries rather than of a setting anyone can change here.
 
   # Grafana sidecar label that triggers dashboard import
   # This should match your kube-prometheus-stack Grafana sidecar configuration

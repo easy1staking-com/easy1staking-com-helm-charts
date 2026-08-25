@@ -40,11 +40,17 @@ data:
       --ledger-dir "${AMARU_LEDGER_DIR}" \
       --chain-dir "${AMARU_CHAIN_DIR}" \
       --snapshots-dir "${MITHRIL_SNAPSHOTS_DIR}" \
-      {{- with .Values.config.mithrilSync.ingestUntilSlot }}
-      --ingest-until-slot {{ . }} \
+      {{- /* kindIs, not `with`: Helm treats 0 as falsy and would drop an
+             explicitly configured zero, silently substituting Amaru's own
+             default. 0 is not a sensible value for either of these, so this is
+             consistency rather than a live defect — but the two peer-count
+             flags in the StatefulSet already guard this way, and one chart
+             using both idioms is how the next person picks the wrong one. */}}
+      {{- if not (kindIs "invalid" .Values.config.mithrilSync.ingestUntilSlot) }}
+      --ingest-until-slot {{ .Values.config.mithrilSync.ingestUntilSlot }} \
       {{- end }}
-      {{- with .Values.config.mithrilSync.ingestMaximumBlocks }}
-      --ingest-maximum-blocks {{ . }} \
+      {{- if not (kindIs "invalid" .Values.config.mithrilSync.ingestMaximumBlocks) }}
+      --ingest-maximum-blocks {{ .Values.config.mithrilSync.ingestMaximumBlocks }} \
       {{- end }}
       ;
     rc=$?

@@ -2,6 +2,20 @@
 
 A Helm chart for monitoring Amaru Cardano nodes with Grafana dashboards and Prometheus metrics.
 
+## Depends on the `amaru` chart's `job` relabel
+
+Every alert rule here, and the dashboard's `namespace`/`node` variables, query
+**`job="amaru"`**. That label does not arise naturally: Prometheus would otherwise
+set `job` to the scraped Service's name (`amaru-relay-1-int`, and different again
+for each relay). It exists because the `amaru` chart's ServiceMonitor explicitly
+relabels it.
+
+**That makes this a contract between two charts that neither enforces.** If the
+relabel is removed or changed in the `amaru` chart, every rule here silently stops
+matching — no error, no failed rule, just alerts that never fire and empty
+dropdowns. Change the two together, or change neither.
+
+
 ## Overview
 
 This chart deploys monitoring resources for Amaru nodes, including:
@@ -37,15 +51,6 @@ helm install amaru-monitoring ./charts/amaru-monitoring -n monitoring
 # Enable/disable dashboard
 dashboard:
   enabled: true
-
-  # Namespace scanning configuration
-  namespaceSelector:
-    any: true  # Scan all namespaces
-
-  # Label selector for finding Amaru instances
-  labelSelector:
-    app.kubernetes.io/name: amaru
-    app.kubernetes.io/component: node
 
   # Grafana sidecar configuration
   grafanaLabel: grafana_dashboard
