@@ -217,33 +217,49 @@ halted identically.
 completed, intersect found, upstream tip 4,602,448 visible. The node is connected;
 the height is blocked by block *content*.
 
-**A likely fix exists upstream and is not released.**
+**The fix exists upstream, is verified to work, and is NOT MERGED.**
 [`pragma-org/amaru` PR #1255, *"Fix Disjoint Inputs Check(s)"*](https://github.com/pragma-org/amaru/pull/1255)
 says: *"In pv11+, the reference inputs and the inputs do NOT need to be disjoint
-sets."* Preview is on `protocol_major` 11, so that conditional applies here, and
-it matches the rule, the protocol version and the symptom.
+sets."* Preview is on `protocol_major` 11, so that conditional applies here.
 
-> **⚠ That match rests on one thing nobody has checked yet: is the overlap
-> actually present on chain?** If transaction `97df1aec…` really does list
-> `fbe65e04…#0` in both its reference inputs and its spent inputs, Amaru's *facts*
-> are right, the only question is whether pv11 permits it, and #1255 is the fix.
-> **If it does not, Amaru is misparsing the transaction** — a different and more
-> serious defect, with no PR in flight, and #1255 would not address this case at
-> all. One chain lookup settles it. Until it is run, treat #1255 as a strong
-> candidate rather than the confirmed cause.
+**We tested it. OBSERVED, 2026-08-25:** built from the PR head `db5961c`, swapped
+into the published `v10.11.20260820` image so that the binary was the only
+difference, and run against a fresh volume with the two commands below. It
+**stepped over the failing block without stopping** — `…4587545 → 4588321 →
+4588731…` — and reached **block 4,602,721 with `max_block_height` equal to it**,
+i.e. caught up to the upstream tip. Zero `BlockValidationError`, zero occurrences
+of 4,588,007, nothing suppressed. **A preview node syncs normally on that branch.**
 
-**That PR is OPEN and UNMERGED**, which is why no image escapes this. Both
-`v10.11.20260820` and `latest` (digest `b3f8594…`, a different build and a
-different commit) halt on the identical block — **so the halt is not a stale-image
-problem and there is nothing to upgrade to.** The wait is for #1255 to merge *and*
-a release to be cut.
+> **⚠ "Verified" is not "available".** The PR is **open and unmerged**, so no
+> published image contains it. Both `v10.11.20260820` and `latest` (digest
+> `b3f8594…`, a different build from a different commit) halt on the identical
+> block — the halt is not a stale-image problem. **There is still nothing to
+> upgrade to; the difference is that the wait now has a specific end**, namely
+> #1255 merging and a release being cut, rather than being open-ended.
+
+**Two facts a chart operator needs about the halted state itself:**
+
+- **A halted Amaru is a *running* Amaru.** It does not exit. It stays up and
+  refuses each successive block as *"descends from an invalid block"*, so the
+  process is alive, the port is open and `/actuator`-style liveness has nothing
+  to complain about. **This is the concrete reason the probes stay green** — see
+  the retry warning under the probe section, which this is a second instance of.
+- **Nothing in the chart's configuration changes it.** All four combinations of
+  upstream peers × Mithril sync halt on the same block and the same transaction.
+
+The three checks that establish where the defect is not: the overlap really is on
+chain (transaction `97df1aec…` lists `fbe65e04…#0` in both its inputs and its
+reference inputs); the transaction executes **no PlutusV3**, so #1255's own
+carve-out — *"script executions in PlutusV3 must have disjoint sets regardless of
+the protocol version"* — does not cover it; and the failure reproduces on bare
+Docker with no chart and no Kubernetes involved at all.
 
 > Provenance, since this chart is careful about it elsewhere: we reached
 > "Conway removed the disjointness requirement" as a **DERIVED** hypothesis and
 > labelled it one, having no standing on ledger rules. Upstream's own PR
 > description says the same thing, which makes **the rule** DOCUMENTED — by them,
-> not by us. That the rule is documented does not make **this block** an instance
-> of it; that is the lookup above.
+> not by us. That the rule is documented would not by itself make **this block**
+> an instance of it; the on-chain lookup is what does that, and it is `OBSERVED`.
 
 Reproducing it takes about a minute on bare Docker, no Kubernetes and no chart —
 bootstrap lands at 4,580,250 and the wall is 7,757 blocks later:
