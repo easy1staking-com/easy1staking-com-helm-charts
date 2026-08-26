@@ -173,6 +173,12 @@ livenessProbe:
 # Every value below is passed as an environment variable. Spring's relaxed
 # binding maps them onto application.yaml keys.
 config:
+  # · knob [derived] → NETWORK
+  # The application derives this from the active Spring profile. Setting it here
+  # OVERRIDES that, so the profile and the network can disagree — leave it empty
+  # unless you specifically mean to break that link.
+  network: ""
+
   # REQUIRED by the application. `preview` is the only network this deployment
   # supports: the code hard-codes SUBMITTABLE_NETWORK to preview, so mainnet is
   # fail-closed regardless of configuration. There is deliberately no
@@ -327,42 +333,204 @@ secret:
   #                                    application itself connects fine.
   mountPath: /etc/aquarium-secrets
 
-## Liquidation bot arming.
-#
-# ⚠ SUBMITTING A LIQUIDATION BURNS A LOAN NFT AND MOVES SOMEONE ELSE'S
-# COLLATERAL. Read README §5 before setting either of these.
-#
-# ARMING TAKES BOTH, BY DESIGN. `mode: live` alone does nothing; `enabled: true`
-# alone does nothing. Two independent switches exist so that one flipped by
-# accident is inert — do not "simplify" that by collapsing them.
-#
-# Empty means THE CHART SETS NOTHING and the image's own profile governs, which
-# on preview is `shadow` / `false`: the bot scans, builds, prices and records
-# liquidations but never submits. That is the intended default posture, not an
-# incomplete configuration.
-#
-# ⚠ NO VALUES FILE IN THIS REPOSITORY MAY EVER SET THESE — not to `live`, not to
-# `true`, not commented-out-and-ready. This chart is public and installable by
-# anyone; a preset that arms a transaction-signing bot arms it for everybody who
-# runs `helm install`. Arming is a deliberate act in the DEPLOYING OPERATOR'S own
-# values, outside this repo.
-#
-# They live here, rather than in extraEnv, so that a values diff can tell them
-# apart from ordinary configuration. In a passthrough map, "operator set a policy
-# id" and "operator armed the bot" look identical to a reviewer.
-#
-# ⚠ SETTING THESE RESTARTS THE POD, and restart is where the fatal boot
-# verifiers run again (README §3). A node that has been up and quiet may not come
-# back — that would be the system working, not the arming failing. Read the first
-# thirty seconds of logs and expect a NAMED error.
-#
-# NOTHING HAS EVER ARMED THIS BOT, in any environment. The whole path below is
-# unexercised.
+## ═══════════════════════════════════════════════════════════════════════════
+## THE APPLICATION'S PARAMETER SURFACE
+##
+## Every key below is EMPTY BY DEFAULT and emitted only when you set it. Empty
+## means THE CHART SAYS NOTHING and the image's own per-profile default governs
+## — which is safer than the chart restating that default, because a restated
+## default goes stale silently when the image moves.
+##
+## Each entry is marked:
+##   ⛔ SAFETY GATE  — loosening it can cause the node to spend funds, submit a
+##                     transaction it should not, or run against the wrong
+##                     contracts. Change deliberately, never to make something work.
+##   · knob          — tuning. Wrong values cost throughput or noise, not money.
+##
+## And each carries its provenance, because the two are not equally certain:
+##   [documented] the application's own application.yaml maps this exact env var
+##   [derived]    reachable only through Spring's relaxed binding. The mapping is
+##                asserted from Spring's documented behaviour and has NOT been
+##                watched binding on this image. If a [derived] key appears to do
+##                nothing, that is the first thing to suspect.
+## ═══════════════════════════════════════════════════════════════════════════
+
+## ⛔⛔ ARMING — THREE SWITCHES, NOT TWO.
+##
+## Submitting a liquidation BURNS A LOAN NFT AND MOVES SOMEONE ELSE'S COLLATERAL.
+##
+## ⚠ NO VALUES FILE IN THIS REPOSITORY MAY EVER SET AN ARMING VALUE — not `live`,
+## not `true`, not commented-out-and-ready. This chart is public and installable
+## by anyone; a preset that arms a transaction-signing bot arms it for everybody
+## who runs `helm install` to see what it does. Arming is a deliberate act in the
+## DEPLOYING OPERATOR'S own values, outside this repo.
+##
+## ⚠ Setting any of these restarts the pod, and restart is where the fatal boot
+## verifiers run again (README §3). A node that has been up and quiet may not come
+## back — that is the system working, not the arming failing.
 liquidation:
+  # ⛔ SAFETY GATE [documented] → AQUARIUM_LIQUIDATION_MODE
   # "" | disabled | shadow | live
+  #   disabled — the cycle does not run at all.
+  #   shadow   — scans, builds, prices and RECORDS, but the MODE_NOT_LIVE veto
+  #              stops submission. Nothing reaches the chain.
+  #   live     — SUBMITS REAL TRANSACTIONS THAT SPEND REAL FUNDS.
+  # Requires `enabled` as well. An invalid value is refused at render.
   mode: ""
-  # "" | false | true
+
+  # ⛔ SAFETY GATE [documented] → AQUARIUM_LIQUIDATION_ENABLED
+  # The second arming switch. `true` alone does nothing and `live` alone does
+  # nothing; both are required, deliberately, so one flipped by accident is inert.
   enabled: ""
+
+  # ⛔⛔ SAFETY GATE [documented] → AQUARIUM_LIQUIDATION_IGNORE_PROFIT_CHECK
+  #
+  # THE THIRD ARMING SWITCH, and the one nobody expects. From the application's
+  # own source: it "disables BOTH profitability gates". Every candidate becomes
+  # submittable regardless of whether the liquidation pays for its own
+  # transaction — the node will spend to lose money.
+  #
+  # The application REFUSES TO START with this true on mainnet, which is the
+  # measure of what it is. Treat it as arming, not as tuning: an operator
+  # reviewing `mode` and `enabled` and concluding the bot is bounded has checked
+  # two of three.
+  ignoreProfitCheck: ""
+
+  ## Economics — loosening any of these admits liquidations that would otherwise
+  ## be refused as unprofitable. Gates, not knobs.
+
+  # ⛔ SAFETY GATE [documented] → AQUARIUM_LIQUIDATION_CHECK_PROFITABILITY
+  # Applies the absolute profit floor. `false` removes that gate entirely and
+  # leaves only the margin lever.
+  checkProfitability: ""
+
+  # ⛔ SAFETY GATE [documented] → AQUARIUM_LIQUIDATION_MIN_PROFIT_ABSOLUTE_LOVELACE
+  # The absolute floor, tested BEFORE and independently of the margin — lowering
+  # the margin can never rescue a candidate this refuses. Setting it NEGATIVE is a
+  # deliberate statement that mark-to-oracle economics are accepted, because a
+  # convert liquidation fronts the principal in ADA and receives collateral in
+  # tokens, and the floor compares ADA out against tokens in.
+  minProfitAbsoluteLovelace: ""
+
+  # ⛔ SAFETY GATE [documented] → AQUARIUM_LIQUIDATION_PROFIT_MARGIN_LOVELACE
+  # Expected profit = fee value - tx fee - this. Covers the reference-script
+  # surcharge and refuses dust liquidations whose fee slice would not repay the
+  # transaction claiming it. Lowering it admits smaller candidates.
+  profitMarginLovelace: ""
+
+  ## Timing — knobs. Wrong values cost throughput or silence, not money.
+
+  # · knob [documented] → AQUARIUM_LIQUIDATION_DELAY_SECONDS
+  delaySeconds: ""
+  # · knob [documented] → AQUARIUM_LIQUIDATION_VALIDITY_WINDOW_SECONDS
+  # Transaction validity window. Read with oracleWindowMarginSeconds: a candidate
+  # is buildable only while this plus the margin still fits inside the feed's
+  # remaining window.
+  validityWindowSeconds: ""
+  # · knob [documented] → AQUARIUM_LIQUIDATION_ORACLE_MARGIN_SECONDS
+  # Required headroom between the feed's validity end and the transaction's.
+  # Raising it shortens the usable stretch of every oracle window one second for
+  # one; a value near the feed window disables the bot in practice while every
+  # candidate merely reports ORACLE_WINDOW_MARGIN_TOO_SMALL — which reads as "no
+  # candidates" rather than as a misconfiguration.
+  oracleWindowMarginSeconds: ""
+  # · knob [documented] → AQUARIUM_LIQUIDATION_QUARANTINE_MINUTES
+  quarantineMinutes: ""
+  # · knob [documented] → AQUARIUM_LIQUIDATION_DECISION_LOG_SIZE
+  decisionLogSize: ""
+
+  ## Published reference-script coordinates, `txHash#index` each.
+  ##
+  ## These decide BUILDABILITY, not safety. A validator with a coordinate travels
+  ## by reference; one without travels inline in the witness set. All-inline
+  ## exceeds maxTxSize and cannot build, so at least one must be published.
+  ##
+  ## ⚠ A coordinate whose on-chain script hash does not match the derived one is
+  ## a HARD STARTUP FAILURE, by design — a stale coordinate is worse than an
+  ## absent one, and the verifier says so loudly rather than running the wrong
+  ## script. Blank them on a redeploy rather than leaving them stale.
+  referenceScripts:
+    loan: ""                              # [documented] → …_REF_LOAN
+    loanSpend: ""                         # [documented] → …_REF_LOAN_SPEND
+    lenderManager: ""                     # [documented] → …_REF_LENDER_MANAGER
+    lenderManagerSpend: ""                # [documented] → …_REF_LENDER_MANAGER_SPEND
+    loanClaimAction: ""                   # [documented] → …_REF_LOAN_CLAIM_ACTION
+    lmLiquidateAction: ""                 # [documented] → …_REF_LM_LIQUIDATE_ACTION
+    lmLiquidateAndPayInAdvanceAction: ""  # [documented] → …_REF_LM_LIQUIDATE_AND_PAY_IN_ADVANCE_ACTION
+    assetManager: ""                      # [documented] → …_REF_ASSET_MANAGER
+
+## Lending v4 subsystem.
+loans:
+  # ⛔ SAFETY GATE [documented] → LOANS_ENABLED
+  # Master switch for indexing, scanning and health. Turning it OFF also disables
+  # the two startup verifiers, so a node with wrong contract coordinates will
+  # start quietly instead of refusing. Off is safe for the bot and removes a
+  # correctness check; know which you wanted.
+  enabled: ""
+
+  oracle:
+    # · knob [documented] → LOANS_ORACLE_ENABLED
+    # Price-feed polling. OFF means every collateral reports health unavailable,
+    # so nothing can be priced and the bot goes quiet rather than misbehaving.
+    enabled: ""
+    # · knob [documented] → LOANS_ORACLE_URL
+    # Point it at the wrong network's registry and collaterals silently price as
+    # unavailable — indistinguishable from "no candidates".
+    url: ""
+
+  ## Contract coordinates. Wrong values do not run the wrong contracts silently —
+  ## LoansConfigVerifier derives every script hash from them and refuses to start
+  ## on a mismatch. That refusal is the protection; do not disable it to "get
+  ## past" a mismatch.
+  config:
+    policyId: ""        # [derived] → LOANS_CONFIG_POLICY_ID
+    refUtxoTxHash: ""   # [derived] → LOANS_CONFIG_REF_UTXO_TX_HASH
+    assetName: ""       # [derived] → LOANS_CONFIG_ASSET_NAME (hex; app default is "parameters")
+  lmConfig:
+    policyId: ""        # [derived] → LOANS_LM_CONFIG_POLICY_ID
+  # [derived] → LOANS_SMART_TOKENS_SPEND_SCRIPT_HASH
+  # Published in the ConfigDatum and not derivable from the blueprint; only the
+  # pool-manager branch needs it.
+  smartTokensSpendScriptHash: ""
+
+  verifyConfig:
+    # ⛔ SAFETY GATE [derived] → LOANS_VERIFY_CONFIG_FAIL_ON_UNREACHABLE
+    # Whether an UNREACHABLE backend fails the reference-script verifier at
+    # startup. `false` tolerates unreachability and starts anyway — which means
+    # the node can run WITHOUT having verified its scripts. A genuine hash
+    # MISMATCH is fatal either way; this only governs the can't-tell case.
+    failOnUnreachable: ""
+
+## Aquarium contract identity. Wrong values derive the wrong script tree; the
+## startup verifiers are what catch that.
+aquarium:
+  genesis:
+    txHash: ""       # [derived] → AQUARIUM_GENESIS_TX_HASH
+    outputIndex: ""  # [derived] → AQUARIUM_GENESIS_OUTPUT_INDEX
+  staking:
+    token:
+      policy: ""     # [derived] → AQUARIUM_STAKING_TOKEN_POLICY
+      name: ""       # [derived] → AQUARIUM_STAKING_TOKEN_NAME
+  tank:
+    refInput:
+      txHash: ""       # [derived] → AQUARIUM_TANK_REF_INPUT_TXHASH
+      outputIndex: ""  # [derived] → AQUARIUM_TANK_REF_INPUT_OUTPUTINDEX
+
+blockfrost:
+  # · knob [derived] → BLOCKFROST_URL
+  # Base URL only. The KEY is a secret and lives in the Secret above; it is not
+  # settable here and never will be.
+  url: ""
+
+scheduling:
+  # · knob [documented] → SCHEDULING_TRANSACTION_PROCESSOR_DELAY_MINUTES
+  transactionProcessorDelayMinutes: ""
+  # · knob [documented] → SPRING_TASK_SCHEDULING_POOL_SIZE
+  # Scheduler threads. Spring's own default of 1 lets the transaction processor
+  # starve the 30-second oracle refresh — observed as feeds ageing past expiry
+  # exactly while transactions were being processed. The application corrects it
+  # to 4; lowering it reintroduces that starvation.
+  taskPoolSize: ""
 
 ## Extra environment variables — passthrough, and load-bearing.
 #

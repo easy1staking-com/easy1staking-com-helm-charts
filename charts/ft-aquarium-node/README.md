@@ -451,6 +451,104 @@ one-line application change, not something this chart can fix.
 
 ---
 
+## The application's parameter surface
+
+**Every parameter the application reads is settable here, and every one is empty
+by default.** Empty means *the chart says nothing* and the image's own
+per-profile default governs — which is safer than the chart restating that
+default, because a restated default goes stale silently when the image moves.
+
+Two labels on every row, and they are not decoration:
+
+- **⛔ gate** — loosening it can make the node spend funds, submit something it
+  should not, or run against unverified contracts. **· knob** — tuning; wrong
+  values cost throughput or silence, not money.
+- **[documented]** — the application's own `application.yaml` maps this exact
+  environment variable. **[derived]** — reachable only through Spring's relaxed
+  binding; the mapping is asserted from Spring's documented behaviour and **has
+  not been watched binding on this image.** If a `[derived]` key appears to do
+  nothing, that is the first thing to suspect.
+
+### ⛔⛔ Arming — there are THREE switches, not two
+
+| key | env | effect |
+|---|---|---|
+| `liquidation.mode` | `AQUARIUM_LIQUIDATION_MODE` | `disabled` skips the cycle · `shadow` scans, builds, prices and records but never submits · **`live` SUBMITS REAL TRANSACTIONS THAT SPEND REAL FUNDS**, burns a loan NFT and moves someone else's collateral |
+| `liquidation.enabled` | `AQUARIUM_LIQUIDATION_ENABLED` | the second switch; `live` alone does nothing and `true` alone does nothing |
+| `liquidation.ignoreProfitCheck` | `AQUARIUM_LIQUIDATION_IGNORE_PROFIT_CHECK` | **the third, and the one nobody expects.** The application's own source: *"disables BOTH profitability gates"*. Every candidate becomes submittable whether or not the liquidation pays for its own transaction — **the node will spend to lose money.** The app refuses to start with this true on mainnet, which is the measure of what it is |
+
+**An operator who reviews `mode` and `enabled` and concludes the bot is bounded
+has checked two of three.** This chart previously exposed only those two.
+
+**No values file in this repository sets any of them, and none may.** The chart
+is public and installable by anyone; a preset that arms a transaction-signing bot
+arms it for everybody who runs `helm install` to see what it does. Arming is a
+deliberate act in the deploying operator's own values, outside this repo.
+
+### ⛔ Economics — gates, not knobs
+
+| key | env | effect |
+|---|---|---|
+| `liquidation.checkProfitability` | `…_CHECK_PROFITABILITY` | applies the absolute floor; `false` removes that gate and leaves only the margin |
+| `liquidation.minProfitAbsoluteLovelace` | `…_MIN_PROFIT_ABSOLUTE_LOVELACE` | the floor, tested **before and independently of** the margin — lowering the margin can never rescue a candidate this refuses. Negative is a deliberate acceptance of mark-to-oracle economics: a convert liquidation fronts principal in ADA and receives collateral in tokens |
+| `liquidation.profitMarginLovelace` | `…_PROFIT_MARGIN_LOVELACE` | profit = fee value − tx fee − this. Covers the reference-script surcharge and refuses dust liquidations. Lowering it admits smaller candidates |
+| `loans.enabled` | `LOANS_ENABLED` | master switch. **Off also disables the two startup verifiers**, so a node with wrong coordinates starts quietly instead of refusing — safe for the bot, and it removes a correctness check |
+| `loans.verifyConfig.failOnUnreachable` | `LOANS_VERIFY_CONFIG_FAIL_ON_UNREACHABLE` `[derived]` | whether an **unreachable** backend fails the reference-script verifier. `false` starts anyway, so the node can run **without having verified its scripts**. A genuine hash *mismatch* is fatal either way |
+
+### · Timing and behaviour
+
+| key | env | effect |
+|---|---|---|
+| `liquidation.delaySeconds` | `…_DELAY_SECONDS` | interval between cycles |
+| `liquidation.validityWindowSeconds` | `…_VALIDITY_WINDOW_SECONDS` | transaction validity window |
+| `liquidation.oracleWindowMarginSeconds` | `…_ORACLE_MARGIN_SECONDS` | required headroom inside the feed's window. Raising it shortens the usable stretch one second for one; near the feed window it disables the bot in practice while every candidate merely reports `ORACLE_WINDOW_MARGIN_TOO_SMALL` — **which reads as "no candidates" rather than as a misconfiguration** |
+| `liquidation.quarantineMinutes` | `…_QUARANTINE_MINUTES` | how long a failed loan is skipped |
+| `liquidation.decisionLogSize` | `…_DECISION_LOG_SIZE` | in-memory decision ring buffer |
+| `loans.oracle.enabled` | `LOANS_ORACLE_ENABLED` | off ⇒ every collateral prices as unavailable, so nothing is liquidatable |
+| `loans.oracle.url` | `LOANS_ORACLE_URL` | wrong network's registry ⇒ collaterals silently price as unavailable |
+| `scheduling.transactionProcessorDelayMinutes` | `SCHEDULING_TRANSACTION_PROCESSOR_DELAY_MINUTES` | |
+| `scheduling.taskPoolSize` | `SPRING_TASK_SCHEDULING_POOL_SIZE` | Spring's default of 1 lets the transaction processor starve the 30 s oracle refresh — observed as feeds ageing past expiry exactly while transactions were processing. The app corrects it to 4; lowering it reintroduces that |
+| `config.network` | `NETWORK` `[derived]` | the app derives this from the Spring profile. Setting it **overrides** that, so profile and network can disagree. Leave empty unless you mean to break the link |
+| `blockfrost.url` | `BLOCKFROST_URL` `[derived]` | base URL only — the **key** is a secret and is not settable here |
+
+### Reference scripts — buildability, not safety
+
+`liquidation.referenceScripts.{loan, loanSpend, lenderManager, lenderManagerSpend,
+loanClaimAction, lmLiquidateAction, lmLiquidateAndPayInAdvanceAction, assetManager}`
+→ `AQUARIUM_LIQUIDATION_REF_*`, each a `txHash#index`. `[documented]`
+
+A validator with a coordinate travels **by reference**; one without travels
+**inline** in the witness set. All-inline exceeds `maxTxSize` and cannot build, so
+at least one must be published.
+
+> **⚠ A coordinate whose on-chain script hash does not match the derived one is a
+> HARD STARTUP FAILURE, by design.** A stale coordinate is worse than an absent
+> one, and the verifier says so loudly rather than running the wrong script.
+> **Blank them on a redeploy rather than leaving them stale** — and see §4, which
+> is the trap in the other direction.
+
+### Contract identity — `[derived]`, and guarded by the verifiers
+
+`loans.config.{policyId, refUtxoTxHash, assetName}` · `loans.lmConfig.policyId` ·
+`loans.smartTokensSpendScriptHash` · `aquarium.genesis.{txHash, outputIndex}` ·
+`aquarium.staking.token.{policy, name}` · `aquarium.tank.refInput.{txHash, outputIndex}`
+
+Wrong values do not silently run the wrong contracts: `LoansConfigVerifier`
+derives every script hash from them and **refuses to start on a mismatch.** That
+refusal is the protection — do not disable it to get past a mismatch.
+
+### `extraEnv` and the one thing it may no longer do
+
+`extraEnv` stays available for anything the chart does **not** emit — the
+thirty-ninth parameter arrives with the next application release and an operator
+must not be stuck until the chart catches up.
+
+**But a key that has a typed home is refused at render**, naming the key to use
+instead. Kubernetes takes the last duplicate, so `extraEnv` would silently beat a
+documented default and leave the reader with false confidence in the value they
+can see. **Fail on collision, not on use.**
+
+
 ## Values
 
 | Key | Default | Notes |

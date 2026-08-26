@@ -138,13 +138,12 @@ spec:
                   key: {{ .Values.secret.keys.dbPassword }}
             {{- end }}
             {{- /*
-              Arming flags. `toString` then `empty` rather than a bare `if`, so a
-              YAML boolean and a quoted string behave the same and an explicit
-              `false` still reaches the container rather than being dropped as
-              falsy — the same reason the amaru chart uses kindIs over `with`.
+              ── The application's full parameter surface ──────────────────────
+              Emitted only where a values key is set; unset means the chart says
+              nothing and the image's own per-profile default governs.
 
-              `mode` is validated: a typo silently means "not armed", and an
-              operator who believes they armed the bot and did not is a worse
+              `mode` is validated because a typo silently means "not armed", and
+              an operator who believes they armed the bot and did not is a worse
               failure than a refused render.
             */}}
             {{- $mode := toString .Values.liquidation.mode }}
@@ -152,16 +151,70 @@ spec:
             {{- if not (has $mode (list "disabled" "shadow" "live")) }}
             {{- fail (printf "liquidation.mode must be one of disabled|shadow|live, got %q" $mode) }}
             {{- end }}
-            - name: AQUARIUM_LIQUIDATION_MODE
-              value: {{ $mode | quote }}
             {{- end }}
             {{- $armed := toString .Values.liquidation.enabled }}
             {{- if not (empty $armed) }}
             {{- if not (has $armed (list "true" "false")) }}
             {{- fail (printf "liquidation.enabled must be true or false, got %q" $armed) }}
             {{- end }}
-            - name: AQUARIUM_LIQUIDATION_ENABLED
-              value: {{ $armed | quote }}
+            {{- end }}
+            {{- $L := .Values.liquidation }}
+            {{- $R := $L.referenceScripts | default dict }}
+            {{- $N := .Values.loans | default dict }}
+            {{- $NC := $N.config | default dict }}
+            {{- $A := .Values.aquarium | default dict }}
+            {{- include "ft-aquarium-node.env" (dict "name" "NETWORK" "value" .Values.config.network) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "BLOCKFROST_URL" "value" (.Values.blockfrost | default dict).url) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_ENABLED" "value" $N.enabled) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_ORACLE_ENABLED" "value" ($N.oracle | default dict).enabled) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_ORACLE_URL" "value" ($N.oracle | default dict).url) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_CONFIG_POLICY_ID" "value" $NC.policyId) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_CONFIG_REF_UTXO_TX_HASH" "value" $NC.refUtxoTxHash) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_CONFIG_ASSET_NAME" "value" $NC.assetName) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_LM_CONFIG_POLICY_ID" "value" ($N.lmConfig | default dict).policyId) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_SMART_TOKENS_SPEND_SCRIPT_HASH" "value" $N.smartTokensSpendScriptHash) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_VERIFY_CONFIG_FAIL_ON_UNREACHABLE" "value" ($N.verifyConfig | default dict).failOnUnreachable) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_GENESIS_TX_HASH" "value" ($A.genesis | default dict).txHash) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_GENESIS_OUTPUT_INDEX" "value" ($A.genesis | default dict).outputIndex) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_STAKING_TOKEN_POLICY" "value" (($A.staking | default dict).token | default dict).policy) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_STAKING_TOKEN_NAME" "value" (($A.staking | default dict).token | default dict).name) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_TANK_REF_INPUT_TXHASH" "value" (($A.tank | default dict).refInput | default dict).txHash) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_TANK_REF_INPUT_OUTPUTINDEX" "value" (($A.tank | default dict).refInput | default dict).outputIndex) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_MODE" "value" $L.mode) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_ENABLED" "value" $L.enabled) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_IGNORE_PROFIT_CHECK" "value" $L.ignoreProfitCheck) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_CHECK_PROFITABILITY" "value" $L.checkProfitability) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_PROFIT_MARGIN_LOVELACE" "value" $L.profitMarginLovelace) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_MIN_PROFIT_ABSOLUTE_LOVELACE" "value" $L.minProfitAbsoluteLovelace) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_DELAY_SECONDS" "value" $L.delaySeconds) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_VALIDITY_WINDOW_SECONDS" "value" $L.validityWindowSeconds) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_ORACLE_MARGIN_SECONDS" "value" $L.oracleWindowMarginSeconds) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_QUARANTINE_MINUTES" "value" $L.quarantineMinutes) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_DECISION_LOG_SIZE" "value" $L.decisionLogSize) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LOAN" "value" $R.loan) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LOAN_SPEND" "value" $R.loanSpend) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LENDER_MANAGER" "value" $R.lenderManager) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LENDER_MANAGER_SPEND" "value" $R.lenderManagerSpend) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LOAN_CLAIM_ACTION" "value" $R.loanClaimAction) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LM_LIQUIDATE_ACTION" "value" $R.lmLiquidateAction) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LM_LIQUIDATE_AND_PAY_IN_ADVANCE_ACTION" "value" $R.lmLiquidateAndPayInAdvanceAction) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_ASSET_MANAGER" "value" $R.assetManager) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "SCHEDULING_TRANSACTION_PROCESSOR_DELAY_MINUTES" "value" (.Values.scheduling | default dict).transactionProcessorDelayMinutes) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "SPRING_TASK_SCHEDULING_POOL_SIZE" "value" (.Values.scheduling | default dict).taskPoolSize) }}
+            {{- /*
+              extraEnv stays permissive for anything the chart does not emit — the
+              38th parameter arrives with the next application release and an
+              operator must not be stuck until the chart catches up. But a key
+              that DOES have a typed home is refused: Kubernetes takes the last
+              duplicate, so extraEnv would silently beat a documented default and
+              leave the reader with false confidence in the value they can see.
+              Fail on COLLISION, not on USE.
+            */}}
+            {{- $typed := splitList "," (include "ft-aquarium-node.typedEnvNames" .) }}
+            {{- range $k, $v := .Values.extraEnv }}
+            {{- if has $k $typed }}
+            {{- fail (printf "extraEnv sets %s, which has a typed values key in this chart. Set that key instead — extraEnv would silently override it." $k) }}
+            {{- end }}
             {{- end }}
             {{- range $k, $v := .Values.extraEnv }}
             - name: {{ $k }}
