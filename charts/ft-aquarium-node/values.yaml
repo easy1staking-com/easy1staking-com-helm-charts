@@ -496,9 +496,17 @@ loans:
   verifyConfig:
     # ⛔ SAFETY GATE [derived] → LOANS_VERIFY_CONFIG_FAIL_ON_UNREACHABLE
     # Whether an UNREACHABLE backend fails the reference-script verifier at
-    # startup. `false` tolerates unreachability and starts anyway — which means
-    # the node can run WITHOUT having verified its scripts. A genuine hash
-    # MISMATCH is fatal either way; this only governs the can't-tell case.
+    # startup. `false` (the application's default) tolerates unreachability and
+    # starts anyway — which means the node can run WITHOUT having verified its
+    # scripts. A genuine hash MISMATCH is fatal either way; this governs only the
+    # can't-tell case.
+    #
+    # ⚠ "The verifier did not object" and "the verifier ran" are different
+    # statements, and at the default you cannot tell them apart from a summary
+    # line — the absence of a complaint is also what a skipped check looks like.
+    # Look for POSITIVE evidence of a completed round trip: log lines reading
+    # `Read ConfigDatum from <txHash>#0` and `Read LMConfigDatum from <txHash>#1`.
+    # A verifier that skipped could not have read two datums off specific UTxOs.
     failOnUnreachable: ""
 
 ## Aquarium contract identity. Wrong values derive the wrong script tree; the

@@ -493,7 +493,7 @@ deliberate act in the deploying operator's own values, outside this repo.
 | `liquidation.minProfitAbsoluteLovelace` | `…_MIN_PROFIT_ABSOLUTE_LOVELACE` | the floor, tested **before and independently of** the margin — lowering the margin can never rescue a candidate this refuses. Negative is a deliberate acceptance of mark-to-oracle economics: a convert liquidation fronts principal in ADA and receives collateral in tokens |
 | `liquidation.profitMarginLovelace` | `…_PROFIT_MARGIN_LOVELACE` | profit = fee value − tx fee − this. Covers the reference-script surcharge and refuses dust liquidations. Lowering it admits smaller candidates |
 | `loans.enabled` | `LOANS_ENABLED` | master switch. **Off also disables the two startup verifiers**, so a node with wrong coordinates starts quietly instead of refusing — safe for the bot, and it removes a correctness check |
-| `loans.verifyConfig.failOnUnreachable` | `LOANS_VERIFY_CONFIG_FAIL_ON_UNREACHABLE` `[derived]` | whether an **unreachable** backend fails the reference-script verifier. `false` starts anyway, so the node can run **without having verified its scripts**. A genuine hash *mismatch* is fatal either way |
+| `loans.verifyConfig.failOnUnreachable` | `LOANS_VERIFY_CONFIG_FAIL_ON_UNREACHABLE` `[derived]` | whether an **unreachable** backend fails the reference-script verifier. `false` (the default) starts anyway, so the node can run **without having verified its scripts**. A genuine hash *mismatch* is fatal either way — this governs only the can't-tell case. **See below for how to tell which happened** |
 
 ### · Timing and behaviour
 
@@ -510,6 +510,18 @@ deliberate act in the deploying operator's own values, outside this repo.
 | `scheduling.taskPoolSize` | `SPRING_TASK_SCHEDULING_POOL_SIZE` | Spring's default of 1 lets the transaction processor starve the 30 s oracle refresh — observed as feeds ageing past expiry exactly while transactions were processing. The app corrects it to 4; lowering it reintroduces that |
 | `config.network` | `NETWORK` `[derived]` | the app derives this from the Spring profile. Setting it **overrides** that, so profile and network can disagree. Leave empty unless you mean to break the link |
 | `blockfrost.url` | `BLOCKFROST_URL` `[derived]` | base URL only — the **key** is a secret and is not settable here |
+
+> **⚠ "The verifier did not object" and "the verifier ran" are different
+> statements, and with `failOnUnreachable: false` you cannot tell them apart from
+> a summary line.** The absence of a complaint is also what a skipped check looks
+> like.
+>
+> **Look for positive evidence of a completed round trip instead**: log lines
+> reading `Read ConfigDatum from <txHash>#0` and `Read LMConfigDatum from
+> <txHash>#1`. **A verifier that skipped on an unreachable backend could not have
+> read two datums off specific UTxOs.** The field tally that follows
+> (`21 checked / 0 skipped / 0 mismatched`) is then meaningful; on its own it is
+> not.
 
 ### Reference scripts — buildability, not safety
 
@@ -547,6 +559,76 @@ must not be stuck until the chart catches up.
 instead. Kubernetes takes the last duplicate, so `extraEnv` would silently beat a
 documented default and leave the reader with false confidence in the value they
 can see. **Fail on collision, not on use.**
+
+---
+
+## ⚠ Upgrading: 36 parameters moved out of `extraEnv`
+
+**If you set any application parameter through `extraEnv`, read this before you
+upgrade.** Until this version only `liquidation.mode` and `liquidation.enabled`
+had typed keys; every other parameter was reachable *only* through `extraEnv`.
+**All 38 now have typed keys, and `extraEnv` refuses the 36 that newly gained
+one.**
+
+The render fails with the key named:
+
+```
+Error: extraEnv sets AQUARIUM_LIQUIDATION_PROFIT_MARGIN_LOVELACE, which has a
+typed values key in this chart. Set that key instead — extraEnv would silently
+override it.
+```
+
+**Under GitOps this presents as a sync error, not as a configuration error** —
+the tool will not sync a release that will not render, so a running deployment
+stops on a message about templating. That is the shape nobody debugs quickly,
+which is why it is written here rather than left to the error alone.
+
+**The migration is mechanical**: every `AQUARIUM_LIQUIDATION_*`, `LOANS_*`,
+`AQUARIUM_GENESIS/STAKING/TANK_*`, `BLOCKFROST_URL`, `NETWORK`,
+`SCHEDULING_*` and `SPRING_TASK_SCHEDULING_POOL_SIZE` entry moves to the key
+listed for it in the tables above. For example:
+
+```yaml
+# before
+extraEnv:
+  AQUARIUM_LIQUIDATION_PROFIT_MARGIN_LOVELACE: "1500000"
+  AQUARIUM_LIQUIDATION_REF_LOAN_CLAIM_ACTION: "48c102c0…#0"
+# after
+liquidation:
+  profitMarginLovelace: 1500000
+  referenceScripts:
+    loanClaimAction: "48c102c0…#0"
+```
+
+> **⚠ Move them in the SAME apply that adopts the new chart.** The typed keys do
+> not exist in the older chart, so a values change first is a values change that
+> does nothing; a chart change first is a render failure. **One atomic change,
+> never two.**
+
+### Why the refusal exists, so nobody routes around it
+
+**The obvious reading of this is "the chart got stricter for no reason", and the
+obvious workaround is to pin back to the previous version — which reinstates
+exactly the silent shadowing the refusal exists to prevent.** So:
+
+A value set in both places does not error in Kubernetes. **The last duplicate
+wins, silently.** So a chart that documents `liquidation.profitMarginLovelace:
+1500000` while an `extraEnv` entry quietly supplies something else gives the
+reader a documented default they can see and a real value they cannot.
+**A documented default that an override silently beats is worse than no
+documentation, because the reader now has false confidence.**
+
+**And this is not hypothetical — it is how the deployment that asked for this
+guard was configured.** In the operator's own words:
+
+> *"The error exists because I flagged the shadowing hazard, and my own
+> deployment is the one it would break. I moved `mode` off `extraEnv`
+> deliberately and never asked the same question of the other three — I fixed the
+> instance I was looking at and left the class."*
+
+Three of five parameters were still on `extraEnv`, set by the person who
+identified the hazard, cared about it, and had already acted on it once. **A
+reader thinking "I would never do that" has just been shown someone who did.**
 
 
 ## Values
