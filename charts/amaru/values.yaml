@@ -1,10 +1,57 @@
-image:
-  repository: easy1staking/amaru
-  pullPolicy: IfNotPresent
-  # Overrides the image tag whose default is the chart appVersion.
-  tag: c10a8750-dirty
+# Default values for the amaru chart.
+#
+# This chart deploys one or more Amaru relays. See README.md for the full
+# description of ports, upstream peers, config and topology.
+#
+# Quick start (renders a single mainnet relay with these defaults):
+#   helm template my-amaru ./charts/amaru
+#   helm install  my-amaru ./charts/amaru -f ./charts/amaru/values-preview.yaml
 
-volumeSize: 250Gi
+image:
+  repository: ghcr.io/pragma-org/amaru
+  pullPolicy: IfNotPresent
+  # Overrides the image tag, whose default is the chart appVersion.
+  # Pin a release tag (e.g. v10.11.20260820); ":latest" is a nightly build.
+  tag: ""
+
+# Target network: mainnet | preprod | preview.
+# Use the matching values-<network>.yaml preset to switch.
+network: mainnet
+
+# PVC size per relay.
+#
+# Leave empty to derive it from `network` via volumeSizeByNetwork below. Set it
+# to a value here to override that derivation entirely.
+#
+# It is derived rather than defaulted BECAUSE THE PRESET FILES CANNOT BE RELIED
+# ON. GitOps tools commonly supply values INLINE, and an operator who writes
+# `network: preview` inline never reads values-preview.yaml — so a size that
+# lived only in that file silently handed them MAINNET sizing on preview, with
+# nothing to warn them. Deriving from the network makes that mistake
+# unavailable instead of merely documented.
+volumeSize: ""
+
+# Per-network sizes used when volumeSize is empty. An unknown network falls back
+# to the mainnet figure, which is the safe direction: too large costs a nominal
+# claim, too small costs the entire sync (see below).
+#
+# THESE ARE NOT MEASURED TO TIP. Known: ledger.db is ~1.6GB after bootstrap on
+# preview (observed). Unmeasured: chain-db growth from the bootstrap epoch to
+# tip, and Mithril snapshots, which share this volume when enabled.
+#
+# Deliberately generous, because the two error directions are not symmetric. A
+# storage class with ALLOWVOLUMEEXPANSION=false — k3s's default local-path
+# included — cannot grow a PVC that turns out too small, so under-sizing is not
+# "adjust it later", it is destroy the volume, re-bootstrap and re-sync.
+#
+# ⚠ AND CHANGING THIS ON A RUNNING RELAY DOES NOT WORK: a StatefulSet's
+# volumeClaimTemplates are immutable, so an upgrade that alters the size is
+# rejected by the API server. Resizing means deleting the StatefulSet
+# (`--cascade=orphan` keeps the pods) and re-applying, or replacing the PVC.
+volumeSizeByNetwork:
+  mainnet: 250Gi
+  preprod: 250Gi
+  preview: 50Gi
 
 resources:
   limits:
@@ -14,31 +61,159 @@ resources:
     memory: "1Gi"
     cpu: 1
 
-nodePort: 30000
+# Amaru's image runs as non-root uid/gid 10000. Without fsGroup the
+# PersistentVolume mounts root-owned and Amaru cannot create its databases.
+podSecurityContext:
+  fsGroup: 10000
 
-network: mainnet
+## App Config
 
 config:
-  withOpenTelemetry: false
+  # Mount point of the per-relay PersistentVolume. Both databases and the
+  # bootstrap completion marker live under it.
+  dataDir: /data/db
+
+  # On-disk storage. Both live on the PersistentVolume at dataDir.
   ledgerDir: /data/db/ledger.db
   chainDir: /data/db/chain.db
-  configFolder: /data/config
 
+  # Amaru renders an interactive terminal dashboard by default. Under Kubernetes
+  # that produces unreadable logs, so it is disabled here. Leave this true.
+  noTui: true
+
+  # Chain database schema is version 6 as of v10.11.20260820. Version 5
+  # databases migrate automatically only when this is enabled; anything older
+  # must be rebuilt from a bootstrap snapshot (delete the PVC and re-bootstrap).
+  migrateChainDb: false
+
+  # Number of upstream peers Amaru maintains connections to.
+  # Unset (null) uses Amaru's default of 3.
+  upstreamPeers: null
+
+  # Maximum number of downstream peers allowed to connect inbound.
+  # This is the relay's serving capacity. Unset (null) uses Amaru's default of 10.
+  downstreamPeers: null
+
+  # Outbound peer source mix formula. Unset uses Amaru's default:
+  #   "static!2@15m, shared~6, snapshot~3@1h, ledger~3@24h"
+  # "static" are the peers you list in a node's peerAddresses.
+  peerMix: ""
+
+  # Path to a Cardano ledger peer snapshot JSON (bigLedgerPools), compatible
+  # with cardano-node's mainnet-peer-snapshot.json. Unset uses the snapshot
+  # embedded in the image for known networks.
+  peerSnapshot: ""
+
+  # Optional Mithril sync, run once after bootstrap and before the node starts.
+  #
+  # This is an ACCELERATOR, not an alternative to bootstrap: `amaru mithril sync`
+  # fails standalone with "Did you bootstrap your node?". It downloads verified
+  # Mithril immutable files and ingests the blocks, which reaches tip faster than
+  # pulling them from peers — most useful on mainnet, where the gap between the
+  # bootstrap snapshot epoch and the tip is large.
+  #
+  # Aggregator endpoints and genesis verification keys are COMPILED INTO the
+  # image per network and cannot be configured — unlike the cardano-node chart,
+  # which passes them explicitly to mithril-client. There is nothing to set here.
+  #
+  # Off by default. Failures are non-fatal unless failOnError is set: see the
+  # chart README for the known block-validation failure on preview.
+  mithrilSync:
+    enabled: false
+    failOnError: false
+    # Where the downloaded Mithril immutable files are kept. Sizeable — 35MB for
+    # preview at the time of writing, far more on mainnet. Lives on the PVC.
+    snapshotsDir: /data/db/mithril
+    # Optional bounds on how much is ingested. Unset ingests everything available.
+    ingestUntilSlot: null
+    ingestMaximumBlocks: null
+
+  # Optional HTTP Cardano Submit API (POST /api/submit/tx).
+  # Amaru has no node-to-client (n2c) socket; this is the nearest equivalent.
+  submitApi:
+    enabled: false
+    port: 8090
+
+# Set false to skip the ServiceMonitor when kube-prometheus-stack is not installed.
 serviceMonitor:
-  enabled: false
+  enabled: true
+  releaseName: kube-prometheus-stack
 
-# OpenTelemetry Collector sidecar configuration
-# This is the default configuration that can be overridden per node
+# Relays to deploy. Each entry becomes a StatefulSet plus its Services.
+#
+# Amaru has NO node-to-client socket and NO native Prometheus endpoint; the only
+# inbound listener is the node-to-node p2p port below (plus the optional submit
+# API). Metrics reach Prometheus through the otel-collector sidecar.
+nodes:
+  - name: relay-1
+    enabled: true
+    type: relay
+    replicas: 1
+
+    # Node-to-node p2p port. Drives --listen-address, the containerPort and every
+    # Service port together, so the advertised port cannot drift from the real
+    # listen port. 3001 matches the cardano-node chart convention (Amaru's own
+    # built-in default is 3000; we always pass it explicitly).
+    port: 3001
+
+    # Upstream peers to synchronize from, over the p2p mini-protocol.
+    # Each entry renders one --peer-address. These are the "static" source in
+    # the peer mix. Leave empty to use only Amaru's built-in bootstrap peer,
+    # peer snapshot and ledger-derived peers.
+    peerAddresses: []
+    #  - "cardano-node-relay-1-int:3001"
+    #  - "relays.example.com:3001"
+
+    # Optional external exposure. Omit for cluster-internal only. Allocate one
+    # per relay when running several on the same host (30000, 30001, ...).
+    nodePort: 30000
+
+    # storageClassName: local-path
+    # resources: {}          # overrides the chart-level resources
+    # repository / imageTag  # overrides the chart-level image
+    # sleep: true            # debug: start the pod idle instead of running Amaru
+
+# OpenTelemetry Collector sidecar.
+#
+# Amaru exports metrics over OTLP only — it has no /metrics endpoint of its own.
+# This sidecar receives that OTLP stream and re-exposes it as a Prometheus
+# scrape target on prometheusPort, which is what the ServiceMonitor scrapes.
+# Disabling it means no metrics reach Prometheus.
 otelCollector:
-  enabled: false
+  enabled: true
   image:
     repository: otel/opentelemetry-collector-contrib
     tag: "0.93.0"
     pullPolicy: IfNotPresent
 
-  # OTLP receiver ports (receives data from Amaru)
+  # OTLP receiver ports (receives data from Amaru over localhost)
   otlpGrpcPort: 4317
   otlpHttpPort: 4318
+
+  # Amaru exports METRICS, LOGS AND TRACES over OTLP — not metrics alone.
+  #
+  # A collector wired for metrics only answers `Unimplemented` to the other two,
+  # and Amaru's exporters retry every ~5 seconds forever, writing an ERROR line
+  # each time into AMARU'S OWN LOG:
+  #
+  #   ERROR opentelemetry_sdk: TonicLogsClient   export failed … Unimplemented
+  #   ERROR opentelemetry_sdk: TonicTracesClient export failed … Unimplemented
+  #
+  # That is not cosmetic. Amaru reports block-validation failures — the thing you
+  # actually need to see — at WARN, so a continuous stream of routine ERRORs
+  # OUTRANKS the diagnostics and buries them. It nearly cost a real investigation
+  # its answer. A log whose routine failures outrank its findings is worse than a
+  # quiet one, and every future investigation on this chart pays that cost.
+  #
+  # Setting this true gives both signals a pipeline that terminates in the debug
+  # exporter, so Amaru receives success and stops retrying. The summaries land in
+  # the SIDECAR's stdout, not Amaru's, so severity stays where it belongs.
+  # Traces additionally go to exporters.otlp when that is enabled.
+  acceptLogsAndTraces: true
+
+  # Verbosity of the debug exporter that terminates those pipelines.
+  # `basic` is one summary line per batch; `normal` and `detailed` print payloads.
+  debugVerbosity: basic
 
   # Prometheus scrape endpoint (for Prometheus to scrape)
   # Note: 8888 is used by OTel Collector's own internal metrics
