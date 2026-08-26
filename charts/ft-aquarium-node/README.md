@@ -619,16 +619,22 @@ reader a documented default they can see and a real value they cannot.
 documentation, because the reader now has false confidence.**
 
 **And this is not hypothetical — it is how the deployment that asked for this
-guard was configured.** In the operator's own words:
+guard was configured.** Recorded by the operator it happened to:
 
-> *"The error exists because I flagged the shadowing hazard, and my own
-> deployment is the one it would break. I moved `mode` off `extraEnv`
-> deliberately and never asked the same question of the other three — I fixed the
-> instance I was looking at and left the class."*
+> *"I did not fail to notice the class. I noticed the hazard, named it, fixed the
+> one instance in front of me, and never asked 'where else does this shape live?'
+> — that is a different and more common failure than inattention, and it is the
+> one the guard actually protects against."*
 
 Three of five parameters were still on `extraEnv`, set by the person who
 identified the hazard, cared about it, and had already acted on it once. **A
 reader thinking "I would never do that" has just been shown someone who did.**
+
+**The reason this shape is dangerous is that it looks like diligence.** Spotting a
+hazard, naming it and fixing an instance is visibly good work — and that is
+exactly what makes the remaining instances harder to find, because the item now
+reads as closed. **A hazard nobody noticed stays open in everyone's mind; a hazard
+someone fixed is filed.**
 
 
 ## Values
