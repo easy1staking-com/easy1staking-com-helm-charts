@@ -3,6 +3,16 @@ entries:
   amaru:
   - apiVersion: v2
     appVersion: v10.11.20260820
+    created: "2026-08-28T14:09:18.241205119Z"
+    description: A Helm chart for the Amaru Cardano node (relay)
+    digest: 31d94a44770c60152262c28895de8a14201ddd31475cd4e2d72b5c109005533c
+    name: amaru
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/amaru-0.0.1-alpha.23/amaru-0.0.1-alpha.23.tgz
+    version: 0.0.1-alpha.23
+  - apiVersion: v2
+    appVersion: v10.11.20260820
     created: "2026-08-25T13:04:59.866740533Z"
     description: A Helm chart for the Amaru Cardano node (relay)
     digest: b66b8d02b35ea19007f1a63b6c3fa9fcc6758213efd71a87cde922c31b0f5bc8
@@ -614,6 +624,17 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/cardano-node-0.0.1-alpha.1/cardano-node-0.0.1-alpha.1.tgz
     version: 0.0.1-alpha.1
+  ft-aquarium-node:
+  - apiVersion: v2
+    appVersion: 2026.07.13
+    created: "2026-08-28T14:09:18.430474273Z"
+    description: A Helm chart for the FluidTokens Aquarium node (preview)
+    digest: 06515db7b3bf9f099be0e2dee0e315685c7467b0b15c05832cfb87d61ea7924e
+    name: ft-aquarium-node
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ft-aquarium-node-0.1.0/ft-aquarium-node-0.1.0.tgz
+    version: 0.1.0
   kupo:
   - apiVersion: v2
     appVersion: v2.11.0
@@ -1117,4 +1138,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ogmios-0.0.1-alpha2/ogmios-0.0.1-alpha2.tgz
     version: 0.0.1-alpha2
-generated: "2026-08-25T13:05:00.207222702Z"
+generated: "2026-08-28T14:09:18.431036608Z"
