@@ -32,7 +32,7 @@ Each of these has a specific way of wasting a day.
 | digest (informational, **not** a default) | `sha256:3e016ea1aeb0cb38dda13ec29bb16a40f560abaf345378b7cb335fe9875eeb2a` |
 | platform | **linux/amd64 only** — confirm the node's architecture before deploying |
 
-**This is FluidTokens' build from their `main`. It does NOT contain the
+**This is FluidTokens' build from their `main`. It does not contain the
 Lending v4 liquidation work**, which lives on a feature branch and has never been
 published. It is sufficient for indexing and for syncing to tip — that is
 `yaci-store`'s job and works in any version — and **not** sufficient for the bot
@@ -92,7 +92,7 @@ If you add a readiness probe later, it must treat the literal body
 > reachable state. The tell is `/healthcheck` returning `...syncing...` forever
 > while the block height never moves. Check progress, not health.
 
-> The application repo's own `CLAUDE.md` documents this path as
+> The application repo's own `claude.md` documents this path as
 > `/__internal__/healthcheck`. The controller maps `/healthcheck`, with no
 > servlet context path. The stale line would send you to a 404.
 
@@ -136,8 +136,8 @@ refused to start.
 
 > **`LOANS_*` coordinates may only be overridden on an image whose blueprint
 > matches the target deployment. On `fluidtokens/ft-aquarium-node:2026.07.13`,
-> leave them UNSET. A quiet bot on this image is expected; a crash loop after
-> setting them is this trap. Targeting a newer deployment requires a new IMAGE,
+> leave them unset. A quiet bot on this image is expected; a crash loop after
+> setting them is this trap. Targeting a newer deployment requires a new image,
 > not new environment variables.**
 
 This trap looks exactly like a chart bug: the operator sees an idle bot, reads
@@ -183,13 +183,13 @@ carry them perfectly well: in a values diff, *"operator set a policy id"* and
 inside a passthrough map. A safety-critical flag needs a home where a reviewer can
 see it for what it is.
 
-> **⚠ Setting either key restarts the pod, and restart is where the fatal boot
+> **Setting either key restarts the pod, and restart is where the fatal boot
 > verifiers run again (§3).** A node that has been up and quiet may not come back
 > — and that would be the system working, not the arming failing. Read the first
 > thirty seconds of logs and expect a *named* error. `strategy: Recreate` means
 > the old pod is deleted before the new one starts, so expect a brief gap.
 
-> **⚠ Nothing has ever armed this bot, in any environment.** The rendering above
+> **Nothing has ever armed this bot, in any environment.** The rendering above
 > is verified; every step downstream of it — that the app reads these from the
 > environment, that `live` + `true` actually arms, that anything then works — is
 > unexercised. Treat a first arming as an experiment, not a deployment.
@@ -209,7 +209,7 @@ including it would imply the node reads it.
 ### 6. `replicas: 1` is a correctness requirement, not a preference
 
 **Hard-coded in the template. There is no `replicaCount` value, no autoscaling
-stanza, and no HPA — deliberately, so nothing invites a 2.**
+stanza, and no hpa — deliberately, so nothing invites a 2.**
 
 The node signs and submits from **one wallet**. The application has mechanisms
 that *bound* concurrency — per-loan quarantine, and a submit veto that re-reads
@@ -246,15 +246,15 @@ one that costs a night:
   the hand-created Secret is exactly where everyone looks. The username is not a
   suspect until much later.
 - **Flyway needs DDL on an empty database**, and on **Postgres 15+** that is not
-  automatic for any role: PG15 revoked `CREATE` on the `public` schema from
-  `PUBLIC`. The role must **own the database** — ownership reaches the schema
-  through `pg_database_owner` — or have been granted `CREATE` on `public`
+  automatic for any role: PG15 revoked `create` on the `public` schema from
+  `public`. The role must **own the database** — ownership reaches the schema
+  through `pg_database_owner` — or have been granted `create` on `public`
   explicitly. A connecting-but-non-owning role fails at the first migration
   rather than at connect, which again points away from the real cause.
 
 Flyway must also reach Postgres before the application is usable.
 `waitForPostgres.enabled` adds an init container that blocks until Postgres
-accepts TCP. It is **off by default** so the chart declares no image it does not
+accepts tcp. It is **off by default** so the chart declares no image it does not
 need; with it off, an unreachable database means Flyway fails and Kubernetes
 restarts the pod with backoff — noisy but self-healing and correct.
 
@@ -317,7 +317,7 @@ minute at a time — order ~36k rows per run instead of 1.65M. The divergence fr
 default is deliberate: **this chart's normal case is a from-genesis sync**, which is exactly the
 case 3600 fails. Set either value to `null` to omit the variable and inherit upstream's.
 
-> **⚠ Do not set `cursorNoOfBlocksToKeep` to `0`.** Zero does not mean "keep nothing" — it
+> **Do not set `cursorNoOfBlocksToKeep` to `0`.** Zero does not mean "keep nothing" — it
 > disables the cleanup bean entirely, trading a bounded OOM for **unbounded disk growth**
 > (~1.65M rows per 45 minutes of sync) and giving up the rollback window with it. The chart
 > honours an explicit `0` rather than silently dropping it, so nothing stops you but this line.
@@ -400,7 +400,7 @@ the application then fails at startup with a named error, which is §3 working.
 default. **This chart ships none at all, and that is a decision, not an
 omission.**
 
-The node requires no inbound access — it dials out to the relay (TCP 3001),
+The node requires no inbound access — it dials out to the relay (tcp 3001),
 Blockfrost and the oracle (HTTPS). Port 8080 needs to be reachable **in-cluster
 only**, for the kubelet's probes and for Prometheus. And on that one port it
 serves the **unauthenticated** `/api/v1` API *and* the Spring actuator, from a pod
@@ -421,9 +421,9 @@ so it must be supplied; this chart defaults to the **public preview relay**
 (`preview-node.world.dev.cardano.org:3001`) so it works out of the box.
 
 An operator running their **own relay** should point this at it. If that relay is
-on the **LAN** rather than the internet, the pod needs egress to a private
+on the **lan** rather than the internet, the pod needs egress to a private
 address range — worth stating because it is not the default assumption anywhere,
-and a specific LAN address is deployment state that does not belong in this
+and a specific lan address is deployment state that does not belong in this
 public chart. Set it in your own values.
 
 Either way, see the retry warning under §2: an unreachable relay does not fail
@@ -433,7 +433,7 @@ fast.
 
 | Destination | Protocol |
 |---|---|
-| `config.store.cardano.host:3001` | TCP, node-to-node |
+| `config.store.cardano.host:3001` | tcp, node-to-node |
 | `cardano-preview.blockfrost.io` | HTTPS |
 | `testapi.fluidtokens.com` | HTTPS |
 
@@ -460,8 +460,8 @@ default, because a restated default goes stale silently when the image moves.
 
 Two labels on every row, and they are not decoration:
 
-- **⛔ gate** — loosening it can make the node spend funds, submit something it
-  should not, or run against unverified contracts. **· knob** — tuning; wrong
+- **gate** — loosening it can make the node spend funds, submit something it
+  should not, or run against unverified contracts. **Tuning.** — tuning; wrong
   values cost throughput or silence, not money.
 - **[documented]** — the application's own `application.yaml` maps this exact
   environment variable. **[derived]** — reachable only through Spring's relaxed
@@ -469,13 +469,13 @@ Two labels on every row, and they are not decoration:
   not been watched binding on this image.** If a `[derived]` key appears to do
   nothing, that is the first thing to suspect.
 
-### ⛔⛔ Arming — there are THREE switches, not two
+### Arming — there are three switches, not two
 
 | key | env | effect |
 |---|---|---|
-| `liquidation.mode` | `AQUARIUM_LIQUIDATION_MODE` | `disabled` skips the cycle · `shadow` scans, builds, prices and records but never submits · **`live` SUBMITS REAL TRANSACTIONS THAT SPEND REAL FUNDS**, burns a loan NFT and moves someone else's collateral |
+| `liquidation.mode` | `AQUARIUM_LIQUIDATION_MODE` | `disabled` skips the cycle · `shadow` scans, builds, prices and records but never submits · **`live` submits real transactions that spend real funds**, burns a loan NFT and moves someone else's collateral |
 | `liquidation.enabled` | `AQUARIUM_LIQUIDATION_ENABLED` | the second switch; `live` alone does nothing and `true` alone does nothing |
-| `liquidation.ignoreProfitCheck` | `AQUARIUM_LIQUIDATION_IGNORE_PROFIT_CHECK` | **the third, and the one nobody expects.** The application's own source: *"disables BOTH profitability gates"*. Every candidate becomes submittable whether or not the liquidation pays for its own transaction — **the node will spend to lose money.** The app refuses to start with this true on mainnet, which is the measure of what it is |
+| `liquidation.ignoreProfitCheck` | `AQUARIUM_LIQUIDATION_IGNORE_PROFIT_CHECK` | **the third, and the one nobody expects.** The application's own source: *"disables both profitability gates"*. Every candidate becomes submittable whether or not the liquidation pays for its own transaction — **the node will spend to lose money.** The app refuses to start with this true on mainnet, which is the measure of what it is |
 
 **An operator who reviews `mode` and `enabled` and concludes the bot is bounded
 has checked two of three.** This chart previously exposed only those two.
@@ -485,11 +485,12 @@ is public and installable by anyone; a preset that arms a transaction-signing bo
 arms it for everybody who runs `helm install` to see what it does. Arming is a
 deliberate act in the deploying operator's own values, outside this repo.
 
-### ⛔ Economics — gates, not knobs
+### Economics — gates, not knobs
 
 | key | env | effect |
 |---|---|---|
 | `liquidation.checkProfitability` | `…_CHECK_PROFITABILITY` | applies the absolute floor; `false` removes that gate and leaves only the margin |
+| `liquidation.minExpectedProfitLovelace` | `…_MIN_EXPECTED_PROFIT_LOVELACE` | the margin-adjusted floor, and the second of two. Negative authorises the bot to spend its own ada, up to that amount per liquidation, to move a borrower's collateral. **Both floors must be negative for a loss to get through** — setting only one changes nothing, and the application logs which floor is still holding |
 | `liquidation.minProfitAbsoluteLovelace` | `…_MIN_PROFIT_ABSOLUTE_LOVELACE` | the floor, tested **before and independently of** the margin — lowering the margin can never rescue a candidate this refuses. Negative is a deliberate acceptance of mark-to-oracle economics: a convert liquidation fronts principal in ADA and receives collateral in tokens |
 | `liquidation.profitMarginLovelace` | `…_PROFIT_MARGIN_LOVELACE` | profit = fee value − tx fee − this. Covers the reference-script surcharge and refuses dust liquidations. Lowering it admits smaller candidates |
 | `loans.enabled` | `LOANS_ENABLED` | master switch. **Off also disables the two startup verifiers**, so a node with wrong coordinates starts quietly instead of refusing — safe for the bot, and it removes a correctness check |
@@ -511,7 +512,7 @@ deliberate act in the deploying operator's own values, outside this repo.
 | `config.network` | `NETWORK` `[derived]` | the app derives this from the Spring profile. Setting it **overrides** that, so profile and network can disagree. Leave empty unless you mean to break the link |
 | `blockfrost.url` | `BLOCKFROST_URL` `[derived]` | base URL only — the **key** is a secret and is not settable here |
 
-> **⚠ "The verifier did not object" and "the verifier ran" are different
+> **"The verifier did not object" and "the verifier ran" are different
 > statements, and with `failOnUnreachable: false` you cannot tell them apart from
 > a summary line.** The absence of a complaint is also what a skipped check looks
 > like.
@@ -533,8 +534,8 @@ A validator with a coordinate travels **by reference**; one without travels
 **inline** in the witness set. All-inline exceeds `maxTxSize` and cannot build, so
 at least one must be published.
 
-> **⚠ A coordinate whose on-chain script hash does not match the derived one is a
-> HARD STARTUP FAILURE, by design.** A stale coordinate is worse than an absent
+> **A coordinate whose on-chain script hash does not match the derived one is a
+> hard startup failure, by design.** A stale coordinate is worse than an absent
 > one, and the verifier says so loudly rather than running the wrong script.
 > **Blank them on a redeploy rather than leaving them stale** — and see §4, which
 > is the trap in the other direction.
@@ -562,7 +563,7 @@ can see. **Fail on collision, not on use.**
 
 ---
 
-## ⚠ Upgrading: 36 parameters moved out of `extraEnv`
+## Upgrading: 36 parameters moved out of `extraEnv`
 
 **If you set any application parameter through `extraEnv`, read this before you
 upgrade.** Until this version only `liquidation.mode` and `liquidation.enabled`
@@ -584,7 +585,7 @@ stops on a message about templating. That is the shape nobody debugs quickly,
 which is why it is written here rather than left to the error alone.
 
 **The migration is mechanical**: every `AQUARIUM_LIQUIDATION_*`, `LOANS_*`,
-`AQUARIUM_GENESIS/STAKING/TANK_*`, `BLOCKFROST_URL`, `NETWORK`,
+`AQUARIUM_GENESIS/staking/TANK_*`, `BLOCKFROST_URL`, `NETWORK`,
 `SCHEDULING_*` and `SPRING_TASK_SCHEDULING_POOL_SIZE` entry moves to the key
 listed for it in the tables above. For example:
 
@@ -600,7 +601,7 @@ liquidation:
     loanClaimAction: "48c102c0…#0"
 ```
 
-> **⚠ Move them in the SAME apply that adopts the new chart.** The typed keys do
+> **Move them in the same apply that adopts the new chart.** The typed keys do
 > not exist in the older chart, so a values change first is a values change that
 > does nothing; a chart change first is a render failure. **One atomic change,
 > never two.**
@@ -662,7 +663,7 @@ someone fixed is filed.**
 | `liquidation.mode` | `""` | `disabled\|shadow\|live`; empty → image default. **§5** |
 | `liquidation.enabled` | `""` | second arming switch; **both required**. **§5** |
 | `extraEnv` | `{}` | Spring property passthrough — **read §4 first** |
-| `waitForPostgres.enabled` | `false` | optional TCP-wait init container |
+| `waitForPostgres.enabled` | `false` | optional tcp-wait init container |
 | `serviceMonitor.enabled` | `false` | **off**: a ServiceMonitor against absent CRDs fails the install |
 | `serviceMonitor.path` | `/actuator/prometheus` | |
 

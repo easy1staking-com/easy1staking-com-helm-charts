@@ -185,6 +185,7 @@ spec:
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_IGNORE_PROFIT_CHECK" "value" $L.ignoreProfitCheck) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_CHECK_PROFITABILITY" "value" $L.checkProfitability) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_PROFIT_MARGIN_LOVELACE" "value" $L.profitMarginLovelace) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_MIN_EXPECTED_PROFIT_LOVELACE" "value" $L.minExpectedProfitLovelace) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_MIN_PROFIT_ABSOLUTE_LOVELACE" "value" $L.minProfitAbsoluteLovelace) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_DELAY_SECONDS" "value" $L.delaySeconds) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_VALIDITY_WINDOW_SECONDS" "value" $L.validityWindowSeconds) }}

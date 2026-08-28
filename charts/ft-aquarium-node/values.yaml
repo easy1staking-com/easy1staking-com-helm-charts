@@ -2,7 +2,7 @@
 #
 # The Aquarium node is a Spring Boot service that indexes Cardano preview with
 # yaci-store into Postgres, serves a read-only loans API, and runs the
-# FluidTokens Lending v4 liquidation bot. It is a CLIENT of everything it talks
+# FluidTokens Lending v4 liquidation bot. It is a client of everything it talks
 # to: it needs no inbound access from outside the cluster.
 #
 # Quick start:
@@ -19,16 +19,16 @@ image:
   pullPolicy: IfNotPresent
 
   # Overrides the tag, whose default is the chart appVersion (2026.07.13).
-  # Do NOT use "latest": it currently resolves to the same digest as
+  # Do not use "latest": it currently resolves to the same digest as
   # 2026.07.13, but a tag describes while a digest resolves, and "latest"
   # is free to move under you.
   tag: ""
 
   # Optional digest pin. When set, the image becomes `repository@digest` and the
-  # tag is IGNORED — so setting both is refused at render rather than silently
+  # tag is ignored — so setting both is refused at render rather than silently
   # resolving one of them.
   #
-  # ⚠ A DIGEST IS NOT REPOSITORY-INDEPENDENT. It identifies a manifest inside one
+  # A digest is not repository-independent. It identifies a manifest inside one
   # repository. Point `repository` somewhere else — a mirror, a private registry,
   # your own rebuild — and this digest almost certainly does not exist there.
   # The chart cannot detect that, because it cannot know which repository a digest
@@ -37,7 +37,7 @@ image:
   #
   # **Empty by default, and that is a fix rather than an omission.** This chart
   # used to ship FluidTokens' published digest here. An operator who set
-  # `repository` and `tag` to their own rebuild got that digest appended to THEIR
+  # `repository` and `tag` to their own rebuild got that digest appended to their
   # repository and an image that could never exist. A default digest can only ever
   # be correct for one deployer.
   #
@@ -54,7 +54,7 @@ fullnameOverride: ""
 podAnnotations: {}
 podLabels: {}
 
-# The image declares no USER, so it runs as root today. There is no
+# The image declares no user, so it runs as root today. There is no
 # PersistentVolume on this pod, so unlike the amaru chart there is no fsGroup
 # problem to solve here. Running non-root is untested against this image.
 podSecurityContext: {}
@@ -66,33 +66,33 @@ service:
   # here: /healthcheck, /actuator/health, /actuator/prometheus, /api/v1/**.
   port: 8080
 
-# NOTE — there is deliberately NO ingress in this chart, and no ingress.enabled
+# Note: there is deliberately no ingress in this chart, and no ingress.enabled
 # value. See README.md ("No ingress, deliberately"): the unauthenticated
 # /api/v1 API and the Spring actuator share this one port, on a pod that holds a
 # wallet seed. Reachability for debugging is `kubectl port-forward`.
 
-# Sizing. These are now REPORTED ADEQUATE FOR STEADY STATE from a real preview
+# Sizing. These are now reported adequate for steady state from a real preview
 # deployment that reached tip — the first evidence this chart has ever had.
 #
-# ⚠ Do NOT size from the ~2.8Gi peak observed during that deployment's initial
+# Do not size from the ~2.8Gi peak observed during that deployment's initial
 # sync. That peak was the cursor-cleanup defect described under
 # config.store.cardano, not a memory requirement: the fix is the cleanup
-# INTERVAL, and sizing the limit to fit an unbounded delete only buys a larger
+# interval, and sizing the limit to fit an unbounded delete only buys a larger
 # sync before the same failure returns. A number taken from a pathology looks
 # exactly like a measurement, which is how it becomes permanent.
 #
-# What remains genuinely unmeasured is the peak of a HEALTHY initial sync, with
+# What remains genuinely unmeasured is the peak of a healthy initial sync, with
 # the cleanup interval at 60. The original state of this comment follows,
 # because it is still true of that number:
 #
-# THERE IS NO MEASURED FIGURE FOR THIS APPLICATION — not "not tuned",
+# There is no measured figure for this application — not "not tuned",
 # but none. The compose file's JAVA_OPTS was never read by the entrypoint (see
 # jvm.opts below), so every number derived from it, including the application
 # repo's own suggestion, carries no weight. These are a deliberate starting
-# point. The INITIAL SYNC is the peak, and it is ~49 million slots: measure
+# point. The initial sync is the peak, and it is ~49 million slots: measure
 # there, on the first real run, and correct these.
 #
-# CEILING, and the reason this is a knob: the target node schedules by REQUESTS,
+# Ceiling, and the reason this is a knob: the target node schedules by requests,
 # and ~64% of its memory is already reserved by other workloads, leaving roughly
 # 10Gi of request headroom. A namespace is an authorisation boundary, not a
 # resource boundary on a single node — so a request that exceeds that headroom
@@ -108,7 +108,7 @@ resources:
 
 # Passed to the JVM via JAVA_TOOL_OPTIONS.
 #
-# NOT via JAVA_OPTS: the image's entrypoint is the exec form
+# Not via JAVA_OPTS: the image's entrypoint is the exec form
 # ["java","-jar","app.jar"], with no shell to expand a variable, so the
 # JAVA_OPTS the compose file sets has never had any effect. JAVA_TOOL_OPTIONS is
 # read by the JVM itself and does.
@@ -124,18 +124,18 @@ resources:
 jvm:
   opts: "-XX:MaxRAMPercentage=75"
 
-# How long Kubernetes waits for a clean shutdown before SIGKILL.
-# UNVERIFIED: whether the node has in-flight transaction work that must not be
+# How long Kubernetes waits for a clean shutdown before sigkill.
+# unverified: whether the node has in-flight transaction work that must not be
 # torn in half has not been confirmed upstream. 60s is a conservative default.
 terminationGracePeriodSeconds: 60
 
 ## Probes
 #
-# READ THIS BEFORE ADDING A READINESS PROBE.
+# Read this before adding a readiness probe.
 #
 # /healthcheck returns HTTP 200 with the plain body "...syncing..." while the
 # node is still syncing, and a JSON body only once it is caught up. A 200 from
-# it therefore does NOT mean ready. There is currently no endpoint that means
+# it therefore does not mean ready. There is currently no endpoint that means
 # ready.
 #
 # The initial preview sync starts at slot 71,971,209 against a tip near
@@ -150,7 +150,7 @@ terminationGracePeriodSeconds: 60
 # cannot be mistaken for a dead process.
 startupProbe:
   # 60 x 10s = 10 minutes for the app to answer /actuator/health on an empty
-  # database. UNVERIFIED — the real boot-to-healthy time has not been measured.
+  # database. unverified — the real boot-to-healthy time has not been measured.
   # Generous on purpose: too short here is a CrashLoopBackOff before the node
   # ever reaches its first block.
   httpGet:
@@ -173,19 +173,19 @@ livenessProbe:
 # Every value below is passed as an environment variable. Spring's relaxed
 # binding maps them onto application.yaml keys.
 config:
-  # · knob [derived] → NETWORK
+  # Tuning. [derived] → NETWORK
   # The application derives this from the active Spring profile. Setting it here
-  # OVERRIDES that, so the profile and the network can disagree — leave it empty
+  # overrides that, so the profile and the network can disagree — leave it empty
   # unless you specifically mean to break that link.
   network: ""
 
-  # REQUIRED by the application. `preview` is the only network this deployment
+  # Required by the application. `preview` is the only network this deployment
   # supports: the code hard-codes SUBMITTABLE_NETWORK to preview, so mainnet is
   # fail-closed regardless of configuration. There is deliberately no
   # values-mainnet.yaml in this chart.
   springProfile: preview
 
-  # Postgres. CONSUMED, never deployed — this chart creates no database.
+  # Postgres. consumed, never deployed — this chart creates no database.
   # See README.md: the durable volume the node depends on belongs to Postgres,
   # not to this pod, and losing it costs a full ~49M-slot re-index.
   db:
@@ -196,22 +196,22 @@ config:
     database: aquarium
     schema: public
 
-    # The ROLE that owns `database` above — NOT the superuser.
+    # The role that owns `database` above — not the superuser.
     #
     # This must be the same role the Secret's db-password belongs to. Get that
-    # pairing wrong and the application presents the RIGHT PASSWORD AS THE WRONG
-    # USER, which Postgres reports as an authentication failure — so it reads as
+    # pairing wrong and the application presents the right password as the wrong
+    # user, which Postgres reports as an authentication failure — so it reads as
     # a bad secret, and the secret is where everyone looks first. Defaulting this
     # to `postgres` made the superuser the thing you had to notice was wrong.
     #
     # Defaulting instead to the role of the same name as the database matches the
     # app-owned-database story the README tells, and it is also what Postgres 15+
-    # needs: PG15 revoked CREATE on the `public` schema from PUBLIC, so Flyway's
-    # startup migration needs a role that OWNS the database (which carries the
-    # schema through pg_database_owner) or has been granted CREATE on `public`
+    # needs: PG15 revoked create on the `public` schema from public, so Flyway's
+    # startup migration needs a role that owns the database (which carries the
+    # schema through pg_database_owner) or has been granted create on `public`
     # explicitly. A non-owning role fails at the first migration, not at connect.
     username: aquarium
-    # The JDBC URL is composed from the five values above so it cannot drift
+    # The jdbc URL is composed from the five values above so it cannot drift
     # from them. Set this only to override that composition entirely.
     url: ""
 
@@ -220,28 +220,28 @@ config:
   #
   # Defaults to the public preview relay so the chart works out of the box. An
   # operator running their own relay should point this at it instead — and if
-  # that relay is on the LAN rather than the internet, the pod needs egress to
+  # that relay is on the lan rather than the internet, the pod needs egress to
   # a private address range, which is not the default assumption anywhere.
-  # A specific LAN address is deployment state and does not belong in this
+  # A specific lan address is deployment state and does not belong in this
   # public chart; set it in your own values.
   store:
     cardano:
       host: preview-node.world.dev.cardano.org
       port: 3001
 
-      # --- Cursor cleanup: UNDOCUMENTED UPSTREAM, and load-bearing ---
+      # --- Cursor cleanup: undocumented upstream, and load-bearing ---
       #
-      # yaci-store's CursorCleanupScheduler deletes aged cursor rows with a
-      # Spring Data DERIVED delete (no @Modifying, no @Query), so every matching
-      # row is loaded as a MANAGED ENTITY before deletion, in one transaction.
-      # The working set is therefore whatever accumulated since the LAST run —
-      # which makes the INTERVAL the lever, and the memory limit not.
+      # Yaci-store's CursorCleanupScheduler deletes aged cursor rows with a
+      # Spring Data derived delete (no @Modifying, no @Query), so every matching
+      # row is loaded as a managed entity before deletion, in one transaction.
+      # The working set is therefore whatever accumulated since the last run —
+      # which makes the interval the lever, and the memory limit not.
       #
       # Neither property below appears anywhere in yaci-store's documentation.
       # They exist only in its source. That is why they are surfaced here: an
       # operator could not discover them.
       #
-      # THE FAILURE THIS PREVENTS, observed on this chart's first deploy: a
+      # The failure this prevents, observed on this chart's first deploy: a
       # ~45-minute initial sync accumulated ~1.65M rows, the first post-sync
       # cleanup tried to materialise all of them at once, and the pod died of
       # OutOfMemoryError → GC thrash → liveness timeout → SIGTERM. Sixty times,
@@ -249,17 +249,17 @@ config:
       # re-attempted the same oversized delete before it could make progress —
       # a self-perpetuating restart loop, not a flapping one.
       #
-      # 60 rather than yaci-store's own default of 3600 — a DELIBERATE
+      # 60 rather than yaci-store's own default of 3600 — a deliberate
       # divergence. At 3600 a fresh sync presents its entire backlog to the
       # first run; at 60 the same sync drains a minute at a time, order ~36k
       # rows per run instead of 1.65M. No code change, reversible, and it costs
       # only a slightly more frequent small transaction.
       #
-      # THE HONEST LIMIT: this bounds a sync that is still running. It does NOT
+      # The honest limit: this bounds a sync that is still running. It does not
       # drain a backlog that already exists — a node that has already
       # accumulated the rows must survive one large delete regardless. So this
-      # is prophylaxis for the NEXT initial sync, which is the case that
-      # matters: the margin in the observed incident was PROPORTION, NOT DESIGN.
+      # is prophylaxis for the next initial sync, which is the case that
+      # matters: the margin in the observed incident was proportion, not design.
       # A modestly longer sync exceeds any limit you pick, and on mainnet this
       # recurs at a larger scale.
       #
@@ -268,7 +268,7 @@ config:
 
       # Rollback window, in blocks. Upstream default, deliberately unchanged.
       #
-      # ⚠ DO NOT SET THIS TO 0. Zero does not mean "keep nothing" — it disables
+      # Do not set this to 0. Zero does not mean "keep nothing" — it disables
       # the cleanup bean entirely (@ConditionalOnExpression), trading a bounded
       # OOM for unbounded disk growth (~1.65M rows per 45 minutes of sync) and
       # surrendering the rollback window with it. It is honoured explicitly if
@@ -280,10 +280,10 @@ config:
 
 ## Secrets
 #
-# THREE, and only three: the wallet seed, the Blockfrost key and the Postgres
+# Three, and only three: the wallet seed, the Blockfrost key and the Postgres
 # password. Nothing else in this chart is a secret.
 #
-# This chart NEVER creates a Secret and has NO plaintext fallback — a deliberate
+# This chart never creates a Secret and has no plaintext fallback — a deliberate
 # divergence from the cardano-db-sync and midnight-node charts in this repo,
 # which do offer one. Those guard a database password; this one guards a BIP-39
 # wallet seed whose blast radius is total loss of that wallet's funds, in a
@@ -295,7 +295,7 @@ config:
 secret:
   name: ""
 
-  # HOW the secret reaches the process. Default `file`, and prefer it.
+  # How the secret reaches the process. Default `file`, and prefer it.
   #
   #   file — the Secret is mounted at `mountPath` with 0400 files named for the
   #          Spring properties, and read via SPRING_CONFIG_IMPORT config trees.
@@ -306,13 +306,13 @@ secret:
   #          the root rather than warning about it.
   #
   #   env  — classic secretKeyRef environment variables. Kept because the
-  #          config-tree path is REASONED, NOT BOOTED against this image: it is
+  #          config-tree path is reasoned, not booted against this image: it is
   #          Spring's documented behaviour, but nobody has started the app to
   #          watch it bind. If `file` mode fails with "wallet.mnemonic has no
   #          default", switch to `env` and the deployment proceeds while the
   #          question gets answered. Being wrong should be cheap, not blocking.
   #
-  # Both modes read the SAME Secret with the same keys; only the projection
+  # Both modes read the same Secret with the same keys; only the projection
   # differs. Neither puts a secret in this repository.
   mode: file
 
@@ -322,75 +322,74 @@ secret:
     blockfrostKey: blockfrost-key
     dbPassword: db-password
 
-  # file mode only. Files are named for the Spring properties they set:
+  # File mode only. Files are named for the Spring properties they set:
   #   wallet.mnemonic
   #   blockfrost.key
   #   spring.datasource.password
-  #   spring.flyway.password        <- Flyway has its OWN password property,
+  #   spring.flyway.password        <- Flyway has its own password property,
   #                                    separate from the datasource. The one
   #                                    db-password key feeds both; miss the
   #                                    second and the migration fails while the
   #                                    application itself connects fine.
   mountPath: /etc/aquarium-secrets
 
-## ═══════════════════════════════════════════════════════════════════════════
-## THE APPLICATION'S PARAMETER SURFACE
+
+## The application's parameter surface
 ##
-## Every key below is EMPTY BY DEFAULT and emitted only when you set it. Empty
-## means THE CHART SAYS NOTHING and the image's own per-profile default governs
+## Every key below is empty by default and emitted only when you set it. Empty
+## means the chart says nothing and the image's own per-profile default governs
 ## — which is safer than the chart restating that default, because a restated
 ## default goes stale silently when the image moves.
 ##
 ## Each entry is marked:
-##   ⛔ SAFETY GATE  — loosening it can cause the node to spend funds, submit a
+##   Safety gate — loosening it can cause the node to spend funds, submit a
 ##                     transaction it should not, or run against the wrong
 ##                     contracts. Change deliberately, never to make something work.
-##   · knob          — tuning. Wrong values cost throughput or noise, not money.
+##   Tuning       — wrong values cost throughput or noise, not money.
 ##
 ## And each carries its provenance, because the two are not equally certain:
 ##   [documented] the application's own application.yaml maps this exact env var
 ##   [derived]    reachable only through Spring's relaxed binding. The mapping is
-##                asserted from Spring's documented behaviour and has NOT been
+##                asserted from Spring's documented behaviour and has not been
 ##                watched binding on this image. If a [derived] key appears to do
 ##                nothing, that is the first thing to suspect.
-## ═══════════════════════════════════════════════════════════════════════════
 
-## ⛔⛔ ARMING — THREE SWITCHES, NOT TWO.
+## Arming: three switches, not two.
 ##
-## Submitting a liquidation BURNS A LOAN NFT AND MOVES SOMEONE ELSE'S COLLATERAL.
+## Submitting a liquidation burns a loan NFT and moves someone else's collateral.
 ##
-## ⚠ NO VALUES FILE IN THIS REPOSITORY MAY EVER SET AN ARMING VALUE — not `live`,
+## No values file in this repository may ever set an arming value: not `live`,
 ## not `true`, not commented-out-and-ready. This chart is public and installable
 ## by anyone; a preset that arms a transaction-signing bot arms it for everybody
 ## who runs `helm install` to see what it does. Arming is a deliberate act in the
-## DEPLOYING OPERATOR'S own values, outside this repo.
+## deploying operator's own values, outside this repo.
 ##
-## ⚠ Setting any of these restarts the pod, and restart is where the fatal boot
+## Setting any of these restarts the pod, and restart is where the fatal boot
 ## verifiers run again (README §3). A node that has been up and quiet may not come
 ## back — that is the system working, not the arming failing.
 liquidation:
-  # ⛔ SAFETY GATE [documented] → AQUARIUM_LIQUIDATION_MODE
+  # Safety gate. [documented] → AQUARIUM_LIQUIDATION_MODE
   # "" | disabled | shadow | live
   #   disabled — the cycle does not run at all.
-  #   shadow   — scans, builds, prices and RECORDS, but the MODE_NOT_LIVE veto
+  #   shadow   — scans, builds, prices and records, but the MODE_NOT_LIVE veto
   #              stops submission. Nothing reaches the chain.
-  #   live     — SUBMITS REAL TRANSACTIONS THAT SPEND REAL FUNDS.
+  #   live     — submits real transactions that spend real funds.
   # Requires `enabled` as well. An invalid value is refused at render.
   mode: ""
 
-  # ⛔ SAFETY GATE [documented] → AQUARIUM_LIQUIDATION_ENABLED
+  # Safety gate. [documented] → AQUARIUM_LIQUIDATION_ENABLED
   # The second arming switch. `true` alone does nothing and `live` alone does
   # nothing; both are required, deliberately, so one flipped by accident is inert.
   enabled: ""
 
-  # ⛔⛔ SAFETY GATE [documented] → AQUARIUM_LIQUIDATION_IGNORE_PROFIT_CHECK
+  # Safety gate. [documented] → AQUARIUM_LIQUIDATION_IGNORE_PROFIT_CHECK
   #
-  # THE THIRD ARMING SWITCH, and the one nobody expects. From the application's
-  # own source: it "disables BOTH profitability gates". Every candidate becomes
+  # The third arming switch, and the one nobody expects. From the application's
+  # own source: it "disables both profitability gates". Every candidate becomes
   # submittable regardless of whether the liquidation pays for its own
   # transaction — the node will spend to lose money.
   #
-  # The application REFUSES TO START with this true on mainnet, which is the
+  # The application refuses to start with this true on mainnet, which is the
   # measure of what it is. Treat it as arming, not as tuning: an operator
   # reviewing `mode` and `enabled` and concluding the bot is bounded has checked
   # two of three.
@@ -399,20 +398,31 @@ liquidation:
   ## Economics — loosening any of these admits liquidations that would otherwise
   ## be refused as unprofitable. Gates, not knobs.
 
-  # ⛔ SAFETY GATE [documented] → AQUARIUM_LIQUIDATION_CHECK_PROFITABILITY
+  # Safety gate. [documented] → AQUARIUM_LIQUIDATION_CHECK_PROFITABILITY
   # Applies the absolute profit floor. `false` removes that gate entirely and
   # leaves only the margin lever.
   checkProfitability: ""
 
-  # ⛔ SAFETY GATE [documented] → AQUARIUM_LIQUIDATION_MIN_PROFIT_ABSOLUTE_LOVELACE
-  # The absolute floor, tested BEFORE and independently of the margin — lowering
-  # the margin can never rescue a candidate this refuses. Setting it NEGATIVE is a
+  # Safety gate. [documented] → AQUARIUM_LIQUIDATION_MIN_EXPECTED_PROFIT_LOVELACE
+  # The margin-adjusted profit floor, and the second of two. A negative value
+  # authorises the bot to spend its own ada, up to that amount per liquidation,
+  # to move a borrower's collateral; losses worse than it are still refused.
+  #
+  # Both floors must be negative for a loss to get through. Setting only this one
+  # changes nothing, because minProfitAbsoluteLovelace refuses a negative
+  # floorProfit independently — the application logs which floor is still holding
+  # rather than leaving that to be worked out.
+  minExpectedProfitLovelace: ""
+
+  # Safety gate. [documented] → AQUARIUM_LIQUIDATION_MIN_PROFIT_ABSOLUTE_LOVELACE
+  # The absolute floor, tested before and independently of the margin — lowering
+  # the margin can never rescue a candidate this refuses. Setting it negative is a
   # deliberate statement that mark-to-oracle economics are accepted, because a
   # convert liquidation fronts the principal in ADA and receives collateral in
   # tokens, and the floor compares ADA out against tokens in.
   minProfitAbsoluteLovelace: ""
 
-  # ⛔ SAFETY GATE [documented] → AQUARIUM_LIQUIDATION_PROFIT_MARGIN_LOVELACE
+  # Safety gate. [documented] → AQUARIUM_LIQUIDATION_PROFIT_MARGIN_LOVELACE
   # Expected profit = fee value - tx fee - this. Covers the reference-script
   # surcharge and refuses dust liquidations whose fee slice would not repay the
   # transaction claiming it. Lowering it admits smaller candidates.
@@ -420,33 +430,33 @@ liquidation:
 
   ## Timing — knobs. Wrong values cost throughput or silence, not money.
 
-  # · knob [documented] → AQUARIUM_LIQUIDATION_DELAY_SECONDS
+  # Tuning. [documented] → AQUARIUM_LIQUIDATION_DELAY_SECONDS
   delaySeconds: ""
-  # · knob [documented] → AQUARIUM_LIQUIDATION_VALIDITY_WINDOW_SECONDS
+  # Tuning. [documented] → AQUARIUM_LIQUIDATION_VALIDITY_WINDOW_SECONDS
   # Transaction validity window. Read with oracleWindowMarginSeconds: a candidate
   # is buildable only while this plus the margin still fits inside the feed's
   # remaining window.
   validityWindowSeconds: ""
-  # · knob [documented] → AQUARIUM_LIQUIDATION_ORACLE_MARGIN_SECONDS
+  # Tuning. [documented] → AQUARIUM_LIQUIDATION_ORACLE_MARGIN_SECONDS
   # Required headroom between the feed's validity end and the transaction's.
   # Raising it shortens the usable stretch of every oracle window one second for
   # one; a value near the feed window disables the bot in practice while every
   # candidate merely reports ORACLE_WINDOW_MARGIN_TOO_SMALL — which reads as "no
   # candidates" rather than as a misconfiguration.
   oracleWindowMarginSeconds: ""
-  # · knob [documented] → AQUARIUM_LIQUIDATION_QUARANTINE_MINUTES
+  # Tuning. [documented] → AQUARIUM_LIQUIDATION_QUARANTINE_MINUTES
   quarantineMinutes: ""
-  # · knob [documented] → AQUARIUM_LIQUIDATION_DECISION_LOG_SIZE
+  # Tuning. [documented] → AQUARIUM_LIQUIDATION_DECISION_LOG_SIZE
   decisionLogSize: ""
 
   ## Published reference-script coordinates, `txHash#index` each.
   ##
-  ## These decide BUILDABILITY, not safety. A validator with a coordinate travels
+  ## These decide buildability, not safety. A validator with a coordinate travels
   ## by reference; one without travels inline in the witness set. All-inline
   ## exceeds maxTxSize and cannot build, so at least one must be published.
   ##
-  ## ⚠ A coordinate whose on-chain script hash does not match the derived one is
-  ## a HARD STARTUP FAILURE, by design — a stale coordinate is worse than an
+  ## A coordinate whose on-chain script hash does not match the derived one is
+  ## a hard startup failure, by design — a stale coordinate is worse than an
   ## absent one, and the verifier says so loudly rather than running the wrong
   ## script. Blank them on a redeploy rather than leaving them stale.
   referenceScripts:
@@ -461,7 +471,7 @@ liquidation:
 
 ## Lending v4 subsystem.
 loans:
-  # ⛔ SAFETY GATE [documented] → LOANS_ENABLED
+  # Safety gate. [documented] → LOANS_ENABLED
   # Master switch for indexing, scanning and health. Turning it OFF also disables
   # the two startup verifiers, so a node with wrong contract coordinates will
   # start quietly instead of refusing. Off is safe for the bot and removes a
@@ -469,11 +479,11 @@ loans:
   enabled: ""
 
   oracle:
-    # · knob [documented] → LOANS_ORACLE_ENABLED
+    # Tuning. [documented] → LOANS_ORACLE_ENABLED
     # Price-feed polling. OFF means every collateral reports health unavailable,
     # so nothing can be priced and the bot goes quiet rather than misbehaving.
     enabled: ""
-    # · knob [documented] → LOANS_ORACLE_URL
+    # Tuning. [documented] → LOANS_ORACLE_URL
     # Point it at the wrong network's registry and collaterals silently price as
     # unavailable — indistinguishable from "no candidates".
     url: ""
@@ -494,17 +504,17 @@ loans:
   smartTokensSpendScriptHash: ""
 
   verifyConfig:
-    # ⛔ SAFETY GATE [derived] → LOANS_VERIFY_CONFIG_FAIL_ON_UNREACHABLE
-    # Whether an UNREACHABLE backend fails the reference-script verifier at
+    # Safety gate. [derived] → LOANS_VERIFY_CONFIG_FAIL_ON_UNREACHABLE
+    # Whether an unreachable backend fails the reference-script verifier at
     # startup. `false` (the application's default) tolerates unreachability and
-    # starts anyway — which means the node can run WITHOUT having verified its
-    # scripts. A genuine hash MISMATCH is fatal either way; this governs only the
+    # starts anyway — which means the node can run without having verified its
+    # scripts. A genuine hash mismatch is fatal either way; this governs only the
     # can't-tell case.
     #
-    # ⚠ "The verifier did not object" and "the verifier ran" are different
+    # "The verifier did not object" and "the verifier ran" are different
     # statements, and at the default you cannot tell them apart from a summary
     # line — the absence of a complaint is also what a skipped check looks like.
-    # Look for POSITIVE evidence of a completed round trip: log lines reading
+    # Look for positive evidence of a completed round trip: log lines reading
     # `Read ConfigDatum from <txHash>#0` and `Read LMConfigDatum from <txHash>#1`.
     # A verifier that skipped could not have read two datums off specific UTxOs.
     failOnUnreachable: ""
@@ -525,15 +535,15 @@ aquarium:
       outputIndex: ""  # [derived] → AQUARIUM_TANK_REF_INPUT_OUTPUTINDEX
 
 blockfrost:
-  # · knob [derived] → BLOCKFROST_URL
-  # Base URL only. The KEY is a secret and lives in the Secret above; it is not
+  # Tuning. [derived] → BLOCKFROST_URL
+  # Base URL only. The key is a secret and lives in the Secret above; it is not
   # settable here and never will be.
   url: ""
 
 scheduling:
-  # · knob [documented] → SCHEDULING_TRANSACTION_PROCESSOR_DELAY_MINUTES
+  # Tuning. [documented] → SCHEDULING_TRANSACTION_PROCESSOR_DELAY_MINUTES
   transactionProcessorDelayMinutes: ""
-  # · knob [documented] → SPRING_TASK_SCHEDULING_POOL_SIZE
+  # Tuning. [documented] → SPRING_TASK_SCHEDULING_POOL_SIZE
   # Scheduler threads. Spring's own default of 1 lets the transaction processor
   # starve the 30-second oracle refresh — observed as feeds ageing past expiry
   # exactly while transactions were being processed. The application corrects it
@@ -550,14 +560,14 @@ scheduling:
 # variable, so this map lets an operator follow a contract redeploy without
 # waiting for a new image.
 #
-# ⚠ DO NOT arm the bot from here. The arming flags have their own typed keys
+# DO not arm the bot from here. The arming flags have their own typed keys
 # under `liquidation:` above, specifically so a reviewer can see them in a diff.
 # Setting AQUARIUM_LIQUIDATION_MODE or _ENABLED through this map would work and
 # would hide what it is doing, which is the reason it has a proper home.
 extraEnv: {}
   # AQUARIUM_CONFIG_POLICY_ID: "c45d5306a7c0f7ba361af5fcdfa9bdbe0ba67f105caa2d2d4032aaa9"
 
-## Optional init container that blocks until Postgres accepts TCP.
+## Optional init container that blocks until Postgres accepts tcp.
 #
 # Off by default, so the chart declares no image it does not need. With it off,
 # an unreachable database means Flyway fails at startup and Kubernetes restarts
