@@ -1,0 +1,14 @@
+# Preview preset for the Aquarium node.
+#
+# The chart's defaults already target preview — this is the only network the
+# application supports. These three keys are restated here rather than left
+# implicit so that the meaning of "preview" cannot be changed by editing
+# values.yaml: values files in this repo are OVERLAYS, and a key that quietly
+# moves in the defaults moves everywhere that does not restate it.
+
+config:
+  springProfile: preview
+  store:
+    cardano:
+      host: preview-node.world.dev.cardano.org
+      port: 3001

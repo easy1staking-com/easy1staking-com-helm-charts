@@ -1,7 +1,7 @@
 # Amaru
 
 Helm chart for [Amaru](https://github.com/pragma-org/amaru), the Rust Cardano node
-by PRAGMA. This chart deploys one or more **relays**.
+by pragma. This chart deploys one or more **relays**.
 
 Image: `ghcr.io/pragma-org/amaru` · verified against `v10.11.20260820`.
 
@@ -14,7 +14,7 @@ come straight from upstream's own release notes and shape what this chart can
 promise:
 
 - **Connections are not full-duplex yet.** Amaru can initiate outbound
-  connections and accept inbound ones, but *over two separate TCP bearers* — a
+  connections and accept inbound ones, but *over two separate tcp bearers* — a
   peer talking to Amaru does not get one bidirectional session the way it does
   with a Haskell relay. Amaru is relay-**capable**, not yet a drop-in
   cardano-node relay replacement.
@@ -23,7 +23,7 @@ promise:
 Two further facts about the shape of the process, verified from the binary:
 
 - **There is no node-to-client (n2c) interface.** No socket path, no socket
-  option, anywhere in the CLI. Tools that expect `node.socket` (cardano-cli,
+  option, anywhere in the cli. Tools that expect `node.socket` (cardano-cli,
   db-sync, Ogmios, Kupo in node mode) cannot attach to Amaru. The nearest
   equivalent is the optional HTTP **Submit API** (`config.submitApi`), which
   serves `POST /api/submit/tx` and nothing else.
@@ -74,7 +74,7 @@ Each relay gets the same three services the `cardano-node` chart uses:
 
 | Service | Type | Always? | Use |
 |---|---|---|---|
-| `amaru-<name>` | headless (`clusterIP: None`) | yes | stable per-pod DNS, e.g. `amaru-relay-1-0.amaru-relay-1` |
+| `amaru-<name>` | headless (`clusterIP: None`) | yes | stable per-pod dns, e.g. `amaru-relay-1-0.amaru-relay-1` |
 | `amaru-<name>-int` | ClusterIP | yes | ordinary in-cluster access; also carries the scrape and submit-api ports |
 | `amaru-<name>-ext` | NodePort | only when `nodes[].nodePort` is set | external inbound |
 
@@ -191,7 +191,7 @@ preview  https://aggregator.testing-preview.api.mithril.network/aggregator
 
 The embedded mainnet genesis verification key is byte-identical to the one the
 `cardano-node` chart passes explicitly. The only Mithril knob in the whole binary
-is the snapshots directory. **Consequence:** if PRAGMA ever rotates an aggregator
+is the snapshots directory. **Consequence:** if pragma ever rotates an aggregator
 or key, you upgrade the image — the chart cannot override it.
 
 ### Known issue: preview sync halts permanently at block 4,588,007
@@ -201,15 +201,15 @@ forever**, rejecting 4,588,007 and every block after it as *"descends from an
 invalid block"* while watching upstream tips advance in real time:
 
 ```
-BlockValidationError … transaction failed PHASE ONE validation: invalid inputs:
+BlockValidationError … transaction failed phase one validation: invalid inputs:
 inputs included in both reference inputs and spent inputs
 parent=…(4588006)   failed_tip=120569440…(4588007)
 ```
 
 **No chart configuration changes this.** All four combinations of upstream peers ×
 Mithril sync were run on a live cluster and every one halted on the same block and
-the same transaction. **Mithril changes where the node STARTS, not where it
-STOPS** — a cell with both a healthy local relay peer and a Mithril snapshot
+the same transaction. **Mithril changes where the node starts, not where it
+stops** — a cell with both a healthy local relay peer and a Mithril snapshot
 halted identically.
 
 **It is not a peering problem, which is what it looks like.** Amaru ↔ cardano-node
@@ -217,12 +217,12 @@ halted identically.
 completed, intersect found, upstream tip 4,602,448 visible. The node is connected;
 the height is blocked by block *content*.
 
-**The fix exists upstream, is verified to work, and is NOT MERGED.**
+**The fix exists upstream, is verified to work, and is not merged.**
 [`pragma-org/amaru` PR #1255, *"Fix Disjoint Inputs Check(s)"*](https://github.com/pragma-org/amaru/pull/1255)
-says: *"In pv11+, the reference inputs and the inputs do NOT need to be disjoint
+says: *"In pv11+, the reference inputs and the inputs do not need to be disjoint
 sets."* Preview is on `protocol_major` 11, so that conditional applies here.
 
-**We tested it. OBSERVED, 2026-08-25:** built from the PR head `db5961c`, swapped
+**We tested it. observed, 2026-08-25:** built from the PR head `db5961c`, swapped
 into the published `v10.11.20260820` image so that the binary was the only
 difference, and run against a fresh volume with the two commands below. It
 **stepped over the failing block without stopping** — `…4587545 → 4588321 →
@@ -230,7 +230,7 @@ difference, and run against a fresh volume with the two commands below. It
 i.e. caught up to the upstream tip. Zero `BlockValidationError`, zero occurrences
 of 4,588,007, nothing suppressed. **A preview node syncs normally on that branch.**
 
-> **⚠ "Verified" is not "available".** The PR is **open and unmerged**, so no
+> **"Verified" is not "available".** The PR is **open and unmerged**, so no
 > published image contains it. Both `v10.11.20260820` and `latest` (digest
 > `b3f8594…`, a different build from a different commit) halt on the identical
 > block — the halt is not a stale-image problem. **There is still nothing to
@@ -255,11 +255,11 @@ the protocol version"* — does not cover it; and the failure reproduces on bare
 Docker with no chart and no Kubernetes involved at all.
 
 > Provenance, since this chart is careful about it elsewhere: we reached
-> "Conway removed the disjointness requirement" as a **DERIVED** hypothesis and
+> "Conway removed the disjointness requirement" as a **derived** hypothesis and
 > labelled it one, having no standing on ledger rules. Upstream's own PR
-> description says the same thing, which makes **the rule** DOCUMENTED — by them,
+> description says the same thing, which makes **the rule** documented — by them,
 > not by us. That the rule is documented would not by itself make **this block**
-> an instance of it; the on-chain lookup is what does that, and it is `OBSERVED`.
+> an instance of it; the on-chain lookup is what does that, and it is `observed`.
 
 Reproducing it takes about a minute on bare Docker, no Kubernetes and no chart —
 bootstrap lands at 4,580,250 and the wall is 7,757 blocks later:
@@ -303,9 +303,9 @@ The block is on the real preview chain, so the Haskell node accepted it; Amaru's
 cost accounting overshoots by ~0.015%. Reproduce with:
 
 ```bash
-docker run --rm -v $PWD/data:/data ghcr.io/pragma-org/amaru:v10.11.20260820 \
+docker run --rm -v $pwd/data:/data ghcr.io/pragma-org/amaru:v10.11.20260820 \
   node bootstrap --network=preview --ledger-dir /data/ledger.db --chain-dir /data/chain.db
-docker run --rm -v $PWD/data:/data ghcr.io/pragma-org/amaru:v10.11.20260820 \
+docker run --rm -v $pwd/data:/data ghcr.io/pragma-org/amaru:v10.11.20260820 \
   mithril sync --network preview --ledger-dir /data/ledger.db \
     --chain-dir /data/chain.db --snapshots-dir /data/mithril
 ```
@@ -318,7 +318,7 @@ syncing from peers.
 
 ## Config, storage and bootstrap
 
-Amaru takes no topology file and no config directory — everything is CLI flags
+Amaru takes no topology file and no config directory — everything is cli flags
 and `AMARU_*` environment variables. This differs from `cardano-node`, which
 mounts `<network>-config.json` and `<network>-topology.json`.
 
@@ -351,7 +351,7 @@ load-bearing:
 Preview needs roughly 1.6GB of ledger after bootstrap; mainnet is substantially
 larger. Size `volumeSize` accordingly.
 
-**The PVC size is DERIVED FROM `network`, not defaulted.** `volumeSizeByNetwork`
+**The PVC size is derived from `network`, not defaulted.** `volumeSizeByNetwork`
 maps mainnet and preprod to `250Gi` and preview to `50Gi`; an unknown network
 falls back to the mainnet figure. Setting `volumeSize` overrides the derivation
 entirely.
@@ -369,13 +369,13 @@ preview is, and no measurement exists that would justify a specific smaller numb
 **50Gi is an over-estimate on purpose, not a measurement.** The ledger is ~1.6GB
 after bootstrap (observed); chain-db growth from the bootstrap epoch to tip is
 **unmeasured**, and Mithril snapshots share the same volume when enabled. The
-asymmetry sets the direction: a storage class with `ALLOWVOLUMEEXPANSION=false` —
+asymmetry sets the direction: a storage class with `allowvolumeexpansion=false` —
 k3s's default `local-path` included — cannot grow a PVC that turns out too small,
 so **under-sizing is not "adjust later", it is destroy the volume, re-bootstrap
 and re-sync**, while over-sizing costs only a nominal claim (`local-path` does not
 preallocate — a 250Gi claim binds instantly and consumes nothing).
 
-**⚠ These figures cannot currently be refined, and that is a property of Amaru,
+**These figures cannot currently be refined, and that is a property of Amaru,
 not of the chart.** Sizing wants the usage of a relay that has reached tip, and on
 `v10.11.20260820` **no preview relay can reach tip** — see *Known issue: preview
 sync halts permanently* below. Both routes out are closed: the pinned image is the
@@ -389,7 +389,7 @@ unmeasurable until upstream ships a fix.** They are over-estimates justified by
 the asymmetry above, and the first person who *can* measure them should be someone
 running a build that gets past block 4,588,007.
 
-> **⚠ Resizing a RUNNING relay does not work.** A StatefulSet's
+> **Resizing a running relay does not work.** A StatefulSet's
 > `volumeClaimTemplates` are immutable, so an upgrade that changes the size is
 > rejected by the API server. Resizing means deleting the StatefulSet
 > (`--cascade=orphan` keeps the pods) and re-applying, or replacing the PVC.
@@ -439,7 +439,7 @@ was therefore a trap: moving it moved the collector's listener while the exporte
 kept sending to 4317, and metrics stopped with every value in the chart looking
 correctly applied.** It is a real knob now.
 
-> **⚠ `otelCollector.otlpHttpPort` carries no traffic.** Measured from the
+> **`otelCollector.otlpHttpPort` carries no traffic.** Measured from the
 > collector's own internal telemetry, every signal — metrics, logs and spans —
 > arrives over **gRPC on `otlpGrpcPort`**. The HTTP receiver is configured and
 > unused. Two port values invite the reading that both are live paths; only one
@@ -447,21 +447,21 @@ correctly applied.** It is a real knob now.
 
 ## Logging, and why the sidecar must accept logs and traces
 
-**Amaru exports metrics, logs AND traces over OTLP.** A collector wired only for
+**Amaru exports metrics, logs and traces over OTLP.** A collector wired only for
 metrics answers `Unimplemented` to the other two, and Amaru's exporters retry
-every ~5 seconds, forever, writing an ERROR line into **Amaru's own log** each
+every ~5 seconds, forever, writing an error line into **Amaru's own log** each
 time:
 
 ```
-ERROR opentelemetry_sdk: TonicLogsClient   export failed … gRPC code: Unimplemented
-ERROR opentelemetry_sdk: TonicTracesClient export failed … gRPC code: Unimplemented
+error opentelemetry_sdk: TonicLogsClient   export failed … gRPC code: Unimplemented
+error opentelemetry_sdk: TonicTracesClient export failed … gRPC code: Unimplemented
 ```
 
 **This is not cosmetic noise, and the reason is worth stating plainly: it inverts
 severity.** Amaru reports block-validation failures — the messages that explain
-why a node has stopped advancing — at **WARN**. A continuous stream of routine
-**ERROR**s therefore outranks the diagnostics and buries them. During a real
-investigation on this chart, the one WARN that contained the entire answer was
+why a node has stopped advancing — at **warn**. A continuous stream of routine
+**error**s therefore outranks the diagnostics and buries them. During a real
+investigation on this chart, the one warn that contained the entire answer was
 very nearly missed in that stream. A log whose routine failures outrank its
 findings is worse than a quiet one, and every future investigation pays the cost.
 
@@ -476,7 +476,7 @@ enabled. There is no such route for logs — the collector accepts and discards
 them, which is what stops the retry loop.
 
 **If you disable the sidecar entirely**, Amaru has nowhere to push and the same
-ERROR stream returns. Amaru has no `/metrics` endpoint and no way to be told to
+error stream returns. Amaru has no `/metrics` endpoint and no way to be told to
 stop exporting, so the sidecar is the only place this can be handled.
 
 ## The `job` label is a contract with `amaru-monitoring`
@@ -506,7 +506,7 @@ If you do change it, change `amaru-monitoring` in the same commit.
 
 ## Health checks
 
-The chart sets a **readiness** probe (TCP connect on the p2p port) and
+The chart sets a **readiness** probe (tcp connect on the p2p port) and
 deliberately **no liveness probe**. Amaru has no HTTP health endpoint, and a
 liveness probe would restart-loop a node during a long bootstrap or replay.
 Readiness reports "listening" without ever killing a syncing node.

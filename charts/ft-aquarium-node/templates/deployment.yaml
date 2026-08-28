@@ -1,0 +1,279 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "ft-aquarium-node.fullname" . }}
+  labels:
+    {{- include "ft-aquarium-node.labels" . | nindent 4 }}
+spec:
+  {{- /*
+    SINGLETON, and deliberately not a value.
+
+    The node signs and submits from ONE wallet. Two pods running at once race
+    the same UTxO set, which is how the same liquidation gets submitted twice.
+    Recreate rather than RollingUpdate for the same reason: a rolling update
+    overlaps the old and new pods, which is exactly the state being avoided.
+
+    This bounds concurrency; it does not make double-submission impossible.
+    Only the application can do that, by keying submission on something on
+    chain. No Kubernetes primitive closes that gap.
+  */}}
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "ft-aquarium-node.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      {{- with .Values.podAnnotations }}
+      annotations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      labels:
+        {{- include "ft-aquarium-node.labels" . | nindent 8 }}
+        {{- with .Values.podLabels }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
+      securityContext:
+        {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      {{- if .Values.waitForPostgres.enabled }}
+      initContainers:
+        - name: wait-for-postgres
+          image: "{{ .Values.waitForPostgres.image.repository }}:{{ .Values.waitForPostgres.image.tag }}"
+          imagePullPolicy: {{ .Values.waitForPostgres.image.pullPolicy }}
+          command:
+            - sh
+            - -c
+            - |
+              until nc -z {{ .Values.config.db.host }} {{ .Values.config.db.port }}; do
+                echo "waiting for postgres at {{ .Values.config.db.host }}:{{ .Values.config.db.port }}"
+                sleep 5
+              done
+      {{- end }}
+      containers:
+        - name: {{ .Chart.Name }}
+          image: "{{ include "ft-aquarium-node.image" . }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          securityContext:
+            {{- toYaml .Values.securityContext | nindent 12 }}
+          env:
+            - name: SPRING_PROFILES_ACTIVE
+              value: {{ .Values.config.springProfile | quote }}
+            {{- if and .Values.secret.name (eq .Values.secret.mode "file") }}
+            {{- /*
+              Spring Boot config tree: every file under this directory becomes a
+              property named for the file, with the file's contents as its
+              value. "optional:" so that a missing mount still lets the process
+              start far enough to fail with a NAMED error rather than a path error.
+            */}}
+            - name: SPRING_CONFIG_IMPORT
+              value: "optional:configtree:{{ .Values.secret.mountPath }}/"
+            {{- end }}
+            - name: JAVA_TOOL_OPTIONS
+              value: {{ .Values.jvm.opts | quote }}
+            - name: DB_DRIVER
+              value: {{ .Values.config.db.driver | quote }}
+            - name: DB_DIALECT
+              value: {{ .Values.config.db.dialect | quote }}
+            - name: POSTGRES_HOST
+              value: {{ .Values.config.db.host | quote }}
+            - name: POSTGRES_PORT
+              value: {{ .Values.config.db.port | quote }}
+            - name: POSTGRES_DB
+              value: {{ .Values.config.db.database | quote }}
+            - name: DB_SCHEMA
+              value: {{ .Values.config.db.schema | quote }}
+            - name: DB_USERNAME
+              value: {{ .Values.config.db.username | quote }}
+            - name: DB_URL
+              value: {{ include "ft-aquarium-node.dbUrl" . | quote }}
+            - name: STORE_CARDANO_HOST
+              value: {{ .Values.config.store.cardano.host | quote }}
+            - name: STORE_CARDANO_PORT
+              value: {{ .Values.config.store.cardano.port | quote }}
+            {{- /*
+              Cursor cleanup, undocumented upstream. `kindIs "invalid"` rather
+              than `with`, so an explicit 0 reaches the application instead of
+              being silently dropped as falsy — see the warnings in values.yaml
+              about what 0 does to noOfBlocksToKeep. null omits the variable and
+              inherits yaci-store's own default.
+            */}}
+            {{- if not (kindIs "invalid" .Values.config.store.cardano.cursorCleanupIntervalSeconds) }}
+            - name: STORE_CARDANO_CURSOR_CLEANUP_INTERVAL
+              value: {{ .Values.config.store.cardano.cursorCleanupIntervalSeconds | quote }}
+            {{- end }}
+            {{- if not (kindIs "invalid" .Values.config.store.cardano.cursorNoOfBlocksToKeep) }}
+            - name: STORE_CARDANO_CURSOR_NO_OF_BLOCKS_TO_KEEP
+              value: {{ .Values.config.store.cardano.cursorNoOfBlocksToKeep | quote }}
+            {{- end }}
+            {{- if and .Values.secret.name (eq .Values.secret.mode "env") }}
+            {{- /*
+              env mode: the three secrets as secretKeyRef variables. Still by
+              reference — there is no plaintext fallback in either mode — but
+              visible in `kubectl describe pod` and in Argo's UI, which is why
+              `file` is the default. DB_PASSWORD feeds both the datasource and
+              Flyway: the application's own configuration points both password
+              properties at this one variable.
+            */}}
+            - name: WALLET_MNEMONIC
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secret.name }}
+                  key: {{ .Values.secret.keys.walletMnemonic }}
+            - name: BLOCKFROST_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secret.name }}
+                  key: {{ .Values.secret.keys.blockfrostKey }}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secret.name }}
+                  key: {{ .Values.secret.keys.dbPassword }}
+            {{- end }}
+            {{- /*
+              ── The application's full parameter surface ──────────────────────
+              Emitted only where a values key is set; unset means the chart says
+              nothing and the image's own per-profile default governs.
+
+              `mode` is validated because a typo silently means "not armed", and
+              an operator who believes they armed the bot and did not is a worse
+              failure than a refused render.
+            */}}
+            {{- $mode := toString .Values.liquidation.mode }}
+            {{- if not (empty $mode) }}
+            {{- if not (has $mode (list "disabled" "shadow" "live")) }}
+            {{- fail (printf "liquidation.mode must be one of disabled|shadow|live, got %q" $mode) }}
+            {{- end }}
+            {{- end }}
+            {{- $armed := toString .Values.liquidation.enabled }}
+            {{- if not (empty $armed) }}
+            {{- if not (has $armed (list "true" "false")) }}
+            {{- fail (printf "liquidation.enabled must be true or false, got %q" $armed) }}
+            {{- end }}
+            {{- end }}
+            {{- $L := .Values.liquidation }}
+            {{- $R := $L.referenceScripts | default dict }}
+            {{- $N := .Values.loans | default dict }}
+            {{- $NC := $N.config | default dict }}
+            {{- $A := .Values.aquarium | default dict }}
+            {{- include "ft-aquarium-node.env" (dict "name" "NETWORK" "value" .Values.config.network) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "BLOCKFROST_URL" "value" (.Values.blockfrost | default dict).url) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_ENABLED" "value" $N.enabled) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_ORACLE_ENABLED" "value" ($N.oracle | default dict).enabled) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_ORACLE_URL" "value" ($N.oracle | default dict).url) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_CONFIG_POLICY_ID" "value" $NC.policyId) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_CONFIG_REF_UTXO_TX_HASH" "value" $NC.refUtxoTxHash) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_CONFIG_ASSET_NAME" "value" $NC.assetName) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_LM_CONFIG_POLICY_ID" "value" ($N.lmConfig | default dict).policyId) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_SMART_TOKENS_SPEND_SCRIPT_HASH" "value" $N.smartTokensSpendScriptHash) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_VERIFY_CONFIG_FAIL_ON_UNREACHABLE" "value" ($N.verifyConfig | default dict).failOnUnreachable) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_GENESIS_TX_HASH" "value" ($A.genesis | default dict).txHash) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_GENESIS_OUTPUT_INDEX" "value" ($A.genesis | default dict).outputIndex) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_STAKING_TOKEN_POLICY" "value" (($A.staking | default dict).token | default dict).policy) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_STAKING_TOKEN_NAME" "value" (($A.staking | default dict).token | default dict).name) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_TANK_REF_INPUT_TXHASH" "value" (($A.tank | default dict).refInput | default dict).txHash) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_TANK_REF_INPUT_OUTPUTINDEX" "value" (($A.tank | default dict).refInput | default dict).outputIndex) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_MODE" "value" $L.mode) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_ENABLED" "value" $L.enabled) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_IGNORE_PROFIT_CHECK" "value" $L.ignoreProfitCheck) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_CHECK_PROFITABILITY" "value" $L.checkProfitability) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_PROFIT_MARGIN_LOVELACE" "value" $L.profitMarginLovelace) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_MIN_EXPECTED_PROFIT_LOVELACE" "value" $L.minExpectedProfitLovelace) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_MIN_PROFIT_ABSOLUTE_LOVELACE" "value" $L.minProfitAbsoluteLovelace) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_DELAY_SECONDS" "value" $L.delaySeconds) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_VALIDITY_WINDOW_SECONDS" "value" $L.validityWindowSeconds) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_ORACLE_MARGIN_SECONDS" "value" $L.oracleWindowMarginSeconds) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_QUARANTINE_MINUTES" "value" $L.quarantineMinutes) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_DECISION_LOG_SIZE" "value" $L.decisionLogSize) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LOAN" "value" $R.loan) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LOAN_SPEND" "value" $R.loanSpend) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LENDER_MANAGER" "value" $R.lenderManager) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LENDER_MANAGER_SPEND" "value" $R.lenderManagerSpend) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LOAN_CLAIM_ACTION" "value" $R.loanClaimAction) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LM_LIQUIDATE_ACTION" "value" $R.lmLiquidateAction) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LM_LIQUIDATE_AND_PAY_IN_ADVANCE_ACTION" "value" $R.lmLiquidateAndPayInAdvanceAction) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_ASSET_MANAGER" "value" $R.assetManager) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "SCHEDULING_TRANSACTION_PROCESSOR_DELAY_MINUTES" "value" (.Values.scheduling | default dict).transactionProcessorDelayMinutes) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "SPRING_TASK_SCHEDULING_POOL_SIZE" "value" (.Values.scheduling | default dict).taskPoolSize) }}
+            {{- /*
+              extraEnv stays permissive for anything the chart does not emit — the
+              38th parameter arrives with the next application release and an
+              operator must not be stuck until the chart catches up. But a key
+              that DOES have a typed home is refused: Kubernetes takes the last
+              duplicate, so extraEnv would silently beat a documented default and
+              leave the reader with false confidence in the value they can see.
+              Fail on COLLISION, not on USE.
+            */}}
+            {{- $typed := splitList "," (include "ft-aquarium-node.typedEnvNames" .) }}
+            {{- range $k, $v := .Values.extraEnv }}
+            {{- if has $k $typed }}
+            {{- fail (printf "extraEnv sets %s, which has a typed values key in this chart. Set that key instead — extraEnv would silently override it." $k) }}
+            {{- end }}
+            {{- end }}
+            {{- range $k, $v := .Values.extraEnv }}
+            - name: {{ $k }}
+              value: {{ $v | quote }}
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+          {{- /*
+            No readinessProbe. /healthcheck answers 200 with the body
+            "...syncing..." during the initial sync, so no endpoint currently
+            means "ready"; gating on one would restart-loop the pod through
+            ~49 million slots of chain. See values.yaml and README.md.
+          */}}
+          startupProbe:
+            {{- toYaml .Values.startupProbe | nindent 12 }}
+          livenessProbe:
+            {{- toYaml .Values.livenessProbe | nindent 12 }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          {{- if and .Values.secret.name (eq .Values.secret.mode "file") }}
+          volumeMounts:
+            - name: secrets
+              mountPath: {{ .Values.secret.mountPath }}
+              readOnly: true
+          {{- end }}
+      {{- if and .Values.secret.name (eq .Values.secret.mode "file") }}
+      volumes:
+        - name: secrets
+          secret:
+            secretName: {{ .Values.secret.name }}
+            defaultMode: 0400
+            {{- /*
+              One key per property file. db-password is projected TWICE, on
+              purpose: Flyway has its own password property, separate from the
+              datasource, and a migration that cannot authenticate fails while
+              the application itself would have connected fine.
+            */}}
+            items:
+              - key: {{ .Values.secret.keys.walletMnemonic }}
+                path: wallet.mnemonic
+              - key: {{ .Values.secret.keys.blockfrostKey }}
+                path: blockfrost.key
+              - key: {{ .Values.secret.keys.dbPassword }}
+                path: spring.datasource.password
+              - key: {{ .Values.secret.keys.dbPassword }}
+                path: spring.flyway.password
+      {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
