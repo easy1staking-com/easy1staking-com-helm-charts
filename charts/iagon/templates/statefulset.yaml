@@ -5,7 +5,16 @@ metadata:
   labels:
     {{- include "iagon.labels" . | nindent 4 }}
 spec:
-  replicas: {{ .Values.replicaCount }}
+  {{- /*
+    replicas is hard-coded to 1 and there is no `replicaCount` value, which is a
+    deliberate divergence from the other charts in this repo.
+
+    An Iagon node IS its identity. A second replica would come up against the
+    same auth key with its own empty volumes and either fail or cut a duplicate
+    registration; nothing about this workload shards. Two nodes means two
+    releases, each with its own Secret — see the chart README.
+  */}}
+  replicas: 1
   selector:
     matchLabels:
       {{- include "iagon.selectorLabels" . | nindent 6 }}
@@ -28,25 +37,59 @@ spec:
       {{- end }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
+      dnsPolicy: {{ .Values.dnsPolicy }}
       containers:
         - name: {{ .Chart.Name }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
-          {{- if .Values.maintenance | default false }}
-          command: [ "sh", "-c", "sleep infinity" ]
-          {{- end }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if .Values.maintenance }}
+          {{- /*
+            Overriding `command` replaces the image ENTRYPOINT, so maintenance
+            mode cannot register, start, or touch the node's identity at all.
+          */}}
+          command: ["sh", "-c", "sleep infinity"]
+          {{- end }}
+          env:
+            - name: IAGON_DATA_DIR
+              value: {{ .Values.persistence.data.mountPath | quote }}
+            - name: IAGON_LOG_LEVEL
+              value: {{ .Values.logLevel | quote }}
+            {{- if .Values.auth.existingSecret }}
+            {{- /*
+              The key is projected as a FILE and the entrypoint is handed its
+              path, rather than the key itself arriving as an environment
+              variable. An env var would be readable in `kubectl describe pod`
+              and in Argo's UI; a mounted file is not.
+            */}}
+            - name: IAGON_AUTH_KEY_FILE
+              value: /secrets/{{ .Values.auth.key }}
+            {{- end }}
+            {{- if .Values.auth.createNewNode }}
+            - name: IAGON_ALLOW_NEW_NODE
+              value: "true"
+            {{- end }}
           volumeMounts:
-            - name: {{ include "iagon.fullname" . }}-volume
-              mountPath: {{ .Values.volume.mountPath }}
-            - name: home
-              mountPath: /root
-      dnsPolicy: Default
-      volumes:
-      {{- with .Values.volumes }}
-      {{- toYaml . | nindent 8 }}
-      {{- end }}
+            - name: config
+              mountPath: /opt/iagon
+            - name: data
+              mountPath: {{ .Values.persistence.data.mountPath }}
+            {{- if .Values.auth.existingSecret }}
+            - name: auth
+              mountPath: /secrets
+              readOnly: true
+            {{- end }}
+          {{- /*
+            No probes, on purpose. `iagon-node` exposes no endpoint this chart
+            can reach: management happens through dashboard.iagon.com over the
+            node's own outbound relay connection, not over an inbound port.
+            A probe here could only re-test that the process is alive, which the
+            container runtime already does — so the chart ships none rather than
+            a probe that looks meaningful and is not.
+          */}}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
       {{- with .Values.nodeSelector }}
       nodeSelector:
         {{- toYaml . | nindent 8 }}
@@ -59,21 +102,31 @@ spec:
       tolerations:
         {{- toYaml . | nindent 8 }}
       {{- end }}
+      {{- if .Values.auth.existingSecret }}
+      volumes:
+        - name: auth
+          secret:
+            secretName: {{ .Values.auth.existingSecret }}
+            defaultMode: 0400
+      {{- end }}
   volumeClaimTemplates:
     - metadata:
-        name: home
+        name: config
       spec:
-        accessModes: [ "ReadWriteOnce" ]
-        resources:
-          requests:
-            storage: 100Mi
-    - metadata:
-        name: {{ include "iagon.fullname" . }}-volume
-      spec:
-        accessModes: [ "ReadWriteOnce" ]
-        {{- if .Values.volume.storageClass }}
-        storageClassName:  {{ .Values.volume.storageClass }}
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.persistence.config.storageClass }}
+        storageClassName: {{ . }}
         {{- end }}
         resources:
           requests:
-            storage: {{ .Values.volume.size }}
+            storage: {{ .Values.persistence.config.size }}
+    - metadata:
+        name: data
+      spec:
+        accessModes: ["ReadWriteOnce"]
+        {{- with .Values.persistence.data.storageClass }}
+        storageClassName: {{ . }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.data.size }}

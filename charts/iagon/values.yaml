@@ -1,13 +1,12 @@
-# Default values for iagon.
-# This is a YAML-formatted file.
-# Declare variables to be passed into your templates.
-
-replicaCount: 1
+# Default values for the iagon chart.
+#
+# One release == one Iagon node identity. Running two nodes means two releases
+# (each with its own auth-key Secret), not one release scaled to two replicas.
 
 image:
-  repository: "easy1staking/iagon"
-  pullPolicy: Always
-  # Overrides the image tag whose default is the chart appVersion.
+  repository: easy1staking/iagon
+  pullPolicy: IfNotPresent
+  # Overrides the image tag, whose default is the chart appVersion.
   tag: ""
 
 imagePullSecrets: []
@@ -17,49 +16,82 @@ fullnameOverride: ""
 podAnnotations: {}
 podLabels: {}
 
-podSecurityContext: {}
-  # fsGroup: 2000
+# ── Node identity ────────────────────────────────────────────────────────────
+#
+# The auth key is the node's identity. It is referenced BY NAME and never
+# travels in this repository, which is public: create the Secret out of band
+# (`kubectl create secret generic iagon-node-1 --from-literal=auth-key=...`)
+# and name it here.
+auth:
+  # Name of an existing Secret holding the node's auth key. Supplying it makes
+  # the pod RE-ATTACH that existing node identity on first start.
+  existingSecret: ""
+  # Key within that Secret.
+  key: auth-key
+  # Register a BRAND NEW node with the Iagon network when no auth key is given.
+  #
+  # This is off by default and deliberately has no preset that turns it on.
+  # Registration is an outward, irreversible act: it mints a new node on Iagon's
+  # live network. In a public chart repo an accidental `helm install` must not
+  # be able to do that, so the operator has to arm it explicitly and knowingly.
+  createNewNode: false
 
-securityContext: {}
-  # capabilities:
-  #   drop:
-  #   - ALL
-  # readOnlyRootFilesystem: true
-  # runAsNonRoot: true
-  # runAsUser: 1000
+# error | warn | info
+logLevel: info
 
-resources: {}
-  # We usually recommend not to specify default resources and to leave this as a conscious
-  # choice for the user. This also increases chances charts run on environments with little
-  # resources, such as Minikube. If you do want to specify resources, uncomment the following
-  # lines, adjust them as necessary, and remove the curly braces after 'resources:'.
-  # limits:
-  #   cpu: 100m
-  #   memory: 128Mi
-  # requests:
-  #   cpu: 100m
-  #   memory: 128Mi
+# ── Storage ──────────────────────────────────────────────────────────────────
+#
+# BOTH claims are load-bearing. Losing either one orphans the node:
+#   config — /opt/iagon holds the node's identity, configuration and logs. This
+#            path is NOT configurable; the binary resolves it from a fixed
+#            location rather than from $HOME or any XDG variable.
+#   data   — the storage shards this node is paid to hold.
+#
+# `volumeClaimTemplates` are immutable: neither size can be changed on a running
+# StatefulSet. See the chart README before picking `data.size`.
+persistence:
+  config:
+    size: 2Gi
+    storageClass: ""
+  data:
+    size: 100Gi
+    storageClass: ""
+    # Passed to `register --data-dir`. Kept OUTSIDE /opt/iagon on purpose — the
+    # binary's own default is /opt/iagon/data, which would nest the shards
+    # inside the identity volume and force the two to be sized as one.
+    mountPath: /data
 
-# Additional volumes on the output Deployment definition.
-volumes: []
-# - name: foo
-#   secret:
-#     secretName: mysecret
-#     optional: false
+resources:
+  requests:
+    cpu: 100m
+    memory: 256Mi
+  limits:
+    memory: 1Gi
 
-# Additional volumeMounts on the output Deployment definition.
-volumeMounts: []
-# - name: foo
-#   mountPath: "/etc/foo"
-#   readOnly: true
+# Runs as the unprivileged `iagon` user baked into the image. fsGroup is what
+# makes the two PersistentVolumes writable by that user.
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  runAsGroup: 1000
+  fsGroup: 1000
+
+securityContext:
+  allowPrivilegeEscalation: false
+  capabilities:
+    drop:
+      - ALL
+
+# The node resolves its own public IP (api.ipify.org) and runs a bandwidth
+# benchmark against speed.cloudflare.com during registration, then holds an
+# outbound connection to Iagon's relay. `Default` gives it the host resolver
+# rather than cluster DNS.
+dnsPolicy: Default
 
 nodeSelector: {}
-
 tolerations: []
-
 affinity: {}
 
-volume:
-  mountPath: /data
-  storageClass: ""
-  size: 20Gi
+# Start the pod with the node stopped, for inspecting or repairing the volumes.
+# The entrypoint — and therefore any registration — is bypassed entirely.
+maintenance: false

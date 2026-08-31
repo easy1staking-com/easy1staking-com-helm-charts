@@ -49,14 +49,3 @@ Selector labels
 app.kubernetes.io/name: {{ include "iagon.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
-
-{{/*
-Create the name of the service account to use
-*/}}
-{{- define "iagon.serviceAccountName" -}}
-{{- if .Values.serviceAccount.create }}
-{{- default (include "iagon.fullname" .) .Values.serviceAccount.name }}
-{{- else }}
-{{- default "default" .Values.serviceAccount.name }}
-{{- end }}
-{{- end }}
