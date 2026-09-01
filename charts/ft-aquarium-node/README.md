@@ -392,6 +392,48 @@ the projection differs, and neither puts a secret in this repository.
 Leave `secret.name` empty and the secrets are absent from the render entirely —
 the application then fails at startup with a named error, which is §3 working.
 
+### The DB password can come from the Postgres operator instead
+
+`secret.dbPasswordFrom` points the database password at a Secret **this chart
+does not own** — in practice the one the Zalando Postgres operator generates for
+its managed role:
+
+```yaml
+secret:
+  name: ft-aquarium-node-secrets     # still holds the mnemonic and the API key
+  dbPasswordFrom:
+    secretName: aquarium-db.credentials   # the operator's Secret
+    key: password
+```
+
+**Why it exists.** The projected copy is a **snapshot**. The operator *rotates*
+the role's password; its Secret changes and the copy does not. The running pod
+keeps working on its open connection, so nothing looks wrong — and then
+**cannot survive its next restart**, because the password it presents is stale.
+Referencing the operator's Secret by name removes the copy, and with it the
+drift.
+
+**What changes in the render.** Exactly two things: the two `db-password` items
+disappear from the file projection, and a `DB_PASSWORD` environment variable
+appears, sourced from the named Secret. **One variable covers both Spring
+properties** — verified against the shipped `application.yaml`, where
+`spring.datasource.password` and `spring.flyway.password` are both
+`${DB_PASSWORD:password}`. The "project it twice" rule above is about **file**
+mode, where each property needs its own file, and it stays true there.
+
+**The trade-off, stated rather than slipped in.** This makes the DB password an
+environment variable — visible in `kubectl describe pod` and in Argo's UI. That
+is a genuine regression in hygiene and it is accepted deliberately, because the
+argument for `file` mode is about protecting the **signing seed**, and the seed
+does not move: `wallet-mnemonic` and `blockfrost-key` stay files. Of the three
+secrets, the DB password has the smallest blast radius and is the only one that
+is operator-owned and rotatable. Rotation you survive beats a projection you do
+not.
+
+Empty `secretName` (the default) changes nothing, and **no values file in this
+chart ships it set** — same rule as the liquidation flags: a stranger's
+`helm install` must not reference a Secret that exists in one cluster only.
+
 ---
 
 ## No ingress, deliberately

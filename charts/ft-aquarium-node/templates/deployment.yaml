@@ -1,3 +1,11 @@
+{{- /*
+  Is the DB password coming from a Secret this chart does not own (the Zalando
+  operator's, which it rotates) rather than from the projected copy of
+  `secret.name`? Computed once; it gates BOTH the env var and the file
+  projection, which must move together or the pod gets two sources of truth.
+*/ -}}
+{{- $dbFrom := .Values.secret.dbPasswordFrom | default dict -}}
+{{- $useOperatorDbPassword := not (empty (get $dbFrom "secretName")) -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -131,11 +139,38 @@ spec:
                 secretKeyRef:
                   name: {{ .Values.secret.name }}
                   key: {{ .Values.secret.keys.blockfrostKey }}
+            {{- if not $useOperatorDbPassword }}
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
                   name: {{ .Values.secret.name }}
                   key: {{ .Values.secret.keys.dbPassword }}
+            {{- end }}
+            {{- end }}
+            {{- if $useOperatorDbPassword }}
+            {{- /*
+              The DB password comes from a Secret this chart does not own — the
+              Zalando operator's, which it ROTATES. Taking it by reference rather
+              than copying it is what lets the pod survive a rotation: a projected
+              copy is a snapshot, it goes stale silently, and the failure only
+              appears at the next restart.
+
+              ONE variable, not two. Verified against the shipped
+              application.yaml: `spring.datasource.password` and
+              `spring.flyway.password` are BOTH `${DB_PASSWORD:password}`. The
+              "project it twice" rule further down is about FILE mode, where each
+              property needs its own file, and it stays true for that mode.
+
+              Deliberately independent of `secret.mode`: in file mode the two
+              db-password files are omitted and Spring falls back to this
+              variable; in env mode this replaces the projected DB_PASSWORD.
+              Either way the wallet seed stays a file.
+            */}}
+            - name: DB_PASSWORD
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.secret.dbPasswordFrom.secretName }}
+                  key: {{ .Values.secret.dbPasswordFrom.key }}
             {{- end }}
             {{- /*
               Arming flags. `toString` then `empty` rather than a bare `if`, so a
@@ -206,10 +241,12 @@ spec:
                 path: wallet.mnemonic
               - key: {{ .Values.secret.keys.blockfrostKey }}
                 path: blockfrost.key
+              {{- if not $useOperatorDbPassword }}
               - key: {{ .Values.secret.keys.dbPassword }}
                 path: spring.datasource.password
               - key: {{ .Values.secret.keys.dbPassword }}
                 path: spring.flyway.password
+              {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}
       nodeSelector:

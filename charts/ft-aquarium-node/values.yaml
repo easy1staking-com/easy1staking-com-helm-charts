@@ -327,6 +327,39 @@ secret:
   #                                    application itself connects fine.
   mountPath: /etc/aquarium-secrets
 
+  # Read the DB password from a Secret this chart does not own — in practice the
+  # one the Zalando Postgres operator generates and ROTATES for its managed role.
+  #
+  # Why this exists: the projected copy above is a SNAPSHOT. When the operator
+  # rotates the role's password its own Secret changes and the copy does not, so
+  # the pod keeps presenting a stale password and cannot survive its next
+  # restart. Pointing at the operator's Secret by name removes the copy, and with
+  # it the drift.
+  #
+  # Empty `secretName` (the default) changes nothing: the password keeps coming
+  # from `secret.name` exactly as before. No values file in this chart ships this
+  # set — same public-chart rule as the liquidation flags: a stranger's
+  # `helm install` must not reference a Secret that only exists in one cluster.
+  #
+  # ONE variable covers BOTH Spring properties. Verified against the shipped
+  # application.yaml, not assumed: `spring.datasource.password` and
+  # `spring.flyway.password` are BOTH `${DB_PASSWORD:password}`. This is why the
+  # "project it twice" rule above does not apply here — that rule is about FILE
+  # mode, where each property needs its own file, and it stays true for that mode.
+  #
+  # Trade-off, stated rather than slipped in: this makes the DB password an
+  # environment variable, visible in `kubectl describe pod` and in Argo's UI.
+  # That is a real regression in hygiene and it is accepted deliberately. The
+  # argument for `file` mode protects the SIGNING SEED, and the seed does not
+  # move — wallet-mnemonic and blockfrost-key stay in file mode, untouched. Of
+  # the three, the DB password is the lowest-value and the only one that is
+  # operator-owned and rotatable.
+  dbPasswordFrom:
+    # Name of the operator-managed Secret. Empty = current behaviour.
+    secretName: ""
+    # Key within it. The Zalando operator's role Secrets use `password`.
+    key: password
+
 ## Liquidation bot arming.
 #
 # ⚠ SUBMITTING A LIQUIDATION BURNS A LOAN NFT AND MOVES SOMEONE ELSE'S
