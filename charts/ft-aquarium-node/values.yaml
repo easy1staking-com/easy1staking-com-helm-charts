@@ -232,10 +232,24 @@ livenessProbe:
 # Every value below is passed as an environment variable. Spring's relaxed
 # binding maps them onto application.yaml keys.
 config:
-  # Tuning. [derived] → NETWORK
-  # The application derives this from the active Spring profile. Setting it here
-  # overrides that, so the profile and the network can disagree — leave it empty
-  # unless you specifically mean to break that link.
+  # ⛔ Safety gate. [derived] → NETWORK
+  #
+  # The application derives this from the active Spring profile. Empty (the
+  # default) keeps that link, and that is the only safe setting.
+  #
+  # ⚠ THE DANGER IS SETTING IT ALONE. This value drives addresses, slot
+  # conversion and every mainnet guard, but it does NOT select the configuration
+  # document — `config.springProfile` does. Set one without the other and the
+  # node derives for one network while talking to another.
+  #
+  # The worst combination, named because it is reachable by a single edit:
+  # `springProfile` UNSET (which selects the MAINNET document) with
+  # `network: preview`. The node then runs preview addresses and preview slot
+  # conversion against MAINNET config policy ids, a MAINNET relay and a MAINNET
+  # Blockfrost URL. Nothing in that arrangement fails loudly.
+  #
+  # ⇒ Change the profile, not this. Set this only if you specifically mean to
+  # break the link, and then set every coordinate to match by hand.
   network: ""
 
   # Required by the application. `preview` is the only network this deployment
@@ -686,6 +700,12 @@ convert:
 
 ## Per-market liquidation policy — A LIST, not a scalar.
 ##
+## ⛔ AN EMPTY LIST DOES NOT MEAN "DO NOTHING". An unlisted market runs as
+## CONVERT at the node's own mode, so `markets: []` means *convert everywhere at
+## the node's posture* — which on an armed node is every market, not none. If
+## you want a market held back, it needs an explicit entry naming DISABLED.
+## An unbound list is empty, not an error, so nothing warns about this.
+##
 ## The global `liquidation.mode` is a CEILING; a market's own mode can only be
 ## the same or more restrictive. An unlisted market simply runs at the node's
 ## own mode, so an EMPTY LIST is legal and is the default.
@@ -768,6 +788,29 @@ liquidation:
   # tokens, and the floor compares ADA out against tokens in.
   minProfitAbsoluteLovelace: ""
 
+  ## ⛔ THE THREE PROFIT FLOORS ARE NOT INTERCHANGEABLE, AND A NEGATIVE MARGIN
+  ## ALONE CHANGES NOTHING.
+  ##
+  ## `minProfitAbsoluteLovelace` refuses a negative floorProfit INDEPENDENTLY,
+  ## before the margin is applied — the margin sits outside that number and can
+  ## never rescue a candidate the absolute floor has already refused. Measured on
+  ## preview 2026-08-24: a convert logged `floor -27303331; - margin -100000000
+  ## = 72696669` and was STILL refused NOT_PROFITABLE.
+  ##
+  ## ⇒ Tolerating a loss means moving `minProfitAbsoluteLovelace` AND
+  ## `minExpectedProfitLovelace` together with the margin. Setting only the
+  ## margin negative looks like it should work and does nothing at all.
+  ##
+  ## ⚠ AND THE FLOORS ARE NOT PURE RISK APPETITE TODAY. The profit gate scores
+  ## an ANTICIPATE candidate on its FEE SLICE rather than on its return (the
+  ## open O-2 seam): the income term is a mark-to-oracle token slice while the
+  ## capital fronted is ADA. Measured on live mainnet loan cae82d7d…: the gate
+  ## sees 1,667,591 against a real return of +4,219,239 — so at the application's
+  ## own mainnet default margin of 5,000,000 that PROFITABLE loan is REFUSED
+  ## even on a fully armed node. Until O-2 lands, acting on ANTICIPATE means
+  ## stating floors that look like losses and are not. The fix is application
+  ## code, not a chart value.
+
   # Safety gate. [documented] → AQUARIUM_LIQUIDATION_PROFIT_MARGIN_LOVELACE
   # Expected profit = fee value - tx fee - this. Covers the reference-script
   # surcharge and refuses dust liquidations whose fee slice would not repay the
@@ -788,6 +831,18 @@ liquidation:
 
   # Tuning. [documented] → AQUARIUM_LIQUIDATION_DELAY_SECONDS
   delaySeconds: ""
+  ## ⚠ THIS AND THE ORACLE MARGIN ARE ONE PIECE OF ARITHMETIC.
+  ##
+  ## A candidate is buildable only while validityWindowSeconds +
+  ## oracleWindowMarginSeconds (120 + 30 = 150s) of the price feed's ~600s
+  ## window is still ahead of it. Raising the margin shortens that budget second
+  ## for second, and near 600 it SILENTLY DISABLES THE BOT while every candidate
+  ## reports ORACLE_WINDOW_MARGIN_TOO_SMALL — which reads as a feed problem.
+  ##
+  ## ⛔ Do NOT narrow the validity window to buy margin headroom. Measured
+  ## preview rejections needed 182 and 219 slots; wider is the safe direction,
+  ## and "wide enough" has not been measured.
+
   # Tuning. [documented] → AQUARIUM_LIQUIDATION_VALIDITY_WINDOW_SECONDS
   # Transaction validity window. Read with oracleWindowMarginSeconds: a candidate
   # is buildable only while this plus the margin still fits inside the feed's
@@ -830,6 +885,15 @@ liquidation:
     # LOANS_LIQUIDATION_REFERENCE_SCRIPTS_LM_LIQUIDATE_AND_CONVERT_ACTION.
     # Missing it does not degrade the convert path — that validator then travels
     # inline and the transaction exceeds maxTxSize.
+    # ⛔ CONFIGURABLE BUT CURRENTLY INERT. The key binds and is validated at
+    # startup, but ConvertLiquidationRouter passes an empty map to the builder,
+    # so the coordinate never reaches the transaction. Until that router is
+    # wired, a convert carries its validators inline at ~20,548 bytes against a
+    # 16,384-byte maxTxSize and CANNOT BE SUBMITTED on mainnet.
+    #
+    # Exposed anyway, deliberately: the key is real and works the moment the
+    # router is fixed, and an operator who sets it should know why nothing
+    # changed rather than concluding the coordinate is wrong.
     lmLiquidateAndConvertAction: ""       # [derived, Java-only]
 
 ## Lending v4 subsystem.
@@ -915,6 +979,23 @@ loans:
   ## LoansConfigVerifier derives every script hash from them and refuses to start
   ## on a mismatch. That refusal is the protection; do not disable it to "get
   ## past" a mismatch.
+  ## ⛔ A DEAD DEPLOYMENT LOOKS EXACTLY LIKE A QUIET MARKET.
+  ##
+  ## These coordinates pin this node to ONE deployment of the lending contracts.
+  ## Preview's v4 has been redeployed three times, and a redeploy mints new
+  ## config NFTs under a NEW policy id while leaving the old ones unburnt — so
+  ## `LoansConfigVerifier` finds what it was pinned to and VERIFIES CLEANLY
+  ## FOREVER. The new deployment's UTxOs are indexed and then discarded at write
+  ## time by the payment-credential filter, leaving no trace they were offered.
+  ##
+  ## ⇒ Such a node boots clean, verifies clean, and reports zero candidates —
+  ## indistinguishable from a market with nothing to do. Nothing in the chart,
+  ## the logs or the probes can tell you which you have.
+  ##
+  ## The discriminator is on the API: read GET <apiPrefix>/loans/liquidations and
+  ## take `bonds_scanned`, `settled` and `unreadable` TOGETHER. Both counts zero
+  ## means an indexing problem rather than a quiet market, and `unreadable` must
+  ## be 0 — a loan that is present but illegible is counted as one that is gone.
   config:
     policyId: ""        # [derived] → LOANS_CONFIG_POLICY_ID
     refUtxoTxHash: ""   # [derived] → LOANS_CONFIG_REF_UTXO_TX_HASH
@@ -944,6 +1025,33 @@ loans:
 
 ## Aquarium contract identity. Wrong values derive the wrong script tree; the
 ## startup verifiers are what catch that.
+
+## ⛔ THESE SIX HAVE NO DEFAULT IN THE APPLICATION'S CODE — the yaml IS the
+## default — and a BLANK value is more dangerous than a wrong one.
+##
+## `@Value("${aquarium.staking.token.policy}")` carries no inline fallback, so an
+## environment variable set to "" overrides the yaml with an empty string. The
+## failures are asymmetric and only one is loud:
+##
+##   AQUARIUM_GENESIS_OUTPUT_INDEX=""   Integer parse fails, context down. LOUD.
+##   AQUARIUM_STAKING_TOKEN_POLICY=""   HexUtil.decodeHexString("") returns a
+##   AQUARIUM_TANK_REF_INPUT_TXHASH=""  ZERO-LENGTH ARRAY, not an error ⇒ a
+##                                      valid-but-WRONG script hash ⇒ the node
+##                                      BOOTS CLEAN and indexes an empty world.
+##
+## That is the Aquarium-side twin of the dead-deployment trap, and it is on the
+## PRODUCTION path — these six parameterise the Tank/Staker chain every operator
+## runs on mainnet today, unlike the lending settings which are inert while
+## `loans.enabled` is false.
+##
+## ⇒ THE CHART IS ALREADY IMMUNE, AND THAT IS NOT AN ACCIDENT TO BREAK. The emit
+## helper renders a variable ONLY when its value is non-empty, so an empty here
+## is omitted and the application's own default governs. Do not "simplify" that
+## helper into one that always emits: a chart that renders these six
+## unconditionally is one blank values entry away from silently breaking a
+## production node. `extraEnv` cannot route around it either — all six are in
+## the typed-collision list and an extraEnv entry naming one is refused.
+
 aquarium:
   genesis:
     txHash: ""       # [derived] → AQUARIUM_GENESIS_TX_HASH
