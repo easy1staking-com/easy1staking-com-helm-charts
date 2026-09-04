@@ -1,0 +1,26 @@
+{{- /*
+  The StatefulSet's governing Service.
+
+  Separate from the main Service on purpose: that one may be `NodePort` (for the
+  operator readiness UI), and a NodePort cannot be headless. A StatefulSet wants
+  a headless Service for stable per-pod DNS, so it gets its own.
+
+  Nothing depends on the per-pod name today — this workload is a singleton with
+  no peers — but the StatefulSet references a governing Service by name and it
+  should be one that actually exists and is the right kind.
+*/}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "ft-aquarium-node.fullname" . }}-headless
+  labels:
+    {{- include "ft-aquarium-node.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+      name: http
+  selector:
+    {{- include "ft-aquarium-node.selectorLabels" . | nindent 4 }}

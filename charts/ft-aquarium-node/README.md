@@ -206,20 +206,65 @@ is fail-closed regardless of flags. That is also why there is **no
 runner and has no effect on the running node. It is absent here on purpose;
 including it would imply the node reads it.
 
-### 6. `replicas: 1` is a correctness requirement, not a preference
+### 6. `replicaCount` is 0 or 1, and nothing else renders
 
-**Hard-coded in the template. There is no `replicaCount` value, no autoscaling
-stanza, and no hpa — deliberately, so nothing invites a 2.**
+**Default `0`: nothing runs until someone asks.** Same rule as the UI, the arming
+flags and the Zalando CR — a stranger's `helm install` of a chart that signs and
+submits transactions must not start it. Our own deployments set `1` inline in the
+Argo application.
 
-The node signs and submits from **one wallet**. The application has mechanisms
-that *bound* concurrency — per-loan quarantine, and a submit veto that re-reads
-both UTxOs immediately before signing — but **there is no on-chain idempotence
-key and nothing that makes a duplicate deterministically fail before signing.**
-Two replicas would race the same UTxO set, and the loser is rejected by the
-ledger **only after both have already signed and submitted.**
+**`replicaCount > 1` is refused at render.** This bot signs with a single wallet;
+two replicas means two schedulers scanning the same loans and building the same
+liquidation. That is not a scaling knob with a bad value, it is a different and
+much worse program. Previously the chart hard-coded `1` and offered no knob,
+which prevented the mistake by omission; the guard is stronger, because it also
+covers someone adding the knob back.
 
-`strategy: Recreate` for the same reason: a rolling update overlaps the old and
-new pods, which is precisely the state being avoided.
+`replicaCount: 0` is the honest way to **stop** the bot. Maintenance mode below
+keeps a pod alive for exec access; `0` removes it.
+
+### 6a. Maintenance mode
+
+`maintenance.enabled: true` replaces the container command with
+`sleep infinity`. The pod stays Running with **volumes and secrets mounted**, so
+you can `kubectl exec` in and do database work, read the config tree, or repair
+state — with the bot definitely not scanning, building or submitting.
+
+> ⛔ **It also removes both probes, and that is the feature rather than a side
+> effect.** A sleeping container serves nothing on 8080, so `/actuator/health`
+> cannot answer.
+>
+> ⚠ And it would not fail immediately, which is worse. `startupProbe` is
+> 60 × 10s, so the pod would stay Running for **ten minutes**, look like
+> maintenance mode worked, and then be restarted out from under whoever is
+> mid-operation. (There is no readiness probe to remove — this chart ships none,
+> see §2.)
+
+The `waitForPostgres` init container is skipped too: it blocks until the database
+answers, so with it enabled you could not exec in to repair a database that is
+down — which is the case maintenance mode exists for.
+
+### 6b. It is a StatefulSet, and the reason is the arming
+
+Not storage — there is **no `volumeClaimTemplate`**. The database is external,
+the wallet is a Secret, and the yaci-store cursor lives in the database; nothing
+is per-pod. A claim we did not need would be a liability, since
+`volumeClaimTemplates` are immutable and cannot be resized on a running
+StatefulSet.
+
+The reason is that StatefulSet's default `OrderedReady` management **terminates
+the old pod before starting the new one** on a roll. A Deployment's
+`RollingUpdate` can briefly run both — a window in which two armed bots are live
+at once, which is the exact thing §6 exists to prevent. The chart also ships a
+headless Service (`<fullname>-headless`) as the governing Service, separate from
+the main one because that may be a NodePort and a NodePort cannot be headless.
+
+> ⛔ **Upgrading from 0.3.x is a delete-and-recreate, not a values change.**
+> Kubernetes will not convert a Deployment into a StatefulSet. The existing
+> Deployment must be deleted and the StatefulSet created, which means brief
+> downtime. This is the only change in this chart's history that cannot be
+> re-pinned in place — plan it, do not discover it.
+
 
 ### 7. The durable volume belongs to Postgres, not to this pod
 
