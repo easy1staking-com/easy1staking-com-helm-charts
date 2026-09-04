@@ -18,5 +18,13 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+      {{- /*
+        NodePort only. Unset, Kubernetes assigns one and keeps it across
+        upgrades; pinned, the URL is knowable in advance and survives the
+        Service being recreated — at the cost that a collision fails the apply.
+      */}}
+      {{- if and (eq .Values.service.type "NodePort") (.Values.service.nodePort) }}
+      nodePort: {{ .Values.service.nodePort }}
+      {{- end }}
   selector:
     {{- include "ft-aquarium-node.selectorLabels" . | nindent 4 }}

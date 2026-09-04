@@ -453,6 +453,74 @@ For debugging, use `kubectl port-forward`. If the loans API or metrics should be
 published later, that is a deliberate decision — and it wants a path scoped to
 `/api/v1`, not `/`.
 
+### The one exception: `service.type: NodePort`
+
+The operator readiness page is served by this pod and is meant to be opened in a
+browser, so `service.type` accepts `NodePort` on **any** network:
+
+```yaml
+service:
+  type: NodePort
+  nodePort: 30080   # empty = Kubernetes assigns one and keeps it across upgrades
+```
+
+**Neither this nor the UI is ever on by default.** `values.yaml` is `ClusterIP`
+with `loans.ui.enabled` unset on every network; only a deploying operator's own
+values turn them on. `values-preview.yaml` does so for Giovanni's preview box
+and says why at the value.
+
+Pinning makes the URL knowable in advance and survives the Service being
+recreated. **The trade is that a pinned port another Service already holds fails
+the apply** — `provided port is already allocated` — where an assigned one
+cannot. It must sit inside the node-port range (`30000-32767` by default).
+
+**What a NodePort publishes, and why it is tolerable on a trusted LAN.** Port
+8080 carries everything: `/healthcheck`, the actuator, and the unauthenticated
+`/api/v1`. Two facts make that read-only, and **both are properties of the
+application, not of this chart** — re-check them before widening exposure:
+
+| | |
+|---|---|
+| Every `/api/v1` route is **GET-only** | no `POST`/`PUT`/`DELETE` exists, so nothing reachable can move funds or arm anything |
+| Actuator exposure is `health,prometheus` | set in the application's own configuration with no profile overriding it, so `/env`, `/configprops` and `/beans` are unreachable |
+
+The wallet seed is served by no endpoint. What is exposed is LAN-wide **read**
+access to lending positions and the node's wallet address — fine on a home LAN,
+not fine on an untrusted network, where `kubectl port-forward` remains the
+answer. If the application ever gains a mutating route or widens its actuator
+exposure, this trade changes and the Service should go back to `ClusterIP`.
+
+---
+
+## Compounding is a second arming switch
+
+`compound.enabled` arms the **repayment-escrow** path: collect a repaid loan's
+principal from the asset manager and deliver it into the lender's pool, keeping
+the pool owner's compounding fee. It is a **different on-chain action** from
+liquidation, with its own executor.
+
+**Arming one does not arm the other, in either direction.** A deployment that
+has `liquidation.enabled: true` is not compounding, and a deployment that has
+`compound.enabled: true` is not liquidating.
+
+Two things about `compound.profitMarginLovelace` are worth knowing before you
+set it:
+
+- **`0` is a real setting, not "unset".** It refuses every net loss while
+  allowing exact break-even. The chart emits it correctly — any value whose
+  string form is non-empty reaches the container, so `0` and `false` are not
+  dropped as falsy.
+- **A negative value arms compounding for pools that pay nothing.** The fee rate
+  is set by the pool owner, not by this node; a zero-fee pool nets exactly minus
+  the transaction fee and is refused out of the box. Negative is a figure the
+  operator *states and owns* — it still bounds the loss, since anything worse
+  than the figure is refused. It is not a protection being switched off, which
+  is why there is no `ignoreProfitCheck` twin here. **On mainnet a negative
+  value is a hard startup failure by design.**
+
+As with liquidation, **no values file in this repository sets any of it**, and
+that absence is the design.
+
 ---
 
 ## Chain source

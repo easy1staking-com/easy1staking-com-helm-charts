@@ -61,7 +61,23 @@ podSecurityContext: {}
 securityContext: {}
 
 service:
+  # ClusterIP is the default and stays the default, on EVERY network. A public
+  # chart must not put a wallet-holding pod on a node's network because someone
+  # ran `helm install`.
+  #
+  # `NodePort` is supported so the operator readiness UI can be opened in a
+  # browser. It is a per-deployment decision, taken in the deploying operator's
+  # own values — see README, "No ingress, deliberately".
   type: ClusterIP
+
+  # NodePort only, and only meaningful when `type: NodePort`.
+  #
+  # Empty = Kubernetes assigns one from the node-port range (30000-32767) and
+  # keeps it across upgrades. Pin a number to make the URL knowable in advance
+  # and survive the Service being recreated — the trade is that a pinned port
+  # another Service already holds FAILS THE APPLY with "provided port is already
+  # allocated", which an assigned port cannot do.
+  nodePort: ""
   # Spring Boot default. The image sets no server.port. Everything is served
   # here: /healthcheck, /actuator/health, /actuator/prometheus, /api/v1/**.
   port: 8080
@@ -431,6 +447,58 @@ secret:
 ## Setting any of these restarts the pod, and restart is where the fatal boot
 ## verifiers run again (README §3). A node that has been up and quiet may not come
 ## back — that is the system working, not the arming failing.
+## Compounding — a SECOND arming switch, and it is new.
+##
+## The repayment-escrow path: collect a repaid loan's principal from the asset
+## manager and deliver it into the lender's pool, keeping the pool owner's
+## compounding fee. A different on-chain action from every `liquidation:` key
+## below, with its own executor — arming one does NOT arm the other, and the
+## reverse is equally true. Two switches, not one.
+##
+## The same public-chart rule applies in full: no values file in this repository
+## may set `compound.enabled` true, in any form. The application's own config
+## says why, and says it about itself — that file ships inside the public
+## operator image, so arming there "would arm it for every operator". The same
+## sentence applies to a chart that anyone can `helm install`.
+compound:
+  # Safety gate. [documented] → AQUARIUM_COMPOUND_ENABLED
+  # Empty (the default) means the chart says nothing and the image default —
+  # `false` — governs. Set true ONLY in the deploying operator's own values.
+  enabled: ""
+
+  # Tuning. [documented] → AQUARIUM_COMPOUND_DELAY_SECONDS
+  # Image default 60.
+  delaySeconds: ""
+
+  # Safety gate. [documented] → AQUARIUM_COMPOUND_PROFIT_MARGIN_LOVELACE
+  #
+  # What `expectedFee - txFee` must reach, in lovelace, for a compound to be
+  # built. Image default 0, which refuses every net loss while allowing exact
+  # break-even.
+  #
+  # ⚠ 0 IS A REAL SETTING, NOT "UNSET". It is emitted correctly here — the chart
+  #   emits any value whose string form is non-empty, so `0` and `false` reach
+  #   the container instead of being dropped as falsy. Do not "simplify" that
+  #   into a plain `with`.
+  #
+  # ⚠ A NEGATIVE VALUE ARMS COMPOUNDING FOR POOLS THAT PAY NOTHING. The fee rate
+  #   is set by the POOL OWNER, not by this node; a zero-fee pool nets exactly
+  #   minus the tx fee and is refused out of the box. Negative is a number the
+  #   operator STATES and owns — it still bounds the loss, since a candidate
+  #   worse than the figure is refused. It is NOT a protection being switched
+  #   off, and there is deliberately no `ignoreProfitCheck` twin here.
+  #   On mainnet a negative value is a HARD STARTUP FAILURE by design.
+  profitMarginLovelace: ""
+
+  # Tuning. [documented] → AQUARIUM_COMPOUND_REFERENCE_SCRIPTS
+  #
+  # Published reference scripts as a COMMA-SEPARATED list of `txHash#index`
+  # coordinates — deliberately not one named key per validator, unlike
+  # `liquidation.referenceScripts`. Deployment coordinates, so this is empty
+  # here: they belong to a deployment, not to a public chart.
+  referenceScripts: ""
+
+
 liquidation:
   # Safety gate. [documented] → AQUARIUM_LIQUIDATION_MODE
   # "" | disabled | shadow | live
@@ -535,6 +603,27 @@ liquidation:
 
 ## Lending v4 subsystem.
 loans:
+  ui:
+    # Tuning. [documented] → LOANS_UI_ENABLED
+    #
+    # The operator readiness page — decision support, served by this pod at
+    # /api/v1/loans/readiness. Read-only: it reports what the bot would do and
+    # arms nothing.
+    #
+    # OFF unless set, on every network. Empty means the chart says nothing and
+    # the image's own default governs, and that default is `false` — with it off
+    # the controller bean does not exist at all and the route 404s.
+    #
+    # Turning it on is only half the story: the page READS the lending machinery,
+    # so with `loans.enabled` false it renders "lending is disabled on this node"
+    # rather than failing. That is the application being legible, not a broken
+    # deploy.
+    #
+    # ⚠ It is served on the same port as everything else. Reaching it from
+    # outside the cluster means `service.type: NodePort` (or port-forward), and
+    # that exposes the unauthenticated /api/v1 too — see README.
+    enabled: ""
+
   # Safety gate. [documented] → LOANS_ENABLED
   # Master switch for indexing, scanning and health. Turning it OFF also disables
   # the two startup verifiers, so a node with wrong contract coordinates will

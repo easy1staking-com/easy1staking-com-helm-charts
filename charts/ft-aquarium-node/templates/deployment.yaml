@@ -193,6 +193,20 @@ spec:
             {{- fail (printf "liquidation.enabled must be true or false, got %q" $armed) }}
             {{- end }}
             {{- end }}
+            {{- /*
+              compound.enabled is validated exactly as liquidation.enabled is, and
+              for the same reason: a typo silently means "not armed", and an
+              operator who believes they armed compounding and did not is a worse
+              failure than a refused render. These are TWO switches — arming one
+              does not arm the other.
+            */}}
+            {{- $compoundArmed := toString (.Values.compound | default dict).enabled }}
+            {{- if not (empty $compoundArmed) }}
+            {{- if not (has $compoundArmed (list "true" "false")) }}
+            {{- fail (printf "compound.enabled must be true or false, got %q" $compoundArmed) }}
+            {{- end }}
+            {{- end }}
+            {{- $C := .Values.compound | default dict }}
             {{- $L := .Values.liquidation }}
             {{- $R := $L.referenceScripts | default dict }}
             {{- $N := .Values.loans | default dict }}
@@ -235,6 +249,11 @@ spec:
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LM_LIQUIDATE_ACTION" "value" $R.lmLiquidateAction) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LM_LIQUIDATE_AND_PAY_IN_ADVANCE_ACTION" "value" $R.lmLiquidateAndPayInAdvanceAction) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_ASSET_MANAGER" "value" $R.assetManager) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_UI_ENABLED" "value" ($N.ui | default dict).enabled) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_COMPOUND_ENABLED" "value" $C.enabled) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_COMPOUND_DELAY_SECONDS" "value" $C.delaySeconds) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_COMPOUND_PROFIT_MARGIN_LOVELACE" "value" $C.profitMarginLovelace) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_COMPOUND_REFERENCE_SCRIPTS" "value" $C.referenceScripts) }}
             {{- include "ft-aquarium-node.env" (dict "name" "SCHEDULING_TRANSACTION_PROCESSOR_DELAY_MINUTES" "value" (.Values.scheduling | default dict).transactionProcessorDelayMinutes) }}
             {{- include "ft-aquarium-node.env" (dict "name" "SPRING_TASK_SCHEDULING_POOL_SIZE" "value" (.Values.scheduling | default dict).taskPoolSize) }}
             {{- /*
