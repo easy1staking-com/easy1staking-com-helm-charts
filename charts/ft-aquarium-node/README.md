@@ -441,6 +441,12 @@ have won).
 > `fluidtokens`, which surfaces as a permissions error and reads as a broken
 > migration rather than a wrong username.
 
+> ⛔ **The key is `secret:`, singular.** A values file that says `secrets:` mounts
+> nothing — Helm accepts unknown top-level keys silently and renders as though
+> they were absent, so the application starts, resolves an empty mnemonic, and
+> dies with `Invalid mnemonic phrase`: a message about the *value*, caused by the
+> *key*, three layers from the typo. The chart now refuses that render by name.
+
 **All three or none.** A partial set is refused at render. Naming `mnemonic`
 while leaving `blockfrost` unnamed would produce a pod that starts, runs, and
 only then fails against an API it cannot authenticate to — both

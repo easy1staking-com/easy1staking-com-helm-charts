@@ -24,6 +24,22 @@
   is the "value that looks inert and is authoritative" failure this chart has
   been bitten by before, inverted: a value that looks authoritative and is inert.
 */ -}}
+{{- /*
+  ⛔ `secrets:` IS NOT `secret:`, AND HELM WILL NOT TELL YOU.
+
+  An unknown top-level key in a values file is not an error — Helm accepts it and
+  renders as though it were absent. So a values file that says `secrets:` mounts
+  NOTHING, the application resolves an empty mnemonic, and it dies with
+  "Invalid mnemonic phrase" — a message about the VALUE, from a fault in the KEY,
+  three layers away from the typo.
+
+  Measured 2026-09-04: that cost a live debugging session, with two sessions
+  producing two different wrong diagnoses first, because every layer in between
+  was working correctly.
+*/ -}}
+{{- if .Values.secrets -}}
+{{- fail "values set a top-level `secrets:` key, but this chart's key is `secret:` (singular). Helm ignores unknown top-level keys silently, so `secrets:` mounts NOTHING and the application fails at startup with \"Invalid mnemonic phrase\" — a message about the value, caused by the key. Rename `secrets:` to `secret:`." -}}
+{{- end -}}
 {{- if or $sec.name $sec.keys $sec.dbPasswordFrom -}}
 {{- fail "secret.name / secret.keys / secret.dbPasswordFrom were removed in ft-aquarium-node 0.3.0. Set a name and key per source instead: secret.mnemonic.name, secret.blockfrost.name, secret.db.name (each with an optional .key; the defaults are the same key names as before). To reproduce the old single-Secret behaviour, point all three at the same name. See README, \"Migrating from 0.2.0\"." -}}
 {{- end -}}
