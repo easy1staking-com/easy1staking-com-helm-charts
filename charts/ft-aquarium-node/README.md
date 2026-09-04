@@ -392,47 +392,134 @@ the projection differs, and neither puts a secret in this repository.
 Leave `secret.name` empty and the secrets are absent from the render entirely —
 the application then fails at startup with a named error, which is §3 working.
 
-### Three secrets, three independent addresses
+### Secrets: one mechanism, a name and a key per source
 
-Each secret has its own **name** and its own **key**, so they can come from
-different Secrets — the mnemonic and the Blockfrost key from one you created, the
-DB password straight from the Postgres operator's own role Secret:
+There is **no chart-wide `secret.name`** and no chart-wide `secret.keys`. There
+were, alongside this form, until 0.3.0 — and two ways to say the same thing is
+one way too many, because a reader could not tell from a values file which was in
+force.
+
+The per-source form is the one that survived because it is the **superset**.
+Point all three at the same Secret and you have exactly what `secret.name` did:
 
 ```yaml
 secret:
-  mnemonic:
-    name: aquarium-wallet          # falls back to secret.name
-    key: wallet-mnemonic           # falls back to secret.keys.walletMnemonic
-  blockfrost:
-    name: aquarium-wallet
-  db:
-    name: aquarium-db.credentials  # the operator's Secret
-    key: password
+  mnemonic:   {name: aquarium-secrets}
+  blockfrost: {name: aquarium-secrets}
+  db:         {name: aquarium-secrets}
 ```
 
-**Back-compatible:** every `name` falls back to `secret.name` and every `key` to
-the legacy `secret.keys.*`, so setting only those behaves exactly as before —
-same four files, same keys, same `0400`.
+Point them at different Secrets and you get what `secret.name` could not express
+— the wallet in a Secret you control, the database credentials in the one the
+Postgres operator generates and rotates:
 
-**All three or none — a partial configuration is refused at render.** Naming
-`mnemonic` while leaving `blockfrost` unnamed would render a pod that starts,
-runs, and only then fails against an API it cannot authenticate to: both
+```yaml
+secret:
+  mnemonic:   {name: aquarium-wallet}
+  blockfrost: {name: aquarium-wallet}
+  db:
+    name: aquarium-db.credentials   # the operator's per-role Secret
+    usernameKey: username           # it carries BOTH credentials
+    passwordKey: password
+```
+
+Every key defaults to the name this chart has always used, so the common case
+needs names only.
+
+**Both database credentials can come from the Secret.** `usernameKey` is empty by
+default, which leaves the username as the plain `config.db.username` value —
+unchanged behaviour. Set it and the username comes from the Secret instead; the
+chart then refuses to emit the plain value as well, so the two cannot silently
+disagree (Kubernetes keeps the *last* duplicate env var, so the plain one would
+have won).
+
+> ⚠ **The username has the same two-property split as the password, and the two
+> properties are not named alike.** The datasource wants
+> `spring.datasource.username`; Flyway wants `spring.flyway.user` — `user`, not
+> `username`. The chart projects both. Miss the Flyway one and the application
+> connects as the right role while the *migration* connects as the default
+> `fluidtokens`, which surfaces as a permissions error and reads as a broken
+> migration rather than a wrong username.
+
+**All three or none.** A partial set is refused at render. Naming `mnemonic`
+while leaving `blockfrost` unnamed would produce a pod that starts, runs, and
+only then fails against an API it cannot authenticate to — both
 `wallet.mnemonic` and `blockfrost.key` default to `""` in the application, so
-nothing fails fast. The render fails instead, naming the missing source.
+nothing fails fast. Naming nothing at all stays legal.
 
-This invariant is not new. The single-secret design enforced it *structurally* —
-one `secret.name` always projected all three — and the split is simply what makes
-"one source silently absent" expressible for the first time. Naming nothing at all
-remains legal and unchanged.
+> **⛔ The seed stays a file.** In `file` mode the pod mounts a **projected**
+> volume with one source per Secret, so three independent names land in one
+> directory and the wallet mnemonic is still a `0400` file. Implementing this as
+> three `secretKeyRef` environment variables would have put the seed in the pod
+> spec — visible in `kubectl describe pod` and in Argo's UI — reversing this
+> chart's central security decision as a side effect of a refactor.
 
-> **⛔ The seed stays a file, and that is the point of the shape.**
-> A naive three-way split would have implemented all three as `secretKeyRef`
-> environment variables — which would put the **wallet mnemonic** in the pod
-> spec, visible in `kubectl describe pod` and in Argo's UI, reversing this
-> chart's central security decision as a side effect of a refactor that looked
-> like tidying. Instead the pod mounts a **projected** volume with one source per
-> Secret: three independent names, one directory, and the seed is still a `0400`
-> file.
+### The database: off by default, zero-config when on
+
+`postgres.enabled` is **`false`**. Turning it on renders a `postgresql` CR for
+the **Zalando Postgres operator**, and `helm install` fails with `no matches for
+kind postgresql` on a cluster without that operator's CRD — so it is off, for the
+same reason `amaru`'s `serviceMonitor` is: a public chart must not default to on
+a cluster capability it cannot verify.
+
+> ⚠ **Our own deployments set it `true` INLINE, in the Argo application — not in
+> a values file.** That is why this default disagrees with how we run it. Argo
+> supplies values inline, so an operator never opens `values-preview.yaml` and
+> would silently inherit `false`; a preset here would read as coverage and give
+> none. The switch belongs with the thing that describes the deployment.
+
+**When it is on, no other database value needs setting.**
+
+```bash
+helm install aquarium easy1staking/ft-aquarium-node --set postgres.enabled=true
+```
+
+is a complete database configuration on its own:
+
+| | derived from |
+|---|---|
+| credentials | the Secret the operator generates — name computed from `postgres.username` + `postgres.clusterName`, per its `{user}.{cluster}.credentials.postgresql.acid.zalan.do` convention |
+| host | the cluster the CR creates (`postgres.clusterName`), resolved in one helper because the host is read three times |
+| database | `config.db.database`, the same value the CR asks the operator to create |
+
+Nothing is restated, so nothing can drift: rename the cluster and the Secret
+reference, the host and the CR all move together. Set `config.db.*` yourself only
+when bringing your own Postgres, with `postgres.enabled: false`.
+
+**Default-wired, never default-valued.** The chart ships a *reference* to a
+Secret whose contents it does not create. It ships no credential — this
+repository is public.
+
+**The credentials arrive as files, not environment variables** — the chart's
+`file` mode, the same projection as the wallet secrets, so the password stays out
+of `kubectl describe pod` and Argo's UI. `secret.db.mode: env` gives the classic
+`secretKeyRef` pair instead.
+
+A `clusterName` that does not start with `teamId` is refused at render: the
+operator enforces that at *reconcile* time, not at apply, so a wrong name is
+otherwise accepted and then silently does nothing.
+
+### Migrating from 0.2.0
+
+Breaking for anyone who used the single-name form. The removed paths **fail the
+render** with a message rather than being ignored — an unknown key in Helm values
+is not an error, so a stale values file would otherwise have rendered a pod with
+no secrets at all, silently.
+
+| 0.2.0 | 0.3.0 |
+|---|---|
+| `secret.name: X` | `secret.mnemonic.name: X`, `secret.blockfrost.name: X`, `secret.db.name: X` |
+| `secret.keys.walletMnemonic: K` | `secret.mnemonic.key: K` |
+| `secret.keys.blockfrostKey: K` | `secret.blockfrost.key: K` |
+| `secret.keys.dbPassword: K` | `secret.db.passwordKey: K` |
+| `secret.dbPasswordFrom.secretName: X` | `secret.db.name: X` (and `secret.db.mode: env` if you want the env projection it forced) |
+| `secret.dbPasswordFrom.key: K` | `secret.db.passwordKey: K` |
+
+Also new in 0.3.0: the chart can provision the database. `postgres.enabled` is
+off by default and changes nothing unless you turn it on. `secret.db.usernameKey`
+now defaults to `username` and `passwordKey` to `password` — the Zalando
+operator's own key names — so if you bring your own Secret with different key
+names, set them explicitly.
 
 **`secret.db.mode`** is the one per-source projection override, because the DB
 password is the only one that is operator-owned and rotatable. It follows

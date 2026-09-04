@@ -96,7 +96,7 @@ it is built out of; config.db.url overrides the composition wholesale.
 {{- if .url -}}
 {{ .url }}
 {{- else -}}
-jdbc:postgresql://{{ .host }}:{{ .port }}/{{ .database }}?currentSchema={{ .schema }}
+jdbc:postgresql://{{ include "ft-aquarium-node.dbHost" $ }}:{{ .port }}/{{ .database }}?currentSchema={{ .schema }}
 {{- end -}}
 {{- end -}}
 {{- end }}
@@ -149,4 +149,35 @@ because the reader now has false confidence in the value they can see.
 */}}
 {{- define "ft-aquarium-node.typedEnvNames" -}}
 SPRING_PROFILES_ACTIVE,SPRING_CONFIG_IMPORT,JAVA_TOOL_OPTIONS,DB_DRIVER,DB_DIALECT,POSTGRES_HOST,POSTGRES_PORT,POSTGRES_DB,DB_SCHEMA,DB_USERNAME,DB_URL,WALLET_MNEMONIC,BLOCKFROST_KEY,DB_PASSWORD,STORE_CARDANO_HOST,STORE_CARDANO_PORT,STORE_CARDANO_CURSOR_CLEANUP_INTERVAL,STORE_CARDANO_CURSOR_NO_OF_BLOCKS_TO_KEEP,NETWORK,BLOCKFROST_URL,LOANS_ENABLED,LOANS_ORACLE_ENABLED,LOANS_ORACLE_URL,LOANS_CONFIG_POLICY_ID,LOANS_CONFIG_REF_UTXO_TX_HASH,LOANS_CONFIG_ASSET_NAME,LOANS_LM_CONFIG_POLICY_ID,LOANS_SMART_TOKENS_SPEND_SCRIPT_HASH,LOANS_VERIFY_CONFIG_FAIL_ON_UNREACHABLE,AQUARIUM_GENESIS_TX_HASH,AQUARIUM_GENESIS_OUTPUT_INDEX,AQUARIUM_STAKING_TOKEN_POLICY,AQUARIUM_STAKING_TOKEN_NAME,AQUARIUM_TANK_REF_INPUT_TXHASH,AQUARIUM_TANK_REF_INPUT_OUTPUTINDEX,AQUARIUM_LIQUIDATION_MODE,AQUARIUM_LIQUIDATION_ENABLED,AQUARIUM_LIQUIDATION_IGNORE_PROFIT_CHECK,AQUARIUM_LIQUIDATION_CHECK_PROFITABILITY,AQUARIUM_LIQUIDATION_PROFIT_MARGIN_LOVELACE,AQUARIUM_LIQUIDATION_MIN_PROFIT_ABSOLUTE_LOVELACE,AQUARIUM_LIQUIDATION_MIN_EXPECTED_PROFIT_LOVELACE,AQUARIUM_LIQUIDATION_DELAY_SECONDS,AQUARIUM_LIQUIDATION_VALIDITY_WINDOW_SECONDS,AQUARIUM_LIQUIDATION_ORACLE_MARGIN_SECONDS,AQUARIUM_LIQUIDATION_QUARANTINE_MINUTES,AQUARIUM_LIQUIDATION_DECISION_LOG_SIZE,AQUARIUM_LIQUIDATION_REF_LOAN,AQUARIUM_LIQUIDATION_REF_LOAN_SPEND,AQUARIUM_LIQUIDATION_REF_LENDER_MANAGER,AQUARIUM_LIQUIDATION_REF_LENDER_MANAGER_SPEND,AQUARIUM_LIQUIDATION_REF_LOAN_CLAIM_ACTION,AQUARIUM_LIQUIDATION_REF_LM_LIQUIDATE_ACTION,AQUARIUM_LIQUIDATION_REF_LM_LIQUIDATE_AND_PAY_IN_ADVANCE_ACTION,AQUARIUM_LIQUIDATION_REF_ASSET_MANAGER,LOANS_SUBMITTABLE_NETWORK,LOANS_MINSWAP_POOL_POLICY_ID,LOANS_MINSWAP_POOL_SPEND_SCRIPT_HASH,LOANS_MINSWAP_ORDER_SPEND_SCRIPT_HASH,LOANS_MINSWAP_POOL_ADDRESS,LOANS_LIQUIDATION_CONVERT_ENABLED,LOANS_LIQUIDATION_CONVERT_PROFIT_MARGIN_LOVELACE,LOANS_LIQUIDATION_CONVERT_DEX_COST_FLOOR_LOVELACE,LOANS_LIQUIDATION_REFERENCE_SCRIPTS_LM_LIQUIDATE_AND_CONVERT_ACTION,LOANS_UI_ENABLED,AQUARIUM_COMPOUND_ENABLED,AQUARIUM_COMPOUND_DELAY_SECONDS,AQUARIUM_COMPOUND_PROFIT_MARGIN_LOVELACE,AQUARIUM_COMPOUND_REFERENCE_SCRIPTS,SCHEDULING_TRANSACTION_PROCESSOR_DELAY_MINUTES,SPRING_TASK_SCHEDULING_POOL_SIZE
+{{- end }}
+
+{{/*
+The Secret the Zalando operator generates for a role.
+
+Its name is fixed by the operator's own convention,
+`{user}.{cluster}.credentials.postgresql.acid.zalan.do`, so it is DERIVED from
+the same values that name the CR rather than restated. A restated name goes
+stale the moment someone renames the cluster, and the failure is a pod stuck in
+CreateContainerConfigError naming a Secret nobody typed.
+*/}}
+{{- define "ft-aquarium-node.zalandoSecretName" -}}
+{{- printf "%s.%s.credentials.postgresql.acid.zalan.do" .Values.postgres.username .Values.postgres.clusterName -}}
+{{- end }}
+
+{{/*
+The database host, resolved once.
+
+Empty `config.db.host` with `postgres.enabled` means the operator's cluster
+service, which the operator names after the cluster. Derived rather than
+restated so the CR and the connection cannot drift — and resolved in ONE place
+because the host is read three times (the JDBC URL, POSTGRES_HOST, and the
+wait-for-postgres probe) and three copies of a fallback is three chances to
+disagree.
+*/}}
+{{- define "ft-aquarium-node.dbHost" -}}
+{{- if .Values.config.db.host -}}
+{{ .Values.config.db.host }}
+{{- else if .Values.postgres.enabled -}}
+{{ .Values.postgres.clusterName }}
+{{- end -}}
 {{- end }}
