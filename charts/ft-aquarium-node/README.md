@@ -198,9 +198,9 @@ A default install therefore **scans, builds, prices and records liquidations but
 never submits** — the `MODE_NOT_LIVE` veto stops it. That is the intended
 posture, not an incomplete configuration.
 
-`SUBMITTABLE_NETWORK` is hard-coded to `preview` in the application, so mainnet
-is fail-closed regardless of flags. That is also why there is **no
-`values-mainnet.yaml`** in this chart.
+The application no longer carries a second network gate: `SUBMITTABLE_NETWORK`
+was removed on 2026-09-04, so the network you target is the network the node acts
+on.
 
 `AQUARIUM_X_SUBMIT` is **not** an application setting — it gates a manual test
 runner and has no effect on the running node. It is absent here on purpose;
@@ -699,17 +699,25 @@ Most of this chart's parameters are readable from the application's
 not there at all** — they are bound in Java, so a chart derived from that file
 alone misses them silently. It did, until 0.2.0.
 
-### `loans.submittableNetwork` — the last arming barrier
+### Removed in 0.6.0: `loans.submittableNetwork` and `loans.enabled`
 
-A node with `liquidation.mode: live` **and** `liquidation.enabled: true` still
-submits **nothing** unless the running network matches this string; it records
-the `NETWORK_NOT_PREVIEW` veto and stops. One word separates a node that cannot
-spend from one that can.
+Both were removed from the **application** on 2026-09-04 and from this chart in
+0.6.0. A values file still setting either is **refused at render** rather than
+silently ignored.
 
-The chart renders `preview` **explicitly** rather than leaving it unset. Unset is
-safe today because the image's default is also `preview` — but that default lives
-in someone else's code, and the failure direction if it ever moves is a node that
-can suddenly spend. **Never set this to `mainnet`.**
+**`loans.submittableNetwork`** was a second network gate: a node could be armed,
+targeted at mainnet, and still submit nothing, vetoing every candidate with
+`NETWORK_NOT_PREVIEW`. It was documented here as "the barrier that fails
+silently" — correct at the time, and the reason it is gone.
+**`config.network` / `config.springProfile` is now the single source of truth
+for which chain the node acts on.** Target a network, arm the bot, it acts
+there — no second value to keep in step.
+
+**`loans.enabled`** gated indexing, and could not safely be turned back on. A
+loan that *moved* while it was off had its old row marked spent and its new
+output dropped, so it **vanished from the index while still live on chain** —
+not a coverage gap but the loss of a live position, recoverable only by a cursor
+delete and a full re-sync. Indexing is now unconditional.
 
 ### `loans.minswap.*` — mainnet defaults on a network-agnostic chart
 

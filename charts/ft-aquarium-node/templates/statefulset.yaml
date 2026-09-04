@@ -41,6 +41,26 @@
 {{- if .Values.secrets -}}
 {{- fail "values set a top-level `secrets:` key, but this chart's key is `secret:` (singular). Helm ignores unknown top-level keys silently, so `secrets:` mounts NOTHING and the application fails at startup with \"Invalid mnemonic phrase\" — a message about the value, caused by the key. Rename `secrets:` to `secret:`." -}}
 {{- end -}}
+{{- /*
+  ⛔ REMOVED IN 0.6.0, AND THE APPLICATION NO LONGER READS EITHER.
+
+  `loans.submittableNetwork` was a second network gate that vetoed every mainnet
+  submission even on a fully armed node; `loans.enabled` gated indexing, and
+  toggling it off lost loans that moved during the off-window with no trace.
+  Both are gone from the application (2026-09-04), so the chart cannot restore
+  the old behaviour by emitting them — the variables are inert.
+
+  Refused rather than ignored, because a values file carried forward would
+  otherwise set them silently and the operator would believe the old behaviour
+  still applied.
+*/ -}}
+{{- $L := .Values.loans | default dict -}}
+{{- if not (kindIs "invalid" $L.submittableNetwork) -}}
+{{- fail "loans.submittableNetwork was removed in ft-aquarium-node 0.6.0 and the application no longer reads it. It was a second network gate that vetoed mainnet submissions even on an armed node; `config.network` / `config.springProfile` is now the single source of truth for which chain this node acts on. Remove the key." -}}
+{{- end -}}
+{{- if not (kindIs "invalid" $L.enabled) -}}
+{{- fail "loans.enabled was removed in ft-aquarium-node 0.6.0 and the application no longer reads it: loan indexing is unconditional. The flag could not be turned back on safely — a loan that MOVED while it was off had its old row marked spent and its new output dropped, so it vanished from the index while live on chain. Remove the key." -}}
+{{- end -}}
 {{- if or $sec.name $sec.keys $sec.dbPasswordFrom -}}
 {{- fail "secret.name / secret.keys / secret.dbPasswordFrom were removed in ft-aquarium-node 0.3.0. Set a name and key per source instead: secret.mnemonic.name, secret.blockfrost.name, secret.db.name (each with an optional .key; the defaults are the same key names as before). To reproduce the old single-Secret behaviour, point all three at the same name. See README, \"Migrating from 0.2.0\"." -}}
 {{- end -}}
@@ -365,7 +385,6 @@ spec:
             {{- $A := .Values.aquarium | default dict }}
             {{- include "ft-aquarium-node.env" (dict "name" "NETWORK" "value" .Values.config.network) }}
             {{- include "ft-aquarium-node.env" (dict "name" "BLOCKFROST_URL" "value" (.Values.blockfrost | default dict).url) }}
-            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_ENABLED" "value" $N.enabled) }}
             {{- include "ft-aquarium-node.env" (dict "name" "LOANS_ORACLE_ENABLED" "value" ($N.oracle | default dict).enabled) }}
             {{- include "ft-aquarium-node.env" (dict "name" "LOANS_ORACLE_URL" "value" ($N.oracle | default dict).url) }}
             {{- include "ft-aquarium-node.env" (dict "name" "LOANS_CONFIG_POLICY_ID" "value" $NC.policyId) }}
@@ -400,7 +419,6 @@ spec:
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LM_LIQUIDATE_ACTION" "value" $R.lmLiquidateAction) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LM_LIQUIDATE_AND_PAY_IN_ADVANCE_ACTION" "value" $R.lmLiquidateAndPayInAdvanceAction) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_ASSET_MANAGER" "value" $R.assetManager) }}
-            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_SUBMITTABLE_NETWORK" "value" $N.submittableNetwork) }}
             {{- $MS := $N.minswap | default dict }}
             {{- include "ft-aquarium-node.env" (dict "name" "LOANS_MINSWAP_POOL_POLICY_ID" "value" $MS.poolPolicyId) }}
             {{- include "ft-aquarium-node.env" (dict "name" "LOANS_MINSWAP_POOL_SPEND_SCRIPT_HASH" "value" $MS.poolSpendScriptHash) }}

@@ -252,10 +252,10 @@ config:
   # break the link, and then set every coordinate to match by hand.
   network: ""
 
-  # Required by the application. `preview` is the only network this deployment
-  # supports: the code hard-codes SUBMITTABLE_NETWORK to preview, so mainnet is
-  # fail-closed regardless of configuration. There is deliberately no
-  # values-mainnet.yaml in this chart.
+  # Required by the application, and since 2026-09-04 it is the SINGLE source of
+  # truth for which chain this node acts on. The old `loans.submittable-network`
+  # second gate is gone: target a network here, arm the bot, and it acts there.
+  # There is no second value to keep in step — and no second value to forget.
   springProfile: preview
 
   # Postgres. consumed, never deployed — this chart creates no database.
@@ -897,29 +897,7 @@ liquidation:
     lmLiquidateAndConvertAction: ""       # [derived, Java-only]
 
 ## Lending v4 subsystem.
-## ⛔ THE LAST ARMING BARRIER — `loans.submittableNetwork`.
-##
-## Not in the application's application.yaml; it is an @Value default in Java, so
-## it is invisible to anyone reading that file and was missing from this chart
-## until 0.2.0.
-##
-## A node whose mode is `live` AND whose `enabled` is true STILL SUBMITS NOTHING
-## unless the running network matches this string — it logs NETWORK_NOT_PREVIEW
-## and stops. That single word is the difference between a node that cannot spend
-## and one that can.
-##
-## The chart renders `preview` EXPLICITLY rather than leaving it unset. An absent
-## value is safe today because the image's own default is `preview`, but a
-## default that lives only in someone else's code can move without this chart
-## noticing, and the failure direction is a node that can suddenly spend. Stating
-## it here means the chart asserts the barrier instead of inheriting it.
-##
-## ⛔ NEVER render `mainnet`. It has never been set to anything else, on any node.
-
 loans:
-  # Safety gate. [derived, @Value not application.yaml] → LOANS_SUBMITTABLE_NETWORK
-  # See the block above. Explicitly `preview`; never `mainnet`.
-  submittableNetwork: preview
 
   # Minswap coordinates for the CONVERT liquidation path.
   #
@@ -948,22 +926,15 @@ loans:
     # the image's own default governs, and that default is `false` — with it off
     # the controller bean does not exist at all and the route 404s.
     #
-    # Turning it on is only half the story: the page READS the lending machinery,
-    # so with `loans.enabled` false it renders "lending is disabled on this node"
-    # rather than failing. That is the application being legible, not a broken
-    # deploy.
+    # The page READS the lending machinery. Indexing is unconditional since
+    # 2026-09-04, so there is no longer a flag that can leave it with nothing to
+    # read — but an UNCONFIGURED node (no config policy ids) indexes nothing, and
+    # the page will honestly report an empty world.
     #
     # ⚠ It is served on the same port as everything else. Reaching it from
     # outside the cluster means `service.type: NodePort` (or port-forward), and
     # that exposes the unauthenticated /api/v1 too — see README.
     enabled: ""
-
-  # Safety gate. [documented] → LOANS_ENABLED
-  # Master switch for indexing, scanning and health. Turning it OFF also disables
-  # the two startup verifiers, so a node with wrong contract coordinates will
-  # start quietly instead of refusing. Off is safe for the bot and removes a
-  # correctness check; know which you wanted.
-  enabled: ""
 
   oracle:
     # Tuning. [documented] → LOANS_ORACLE_ENABLED
@@ -991,6 +962,20 @@ loans:
   ## ⇒ Such a node boots clean, verifies clean, and reports zero candidates —
   ## indistinguishable from a market with nothing to do. Nothing in the chart,
   ## the logs or the probes can tell you which you have.
+  ##
+  ## ⛔ AND A MALFORMED COORDINATE IS FATAL AT STARTUP — a new failure mode since
+  ## 2026-09-04, and a deliberate one. The application distinguishes three states:
+  ##   BLANK/absent  -> starts clean, derives nothing, indexes nothing, warns.
+  ##                    This is what a bare `helm install` hits, and it must not
+  ##                    crash: "not configured yet" is a legitimate state.
+  ##   WELL-FORMED   -> derives, indexes, verifies against chain.
+  ##   MALFORMED     -> FAILS at startup naming the key. A typo is not an
+  ##                    absence; reading it as one would leave a fat-fingered
+  ##                    operator with a node quietly reporting an empty market.
+  ##
+  ## ⇒ So a short hash or a stray character here is a crash, not a quiet node.
+  ## The chart adds NO gate of its own on "coordinates present" — the application
+  ## owns that distinction, and a second copy would drift silently.
   ##
   ## The discriminator is on the API: read GET <apiPrefix>/loans/liquidations and
   ## take `bonds_scanned`, `settled` and `unreadable` TOGETHER. Both counts zero
