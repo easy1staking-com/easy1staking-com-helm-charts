@@ -45,6 +45,35 @@
   straight from the operator's Secret keeps no copy to go stale.
 */ -}}
 {{- $dbMode := $db.mode | default (ternary "env" $sec.mode (not (empty $dbFrom.secretName))) -}}
+{{- /*
+  ⛔ ALL THREE OR NONE. A partial configuration is refused at render.
+
+  This invariant is not new — it is what the single-secret design enforced
+  structurally, because one `secret.name` always projected all three items. The
+  three-way split is what newly makes "one source silently absent" expressible,
+  so it now has to be checked rather than implied.
+
+  It matters because the failure is NOT fast. `wallet.mnemonic` and
+  `blockfrost.key` both default to "" in the application, so a pod missing one
+  starts, runs, and fails later against an API it cannot authenticate to — which
+  reads as an outage rather than a config gap. Refusing the render turns that
+  into a message naming the missing source.
+
+  Naming NOTHING stays legal and unchanged: the secrets are absent from the
+  render entirely and the application fails at startup with a named error.
+*/ -}}
+{{- $named := list -}}
+{{- $unnamed := list -}}
+{{- range $src := (list (dict "n" "mnemonic" "v" $mnName) (dict "n" "blockfrost" "v" $bfName) (dict "n" "db" "v" $dbName)) -}}
+{{- if $src.v -}}
+{{- $named = append $named $src.n -}}
+{{- else -}}
+{{- $unnamed = append $unnamed $src.n -}}
+{{- end -}}
+{{- end -}}
+{{- if and $named $unnamed -}}
+{{- fail (printf "secret: %s named but %s not. Set a name for each (or secret.name as the fallback for all), or leave all three unset. A pod missing one secret starts and fails later against an API it cannot reach." (join ", " $named) (join ", " $unnamed)) -}}
+{{- end -}}
 {{- $mnFile := and $mnName (eq $sec.mode "file") -}}
 {{- $bfFile := and $bfName (eq $sec.mode "file") -}}
 {{- $dbFile := and $dbName (eq $dbMode "file") -}}

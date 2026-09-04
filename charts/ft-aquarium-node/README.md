@@ -414,6 +414,17 @@ secret:
 the legacy `secret.keys.*`, so setting only those behaves exactly as before —
 same four files, same keys, same `0400`.
 
+**All three or none — a partial configuration is refused at render.** Naming
+`mnemonic` while leaving `blockfrost` unnamed would render a pod that starts,
+runs, and only then fails against an API it cannot authenticate to: both
+`wallet.mnemonic` and `blockfrost.key` default to `""` in the application, so
+nothing fails fast. The render fails instead, naming the missing source.
+
+This invariant is not new. The single-secret design enforced it *structurally* —
+one `secret.name` always projected all three — and the split is simply what makes
+"one source silently absent" expressible for the first time. Naming nothing at all
+remains legal and unchanged.
+
 > **⛔ The seed stays a file, and that is the point of the shape.**
 > A naive three-way split would have implemented all three as `secretKeyRef`
 > environment variables — which would put the **wallet mnemonic** in the pod
