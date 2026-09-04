@@ -6,11 +6,22 @@ metadata:
     {{- include "ft-aquarium-node.labels" . | nindent 4 }}
 spec:
   {{- /*
-    ClusterIP only. The node dials out to everything it needs — the relay,
-    Blockfrost, the FluidTokens oracle — and nothing outside the cluster needs
-    to reach it. This Service exists for the kubelet's probes and for
-    Prometheus. There is no NodePort value and no Ingress template: see
-    README.md, "No ingress, deliberately".
+    ClusterIP by DEFAULT, and that default is the safe one: the node dials out to
+    everything it needs — the relay, Blockfrost, the FluidTokens oracle — and
+    nothing outside the cluster needs to reach it. This Service exists for the
+    kubelet's probes and for Prometheus.
+
+    `NodePort` is selectable because the liquidation readiness UI is served by
+    this pod and is meant to be opened in a browser. It is NOT the chart default
+    and no preset in this repository turns it on for a public installer: see
+    README.md, "No ingress, deliberately", which now also records what a NodePort
+    exposes and why it is acceptable HERE and not in general.
+
+    ⚠ Port 8080 carries more than the UI — /healthcheck, /actuator and the
+    unauthenticated /api/v1 all share it. Every /api/v1 route is GET-only
+    (verified against the application, not assumed) and actuator exposure is
+    limited to health,prometheus, so a NodePort publishes read access, not
+    control. It is still LAN-wide read access to a wallet-holding pod.
   */}}
   type: {{ .Values.service.type }}
   ports:
@@ -18,5 +29,13 @@ spec:
       targetPort: http
       protocol: TCP
       name: http
+      {{- /*
+        Only meaningful for type NodePort. Left unset, Kubernetes assigns one
+        from the node-port range and keeps it across upgrades — pin it only if
+        something outside the cluster hard-codes the number.
+      */}}
+      {{- if and (eq .Values.service.type "NodePort") .Values.service.nodePort }}
+      nodePort: {{ .Values.service.nodePort }}
+      {{- end }}
   selector:
     {{- include "ft-aquarium-node.selectorLabels" . | nindent 4 }}

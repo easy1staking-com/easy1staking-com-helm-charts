@@ -61,15 +61,44 @@ podSecurityContext: {}
 securityContext: {}
 
 service:
+  # ClusterIP is the default and stays the default. A public chart must not put
+  # a wallet-holding pod on a node's network because someone ran `helm install`.
+  #
+  # `NodePort` is supported for one reason: the liquidation readiness UI is
+  # served by this pod and is meant to be opened in a browser. Turn it on
+  # deliberately, per install — values-preview.yaml sets it for Giovanni's own
+  # preview box and says so at the value.
   type: ClusterIP
+
+  # NodePort only. Empty = Kubernetes assigns one from the node-port range
+  # (30000-32767 by default) and keeps it across upgrades. Pin a number only if
+  # something outside the cluster hard-codes it; a pinned port that collides
+  # fails the apply, an assigned one cannot.
+  nodePort: ""
+
   # Spring Boot default. The image sets no server.port. Everything is served
   # here: /healthcheck, /actuator/health, /actuator/prometheus, /api/v1/**.
   port: 8080
 
 # NOTE — there is deliberately NO ingress in this chart, and no ingress.enabled
-# value. See README.md ("No ingress, deliberately"): the unauthenticated
-# /api/v1 API and the Spring actuator share this one port, on a pod that holds a
-# wallet seed. Reachability for debugging is `kubectl port-forward`.
+# value. See README.md ("No ingress, deliberately").
+#
+# What sharing this one port means, now that NodePort is selectable: the
+# unauthenticated /api/v1 API and the Spring actuator sit on it alongside the UI,
+# on a pod that holds a wallet seed. Two facts make a NodePort acceptable on a
+# trusted LAN, and BOTH are properties of the application, not of this chart —
+# re-check them before widening exposure further:
+#
+#   * every /api/v1 route is GET-only (loans, liquidations, readiness). There is
+#     no POST/PUT/DELETE, so nothing reachable there can move funds or arm the
+#     bot.
+#   * actuator exposure is limited to `health,prometheus` in the application's
+#     own configuration, with no profile overriding it — so /env, /configprops
+#     and /beans, which WOULD leak configuration, are not reachable.
+#
+# The seed itself is never served by any endpoint. Still: a NodePort is LAN-wide
+# read access to lending positions and the node's wallet address. For debugging
+# on an untrusted network the answer remains `kubectl port-forward`.
 
 # Sizing. These are now REPORTED ADEQUATE FOR STEADY STATE from a real preview
 # deployment that reached tip — the first evidence this chart has ever had.

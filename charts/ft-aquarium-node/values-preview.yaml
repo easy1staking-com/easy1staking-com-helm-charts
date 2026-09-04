@@ -12,3 +12,33 @@ config:
     cardano:
       host: preview-node.world.dev.cardano.org
       port: 3001
+
+# Reachable from Giovanni's laptop, on purpose. The liquidation readiness UI is
+# served by this pod and is meant to be opened in a browser; this is a preview
+# box on a trusted LAN. Kubernetes assigns the port — read it back with
+#   kubectl get svc <release> -o jsonpath='{.spec.ports[0].nodePort}'
+#
+# Not set in values.yaml, and this is the ONLY file that turns it on: see the
+# NOTE there for what else port 8080 carries and why it is acceptable here.
+service:
+  type: NodePort
+
+# The readiness UI.
+#
+#   LOANS_UI_ENABLED — the page itself. Default false in the application, so
+#                      without this the controller bean does not exist at all
+#                      and the route 404s.
+#   LOANS_ENABLED    — the lending machinery the page READS. Belt and braces:
+#                      the application's preview profile already defaults this
+#                      to true (`${LOANS_ENABLED:true}`), so this pins the
+#                      behaviour against a change to that default rather than
+#                      switching anything on today. With it false the page
+#                      renders "lending is disabled on this node" instead of
+#                      failing, which is the application being deliberately
+#                      legible — not a broken deploy.
+#
+# ⚠ Neither of these ARMS anything. Arming is `liquidation.*`, which is a
+# separate decision with its own guard rails, and it is not set here.
+extraEnv:
+  LOANS_UI_ENABLED: "true"
+  LOANS_ENABLED: "true"

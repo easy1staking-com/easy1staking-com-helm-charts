@@ -453,6 +453,42 @@ For debugging, use `kubectl port-forward`. If the loans API or metrics should be
 published later, that is a deliberate decision — and it wants a path scoped to
 `/api/v1`, not `/`.
 
+### The one exception: `service.type: NodePort`
+
+That deliberate decision has now been taken, narrowly. The **liquidation
+readiness UI** is served by this pod and is meant to be opened in a browser, so
+`service.type` accepts `NodePort`:
+
+```yaml
+service:
+  type: NodePort
+  nodePort: ""      # empty = Kubernetes assigns one, and keeps it across upgrades
+```
+
+**It is not the default and no preset turns it on for a public installer.**
+`values.yaml` stays `ClusterIP`; only `values-preview.yaml` — the preset for a
+preview box on a trusted LAN — selects `NodePort`, and says so at the value.
+
+**What a NodePort actually publishes, and why it is tolerable here.** Port 8080
+still carries everything: `/healthcheck`, the actuator, and the unauthenticated
+`/api/v1`. Two facts make that read-only rather than dangerous, and **both are
+properties of the application, not of this chart** — re-check them before
+widening exposure any further:
+
+| | |
+|---|---|
+| Every `/api/v1` route is **GET-only** | `loans`, `loans/liquidations`, `loans/readiness` — no `POST`/`PUT`/`DELETE` exists, so nothing reachable can move funds or arm the bot |
+| Actuator exposure is `health,prometheus` | Set in the application's own configuration with **no profile overriding it**, so `/env`, `/configprops` and `/beans` — the ones that would leak configuration — are not reachable |
+
+The wallet seed is not served by any endpoint. What a NodePort does expose is
+LAN-wide **read** access to lending positions and the node's wallet address.
+That is acceptable on a home LAN and is **not** acceptable on an untrusted
+network — there, `kubectl port-forward` remains the answer.
+
+⚠ If the application ever gains a mutating `/api/v1` route, or widens its
+actuator exposure, this trade-off changes and the NodePort should go back to
+`ClusterIP`. Neither condition is something this chart can detect.
+
 ---
 
 ## Chain source
