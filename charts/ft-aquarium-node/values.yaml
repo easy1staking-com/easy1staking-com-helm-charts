@@ -708,6 +708,16 @@ liquidation:
   # Expected profit = fee value - tx fee - this. Covers the reference-script
   # surcharge and refuses dust liquidations whose fee slice would not repay the
   # transaction claiming it. Lowering it admits smaller candidates.
+  #
+  # ⚑ A NEGATIVE VALUE IS HONOURED ON MAINNET and logs a loud warning naming the
+  #   figure; `ignoreProfitCheck` is what mainnet refuses. Operating at a loss is
+  #   a deliberate protocol-health capability, and the stated floor still bounds
+  #   it — a candidate worse than the number is still refused.
+  #
+  #   The distinction, because it is the one that keeps getting lost: a number
+  #   the operator OWNS is allowed; a protection they SWITCH OFF is not. Chart
+  #   versions 0.2.0-0.3.1 claim the opposite at the compound margin. They are
+  #   wrong, and this chart adds no render guard against a negative value.
   profitMarginLovelace: ""
 
   ## Timing — knobs. Wrong values cost throughput or silence, not money.
