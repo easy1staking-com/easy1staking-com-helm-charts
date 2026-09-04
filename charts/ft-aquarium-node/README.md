@@ -148,8 +148,16 @@ nothing. `extraEnv` is the door they walk through, which is why the sign is here
 ### 5. Arming the bot is not a chart concern
 
 Submitting a liquidation **burns a loan NFT and moves someone's collateral.**
-Arming takes **two independent flags**, by design, so one flipped by accident
-does nothing:
+**Arming takes ONE value since 0.6.0**: `liquidation.mode: live`. Until then a
+second boolean (`liquidation.enabled`) had to agree, so a single flag flipped by
+accident was inert. That boolean is gone from the application — `mode: disabled`
+already meant off, and the second switch bought nothing it did not also cost in
+confusion.
+
+⇒ **So `live` is the arming act, on its own.** A node targeted at a chain and set
+to `live` acts on that chain. What bounds the outcome now is not another switch
+but the values an operator has to *state*: the per-market `ANTICIPATE` cap, the
+two profit floors, and the wallet balance.
 
 | Variable | Value in the image's preview profile |
 |---|---|
@@ -858,7 +866,7 @@ the pool owner's compounding fee. It is a **different on-chain action** from
 liquidation, with its own executor.
 
 **Arming one does not arm the other, in either direction.** A deployment that
-has `liquidation.enabled: true` is not compounding, and a deployment that has
+has `liquidation.mode: live` is not compounding, and a deployment that has
 `compound.enabled: true` is not liquidating.
 
 Two things about `compound.profitMarginLovelace` are worth knowing before you
@@ -946,21 +954,27 @@ Two labels on every row, and they are not decoration:
   not been watched binding on this image.** If a `[derived]` key appears to do
   nothing, that is the first thing to suspect.
 
-### Arming — there are three switches, not two
+### Arming — one switch, and the things that actually bound it
 
-| key | env | effect |
+| value | env | what it does |
 |---|---|---|
-| `liquidation.mode` | `AQUARIUM_LIQUIDATION_MODE` | `disabled` skips the cycle · `shadow` scans, builds, prices and records but never submits · **`live` submits real transactions that spend real funds**, burns a loan NFT and moves someone else's collateral |
-| `liquidation.enabled` | `AQUARIUM_LIQUIDATION_ENABLED` | the second switch; `live` alone does nothing and `true` alone does nothing |
-| `liquidation.ignoreProfitCheck` | `AQUARIUM_LIQUIDATION_IGNORE_PROFIT_CHECK` | **the third, and the one nobody expects.** The application's own source: *"disables both profitability gates"*. Every candidate becomes submittable whether or not the liquidation pays for its own transaction — **the node will spend to lose money.** The app refuses to start with this true on mainnet, which is the measure of what it is |
+| `liquidation.mode` | `AQUARIUM_LIQUIDATION_MODE` | `disabled` \| `shadow` \| `live`. **`live` arms the node.** The whole node-level dial |
+| `markets[].mode` | `LOANS_LIQUIDATION_MARKETS_<i>_MODE` | per-market ceiling — can be more restrictive than the node, never less |
+| `markets[].cap` | `..._CAP` | **mandatory on `ANTICIPATE`**, and the only bound on how much principal the bot fronts from its own wallet |
+| `liquidation.ignoreProfitCheck` | `AQUARIUM_LIQUIDATION_IGNORE_PROFIT_CHECK` | disables **both** profit gates. Hard-fails at startup on mainnet |
 
-**An operator who reviews `mode` and `enabled` and concludes the bot is bounded
-has checked two of three.** This chart previously exposed only those two.
+**Three switches became one on 2026-09-04**, deliberately: `loans.enabled`,
+`loans.submittableNetwork` and `liquidation.enabled` were all removed from the
+application. That is a change in *where the care goes*, not a loss of it — the
+removed gates were things a copied values file could get wrong in the safe
+direction, and what remains are things an operator must state.
 
-**No values file in this repository sets any of them, and none may.** The chart
-is public and installable by anyone; a preset that arms a transaction-signing bot
-arms it for everybody who runs `helm install` to see what it does. Arming is a
-deliberate act in the deploying operator's own values, outside this repo.
+⚠ **Nothing behind the mode catches a mistake now.** With `liquidation.enabled`
+gone, `mode: live` plus an empty `markets` list is **armed on every market
+immediately**, since an unlisted market runs as CONVERT at the node's own mode.
+
+**No values file in this repository sets any of it**, and that absence is the
+design.
 
 ### Economics — gates, not knobs
 
@@ -1043,7 +1057,7 @@ can see. **Fail on collision, not on use.**
 ## Upgrading: 36 parameters moved out of `extraEnv`
 
 **If you set any application parameter through `extraEnv`, read this before you
-upgrade.** Until this version only `liquidation.mode` and `liquidation.enabled`
+upgrade.** Until this version only `liquidation.mode` and the removed `liquidation.enabled`
 had typed keys; every other parameter was reachable *only* through `extraEnv`.
 **All 38 now have typed keys, and `extraEnv` refuses the 36 that newly gained
 one.**
@@ -1138,7 +1152,6 @@ someone fixed is filed.**
 | `secret.keys.*` | `wallet-mnemonic`, `blockfrost-key`, `db-password` | keys within that Secret |
 | `secret.mountPath` | `/etc/aquarium-secrets` | `file` mode only |
 | `liquidation.mode` | `""` | `disabled\|shadow\|live`; empty → image default. **§5** |
-| `liquidation.enabled` | `""` | second arming switch; **both required**. **§5** |
 | `extraEnv` | `{}` | Spring property passthrough — **read §4 first** |
 | `waitForPostgres.enabled` | `false` | optional tcp-wait init container |
 | `serviceMonitor.enabled` | `false` | **off**: a ServiceMonitor against absent CRDs fails the install |

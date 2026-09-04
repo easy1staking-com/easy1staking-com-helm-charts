@@ -58,6 +58,10 @@
 {{- if not (kindIs "invalid" $L.submittableNetwork) -}}
 {{- fail "loans.submittableNetwork was removed in ft-aquarium-node 0.6.0 and the application no longer reads it. It was a second network gate that vetoed mainnet submissions even on an armed node; `config.network` / `config.springProfile` is now the single source of truth for which chain this node acts on. Remove the key." -}}
 {{- end -}}
+{{- $Lq := .Values.liquidation | default dict -}}
+{{- if not (kindIs "invalid" $Lq.enabled) -}}
+{{- fail "liquidation.enabled was removed in ft-aquarium-node 0.6.0 and the application no longer reads it. It was a second arming boolean that had to agree with liquidation.mode; `mode: disabled` already means off, and `mode: live` is now the arming act on its own. Use liquidation.mode. Remove the key." -}}
+{{- end -}}
 {{- if not (kindIs "invalid" $L.enabled) -}}
 {{- fail "loans.enabled was removed in ft-aquarium-node 0.6.0 and the application no longer reads it: loan indexing is unconditional. The flag could not be turned back on safely — a loan that MOVED while it was off had its old row marked spent and its new output dropped, so it vanished from the index while live on chain. Remove the key." -}}
 {{- end -}}
@@ -358,15 +362,9 @@ spec:
             {{- fail (printf "liquidation.mode must be one of disabled|shadow|live, got %q" $mode) }}
             {{- end }}
             {{- end }}
-            {{- $armed := toString .Values.liquidation.enabled }}
-            {{- if not (empty $armed) }}
-            {{- if not (has $armed (list "true" "false")) }}
-            {{- fail (printf "liquidation.enabled must be true or false, got %q" $armed) }}
-            {{- end }}
-            {{- end }}
             {{- /*
-              compound.enabled is validated exactly as liquidation.enabled is, and
-              for the same reason: a typo silently means "not armed", and an
+              compound.enabled is validated true/false for the reason
+              liquidation.enabled used to be, before it was removed: a typo silently means "not armed", and an
               operator who believes they armed compounding and did not is a worse
               failure than a refused render. These are TWO switches — arming one
               does not arm the other.
@@ -400,7 +398,6 @@ spec:
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_TANK_REF_INPUT_TXHASH" "value" (($A.tank | default dict).refInput | default dict).txHash) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_TANK_REF_INPUT_OUTPUTINDEX" "value" (($A.tank | default dict).refInput | default dict).outputIndex) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_MODE" "value" $L.mode) }}
-            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_ENABLED" "value" $L.enabled) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_IGNORE_PROFIT_CHECK" "value" $L.ignoreProfitCheck) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_CHECK_PROFITABILITY" "value" $L.checkProfitability) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_PROFIT_MARGIN_LOVELACE" "value" $L.profitMarginLovelace) }}

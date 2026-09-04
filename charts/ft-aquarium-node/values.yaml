@@ -602,7 +602,7 @@ secret:
 ##                watched binding on this image. If a [derived] key appears to do
 ##                nothing, that is the first thing to suspect.
 
-## Arming: three switches, not two.
+## Arming: ONE node-level switch, since 2026-09-04.
 ##
 ## Submitting a liquidation burns a loan NFT and moves someone else's collateral.
 ##
@@ -700,11 +700,16 @@ convert:
 
 ## Per-market liquidation policy — A LIST, not a scalar.
 ##
-## ⛔ AN EMPTY LIST DOES NOT MEAN "DO NOTHING". An unlisted market runs as
-## CONVERT at the node's own mode, so `markets: []` means *convert everywhere at
-## the node's posture* — which on an armed node is every market, not none. If
-## you want a market held back, it needs an explicit entry naming DISABLED.
-## An unbound list is empty, not an error, so nothing warns about this.
+## ⛔ AN EMPTY LIST DOES NOT MEAN "DO NOTHING" — AND SINCE 2026-09-04 THAT IS
+## SHARPER THAN IT WAS. An unlisted market runs as CONVERT at the node's own
+## mode, so `markets: []` means *convert everywhere at the node's posture*.
+##
+## With `liquidation.enabled` removed, `liquidation.mode: live` and an empty
+## market list is **armed on every market, immediately, with nothing else to
+## set**. Previously the second boolean still stood between those values and a
+## submission; it does not exist any more. If you want a market held back it
+## needs an explicit entry naming DISABLED — an unbound list is empty, not an
+## error, and nothing warns about it.
 ##
 ## The global `liquidation.mode` is a CEILING; a market's own mode can only be
 ## the same or more restrictive. An unlisted market simply runs at the node's
@@ -740,17 +745,17 @@ liquidation:
   #   shadow   — scans, builds, prices and records, but the MODE_NOT_LIVE veto
   #              stops submission. Nothing reaches the chain.
   #   live     — submits real transactions that spend real funds.
-  # Requires `enabled` as well. An invalid value is refused at render.
+  #
+  # ⛔ `live` IS THE ARMING ACT, ON ITS OWN. Until 2026-09-04 a second boolean
+  # (`liquidation.enabled`) had to agree; it is gone from the application, so
+  # there is no longer a confirmation behind this value. Setting `live` on a
+  # node that is targeted at a chain means it acts on that chain.
+  # An invalid value is still refused at render — a typo is not a mode.
   mode: ""
-
-  # Safety gate. [documented] → AQUARIUM_LIQUIDATION_ENABLED
-  # The second arming switch. `true` alone does nothing and `live` alone does
-  # nothing; both are required, deliberately, so one flipped by accident is inert.
-  enabled: ""
 
   # Safety gate. [documented] → AQUARIUM_LIQUIDATION_IGNORE_PROFIT_CHECK
   #
-  # The third arming switch, and the one nobody expects. From the application's
+  # The other arming-adjacent switch, and the one nobody expects. From the application's
   # own source: it "disables both profitability gates". Every candidate becomes
   # submittable regardless of whether the liquidation pays for its own
   # transaction — the node will spend to lose money.
