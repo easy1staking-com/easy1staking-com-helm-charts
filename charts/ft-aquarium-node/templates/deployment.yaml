@@ -1,66 +1,57 @@
 {{- /*
   ── Secret resolution ────────────────────────────────────────────────────────
-  The three secrets are addressed INDEPENDENTLY: each has its own Secret name and
-  its own key, so blockfrost and the mnemonic can share one Secret while the DB
-  password comes from the Postgres operator's own role Secret.
+  ONE mechanism: a name and a key per source. There is no chart-wide
+  `secret.name` and no chart-wide `secret.keys` — this form expresses everything
+  they could (point all three at the same Secret) and things they could not (the
+  wallet in one Secret, the DB password in the operator's).
 
-  Every source falls back to `secret.name` and to the legacy `secret.keys.*`, so
-  an installer who set only those keeps working untouched.
-
-  ⛔ THE SEED STAYS A FILE. Splitting the sources must not quietly move the wallet
-  mnemonic into an environment variable — visible in `kubectl describe pod` and
-  in Argo's UI — which is what a naive three-way secretKeyRef split would do. A
-  PROJECTED volume takes multiple secret sources, so file mode survives the split
-  with three independent names, each contributing its own 0400 file.
+  ⛔ THE SEED STAYS A FILE. In `file` mode the pod mounts a PROJECTED volume with
+  one source per Secret, so three independent names land in one directory and the
+  wallet mnemonic is a 0400 file. Implementing this as three secretKeyRef env
+  vars would put the seed in the pod spec and reverse the chart's central
+  security decision as a side effect of a refactor that looked like tidying.
 */ -}}
 {{- $sec := .Values.secret | default dict -}}
-{{- $K := $sec.keys | default dict -}}
 {{- $mn := $sec.mnemonic | default dict -}}
 {{- $bf := $sec.blockfrost | default dict -}}
 {{- $db := $sec.db | default dict -}}
-{{- /* Deprecated alias, still honoured: `dbPasswordFrom` predates this split. */ -}}
-{{- $dbFrom := $sec.dbPasswordFrom | default dict -}}
-{{- $mnName := $mn.name | default $sec.name -}}
-{{- $bfName := $bf.name | default $sec.name -}}
-{{- $dbName := $db.name | default $dbFrom.secretName | default $sec.name -}}
-{{- $mnKey := $mn.key | default $K.walletMnemonic | default "wallet-mnemonic" -}}
-{{- $bfKey := $bf.key | default $K.blockfrostKey | default "blockfrost-key" -}}
 {{- /*
-  The deprecated alias contributes its key ONLY when it is actually in use.
-  `dbPasswordFrom.key` ships a default of `password`, so an unconditional
-  fallback would silently override `secret.keys.dbPassword` for every installer
-  who never touched the alias.
-*/ -}}
-{{- $dbFromKey := ternary $dbFrom.key "" (not (empty $dbFrom.secretName)) -}}
-{{- $dbKey := $db.key | default $dbFromKey | default $K.dbPassword | default "db-password" -}}
-{{- /*
-  The DB password may use a different projection from the other two. It is the
-  one secret that is operator-owned and rotatable, and the only one for which env
-  was ever argued. Default: follow `secret.mode`. The legacy `dbPasswordFrom`
-  forced env, so it still does — otherwise a values file written against the
-  earlier shape would silently change projection on upgrade.
+  ⛔ REMOVED PATHS FAIL LOUDLY RATHER THAN BEING IGNORED.
 
-  File mode ALSO survives rotation now: the original defect was a stale COPY of
-  the password inside our own Secret, not the projection mechanism. Projecting
-  straight from the operator's Secret keeps no copy to go stale.
+  `secret.name`, `secret.keys` and `secret.dbPasswordFrom` were removed in 0.3.0.
+  A values file still carrying them would otherwise render a pod with NO secrets
+  at all — silently, because an unknown key in Helm values is not an error. That
+  is the "value that looks inert and is authoritative" failure this chart has
+  been bitten by before, inverted: a value that looks authoritative and is inert.
 */ -}}
-{{- $dbMode := $db.mode | default (ternary "env" $sec.mode (not (empty $dbFrom.secretName))) -}}
+{{- if or $sec.name $sec.keys $sec.dbPasswordFrom -}}
+{{- fail "secret.name / secret.keys / secret.dbPasswordFrom were removed in ft-aquarium-node 0.3.0. Set a name and key per source instead: secret.mnemonic.name, secret.blockfrost.name, secret.db.name (each with an optional .key; the defaults are the same key names as before). To reproduce the old single-Secret behaviour, point all three at the same name. See README, \"Migrating from 0.2.0\"." -}}
+{{- end -}}
+{{- $mnName := $mn.name -}}
+{{- $bfName := $bf.name -}}
+{{- $dbName := $db.name -}}
+{{- $mnKey := $mn.key | default "wallet-mnemonic" -}}
+{{- $bfKey := $bf.key | default "blockfrost-key" -}}
+{{- $dbKey := $db.passwordKey | default "db-password" -}}
+{{- /*
+  The DB USERNAME may also come from the Secret — the Zalando operator's per-role
+  Secret carries both credentials, under `username` and `password`. Empty means
+  the username stays the plain `config.db.username` value.
+*/ -}}
+{{- $dbUserKey := $db.usernameKey -}}
+{{- $dbUserFromSecret := and $dbName $dbUserKey -}}
+{{- /*
+  The DB password may use a different projection from the other two: it is the
+  one secret that is operator-owned and rotatable. Defaults to `secret.mode`.
+*/ -}}
+{{- $dbMode := $db.mode | default $sec.mode -}}
 {{- /*
   ⛔ ALL THREE OR NONE. A partial configuration is refused at render.
 
-  This invariant is not new — it is what the single-secret design enforced
-  structurally, because one `secret.name` always projected all three items. The
-  three-way split is what newly makes "one source silently absent" expressible,
-  so it now has to be checked rather than implied.
-
-  It matters because the failure is NOT fast. `wallet.mnemonic` and
-  `blockfrost.key` both default to "" in the application, so a pod missing one
-  starts, runs, and fails later against an API it cannot authenticate to — which
-  reads as an outage rather than a config gap. Refusing the render turns that
-  into a message naming the missing source.
-
-  Naming NOTHING stays legal and unchanged: the secrets are absent from the
-  render entirely and the application fails at startup with a named error.
+  The failure it prevents is NOT fast: `wallet.mnemonic` and `blockfrost.key`
+  both default to "" in the application, so a pod missing one starts, runs, and
+  fails later against an API it cannot authenticate to — an outage shape rather
+  than a config gap. Naming NOTHING stays legal and unchanged.
 */ -}}
 {{- $named := list -}}
 {{- $unnamed := list -}}
@@ -72,7 +63,7 @@
 {{- end -}}
 {{- end -}}
 {{- if and $named $unnamed -}}
-{{- fail (printf "secret: %s named but %s not. Set a name for each (or secret.name as the fallback for all), or leave all three unset. A pod missing one secret starts and fails later against an API it cannot reach." (join ", " $named) (join ", " $unnamed)) -}}
+{{- fail (printf "secret: %s named but %s not. Set secret.<source>.name for each of the three (point them at the same Secret if that is what you want), or leave all three unset. A pod missing one secret starts and fails later against an API it cannot reach." (join ", " $named) (join ", " $unnamed)) -}}
 {{- end -}}
 {{- $mnFile := and $mnName (eq $sec.mode "file") -}}
 {{- $bfFile := and $bfName (eq $sec.mode "file") -}}
@@ -169,8 +160,16 @@ spec:
               value: {{ .Values.config.db.database | quote }}
             - name: DB_SCHEMA
               value: {{ .Values.config.db.schema | quote }}
+            {{- /*
+              Emitted ONLY when the username is not secret-sourced. Emitting both
+              would put two DB_USERNAME entries in the container spec, and
+              Kubernetes silently keeps the last — so the plain value could beat
+              the Secret with nothing to show for it.
+            */}}
+            {{- if not $dbUserFromSecret }}
             - name: DB_USERNAME
               value: {{ .Values.config.db.username | quote }}
+            {{- end }}
             - name: DB_URL
               value: {{ include "ft-aquarium-node.dbUrl" . | quote }}
             - name: STORE_CARDANO_HOST
@@ -227,6 +226,13 @@ spec:
                 secretKeyRef:
                   name: {{ $dbName }}
                   key: {{ $dbKey }}
+            {{- end }}
+            {{- if and $dbUserFromSecret (eq $dbMode "env") }}
+            - name: DB_USERNAME
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $dbName }}
+                  key: {{ $dbUserKey }}
             {{- end }}
             {{- /*
               ── The application's full parameter surface ──────────────────────
@@ -435,6 +441,22 @@ spec:
                       path: spring.datasource.password
                     - key: {{ $dbKey }}
                       path: spring.flyway.password
+                    {{- if $dbUserFromSecret }}
+                    {{- /*
+                      ⚠ The username has the SAME two-property split as the
+                      password, but the two properties are not named alike:
+                      `spring.datasource.username` and `spring.flyway.user`.
+                      Flyway's is `user`, not `username`. Project only the
+                      datasource one and the application connects as the right
+                      role while the MIGRATION connects as the default
+                      `fluidtokens` — which fails as a permissions error and
+                      reads as a broken migration rather than a wrong username.
+                    */}}
+                    - key: {{ $dbUserKey }}
+                      path: spring.datasource.username
+                    - key: {{ $dbUserKey }}
+                      path: spring.flyway.user
+                    {{- end }}
               {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}

@@ -309,150 +309,101 @@ config:
 # application then fails at startup with a named error, which is correct.
 # Create the Secret out of band (sealed-secrets is the mechanism in use).
 secret:
-  name: ""
-
-  # How the secret reaches the process. Default `file`, and prefer it.
+  # ── ONE mechanism: a name and a key PER SOURCE ─────────────────────────────
   #
-  #   file — the Secret is mounted at `mountPath` with 0400 files named for the
-  #          Spring properties, and read via SPRING_CONFIG_IMPORT config trees.
-  #          An environment variable is visible in `kubectl describe pod`, in
-  #          the pod spec and in Argo CD's UI; this process signs and submits
-  #          transactions with that seed. A file is strictly better — and a file
-  #          has no word-splitting, which removes the mnemonic quoting hazard at
-  #          the root rather than warning about it.
+  # There is no chart-wide `secret.name` and no chart-wide `secret.keys`. There
+  # used to be, alongside this, and two ways to say the same thing is one way too
+  # many: the reader could not tell from a values file which one was in force.
   #
-  #   env  — classic secretKeyRef environment variables. Kept because the
-  #          config-tree path is reasoned, not booted against this image: it is
-  #          Spring's documented behaviour, but nobody has started the app to
-  #          watch it bind. If `file` mode fails with "wallet.mnemonic has no
-  #          default", switch to `env` and the deployment proceeds while the
-  #          question gets answered. Being wrong should be cheap, not blocking.
+  # This form is the SUPERSET, which is why it is the one that survived. Point
+  # all three at the same Secret and you have exactly what `secret.name` did:
   #
-  # Both modes read the same Secret with the same keys; only the projection
-  # differs. Neither puts a secret in this repository.
-  mode: file
-
-  # ── Per-source addressing ──────────────────────────────────────────────────
+  #   secret:
+  #     mnemonic:   {name: aquarium-secrets}
+  #     blockfrost: {name: aquarium-secrets}
+  #     db:         {name: aquarium-secrets}
   #
-  # The three secrets are addressed INDEPENDENTLY: each has its own Secret name
-  # and its own key. That lets the mnemonic and the Blockfrost key share one
-  # Secret while the DB password comes from the Postgres operator's own role
-  # Secret — three names, one mount.
+  # Point them at different Secrets and you have what `secret.name` could not
+  # express — the wallet in one you control, the DB password in the one the
+  # Postgres operator generates and rotates:
   #
-  # Every `name` falls back to `secret.name` above, and every `key` falls back to
-  # the legacy `secret.keys.*` below, so setting only those keeps working exactly
-  # as before.
+  #   secret:
+  #     mnemonic:   {name: aquarium-wallet}
+  #     blockfrost: {name: aquarium-wallet}
+  #     db:         {name: aquarium-db.credentials, key: password}
   #
-  # ⛔ FILE MODE SURVIVES THE SPLIT. The pod mounts a PROJECTED volume with one
-  # source per Secret, so the wallet seed stays a 0400 file even when the three
-  # come from three different places. A three-way `secretKeyRef` split would have
-  # moved the seed into an environment variable — visible in `kubectl describe
-  # pod` and in Argo's UI — and reversed this chart's central security decision
-  # as a side effect of a refactor that looked like tidying.
+  # Every key already defaults to the name this chart has always used, so the
+  # common case needs names only.
+  #
+  # ⛔ ALL THREE OR NONE. A partial set is refused at RENDER — see the guard in
+  # deployment.yaml. Naming nothing stays legal: the secrets are absent from the
+  # render and the application fails at startup with a named error.
+  #
+  # Nothing here is defaulted. This chart creates no Secret and has no plaintext
+  # fallback in any mode; it references Secrets BY NAME and never ships contents.
   mnemonic:
-    name: ""            # falls back to secret.name
-    key: ""             # falls back to secret.keys.walletMnemonic
+    name: ""
+    key: wallet-mnemonic
   blockfrost:
     name: ""
-    key: ""
+    key: blockfrost-key
   db:
     name: ""
-    key: ""
-    # `file` (the default, following secret.mode) or `env`. The DB password is
-    # the one secret for which env was ever argued: it is operator-owned and
-    # rotatable, and the lowest-value of the three.
+    # The DB source carries TWO keys, so it names them both rather than reusing
+    # the single `key` its siblings use.
+    passwordKey: db-password
+    # Source the USERNAME from the same Secret too.
     #
-    # ⚠ You probably do NOT need `env`. The rotation defect this was introduced
-    # for was a stale COPY of the password inside our own Secret — not the
-    # projection mechanism. Pointing `db.name` straight at the operator's Secret
-    # keeps no copy, so file mode survives rotation too AND keeps the password
-    # out of the pod spec. `env` remains available for anyone who wants it.
+    # Empty (the default) means the username stays the plain `config.db.username`
+    # value — unchanged behaviour. Set it and the username comes from this
+    # Secret instead, which is what the Zalando Postgres operator's per-role
+    # Secret wants: it carries BOTH credentials, under its standard `username`
+    # and `password` keys.
+    #
+    #   db:
+    #     name: aquarium-db.credentials
+    #     usernameKey: username
+    #     passwordKey: password
+    #
+    # ⚠ Setting this makes `config.db.username` unused for the credential. The
+    # chart refuses to emit both, so the value cannot silently disagree with the
+    # Secret — but the plain value is still what composes the JDBC URL's
+    # defaults, so leaving it accurate remains worthwhile.
+    usernameKey: ""
+    # `file` (the default, following secret.mode) or `env`.
+    #
+    # ⚠ You probably do NOT need `env`. The rotation defect this once existed for
+    # was a stale COPY of the password inside our own Secret — not the projection
+    # mechanism. Pointing `db.name` straight at the operator's Secret keeps no
+    # copy, so file mode survives rotation AND keeps the password out of the pod
+    # spec, where an env var would be visible in `kubectl describe pod` and in
+    # Argo's UI.
     mode: ""
 
-  # Legacy key names. Still honoured, and still the default for any source that
-  # names no key of its own.
-  keys:
-    walletMnemonic: wallet-mnemonic
-    blockfrostKey: blockfrost-key
-    dbPassword: db-password
+  # How the secrets reach the process. `file` is the default and the better one.
+  #
+  #   file — a PROJECTED volume mounted at `mountPath`, one source per Secret,
+  #          0400 files named for the Spring properties, read via
+  #          SPRING_CONFIG_IMPORT config trees. This is what lets three
+  #          independently-named Secrets land in one directory, and it is what
+  #          keeps the WALLET SEED a file rather than an environment variable.
+  #
+  #   env  — classic secretKeyRef variables. Still by reference, but visible in
+  #          `kubectl describe pod` and in Argo's UI, which is why `file` is the
+  #          default and why the seed in particular should stay a file.
+  mode: file
 
-  # File mode only. Files are named for the Spring properties they set:
+  # file mode only. Files are named for the Spring properties they set:
   #   wallet.mnemonic
   #   blockfrost.key
   #   spring.datasource.password
-  #   spring.flyway.password        <- Flyway has its own password property,
-  #                                    separate from the datasource. The one
-  #                                    db-password key feeds both; miss the
-  #                                    second and the migration fails while the
-  #                                    application itself connects fine.
+  #   spring.flyway.password        <- Flyway has its OWN password property,
+  #                                    separate from the datasource. The one db
+  #                                    key feeds both; miss the second and the
+  #                                    migration fails while the application
+  #                                    itself connects fine.
   mountPath: /etc/aquarium-secrets
 
-  # Read the DB password from a Secret this chart does not own — in practice the
-  # one the Zalando Postgres operator generates and ROTATES for its managed role.
-  #
-  # Why this exists: the projected copy above is a SNAPSHOT. When the operator
-  # rotates the role's password its own Secret changes and the copy does not, so
-  # the pod keeps presenting a stale password and cannot survive its next
-  # restart. Pointing at the operator's Secret by name removes the copy, and with
-  # it the drift.
-  #
-  # Empty `secretName` (the default) changes nothing: the password keeps coming
-  # from `secret.name` exactly as before. No values file in this chart ships this
-  # set — same public-chart rule as the liquidation flags: a stranger's
-  # `helm install` must not reference a Secret that only exists in one cluster.
-  #
-  # ONE variable covers BOTH Spring properties. Verified against the shipped
-  # application.yaml, not assumed: `spring.datasource.password` and
-  # `spring.flyway.password` are BOTH `${DB_PASSWORD:password}`. This is why the
-  # "project it twice" rule above does not apply here — that rule is about FILE
-  # mode, where each property needs its own file, and it stays true for that mode.
-  #
-  # Trade-off, stated rather than slipped in: this makes the DB password an
-  # environment variable, visible in `kubectl describe pod` and in Argo's UI.
-  # That is a real regression in hygiene and it is accepted deliberately. The
-  # argument for `file` mode protects the SIGNING SEED, and the seed does not
-  # move — wallet-mnemonic and blockfrost-key stay in file mode, untouched. Of
-  # the three, the DB password is the lowest-value and the only one that is
-  # operator-owned and rotatable.
-  # DEPRECATED — superseded by `secret.db` above, and still honoured so a values
-  # file written against the earlier shape keeps working unchanged. Setting it
-  # also forces `db.mode: env`, which is what it used to do; prefer `secret.db`,
-  # which defaults to file mode and keeps the password out of the pod spec.
-  dbPasswordFrom:
-    secretName: ""
-    key: password
-
-## Liquidation bot arming.
-#
-# ⚠ SUBMITTING A LIQUIDATION BURNS A LOAN NFT AND MOVES SOMEONE ELSE'S
-# COLLATERAL. Read README §5 before setting either of these.
-#
-# ARMING TAKES BOTH, BY DESIGN. `mode: live` alone does nothing; `enabled: true`
-# alone does nothing. Two independent switches exist so that one flipped by
-# accident is inert — do not "simplify" that by collapsing them.
-#
-# Empty means THE CHART SETS NOTHING and the image's own profile governs, which
-# on preview is `shadow` / `false`: the bot scans, builds, prices and records
-# liquidations but never submits. That is the intended default posture, not an
-# incomplete configuration.
-#
-# ⚠ NO VALUES FILE IN THIS REPOSITORY MAY EVER SET THESE — not to `live`, not to
-# `true`, not commented-out-and-ready. This chart is public and installable by
-# anyone; a preset that arms a transaction-signing bot arms it for everybody who
-# runs `helm install`. Arming is a deliberate act in the DEPLOYING OPERATOR'S own
-# values, outside this repo.
-#
-# They live here, rather than in extraEnv, so that a values diff can tell them
-# apart from ordinary configuration. In a passthrough map, "operator set a policy
-# id" and "operator armed the bot" look identical to a reviewer.
-#
-# ⚠ SETTING THESE RESTARTS THE POD, and restart is where the fatal boot
-# verifiers run again (README §3). A node that has been up and quiet may not come
-# back — that would be the system working, not the arming failing. Read the first
-# thirty seconds of logs and expect a NAMED error.
-#
-# NOTHING HAS EVER ARMED THIS BOT, in any environment. The whole path below is
-# unexercised.
 
 ## The application's parameter surface
 ##
