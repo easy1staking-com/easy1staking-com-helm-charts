@@ -161,6 +161,49 @@ terminationGracePeriodSeconds: 60
 # is on /actuator/health (Spring's own health: process and datasource) rather
 # than on /healthcheck.
 #
+## How many bots run. 0 or 1 — nothing else is valid.
+##
+## ⛔ DEFAULT 0: NOTHING RUNS UNTIL SOMEONE ASKS. Same rule as the UI, the arming
+## flags and the Zalando CR — a stranger's `helm install` of a chart that signs
+## and submits transactions must not start it. Our own deployments set 1 in the
+## Argo application, inline, where the deployment is described.
+##
+## ⛔ AND MORE THAN 1 IS REFUSED AT RENDER. This bot signs with a single wallet;
+## two replicas means two schedulers scanning the same loans and building the
+## same liquidation. That is not a scaling knob with a bad value, it is a
+## different and much worse program, so the chart will not render it.
+##
+## Scaling to 0 is also the honest way to STOP the bot. Maintenance mode below
+## keeps the pod alive for exec access; `replicaCount: 0` removes it entirely.
+replicaCount: 0
+
+## Maintenance mode.
+##
+## Runs `sleep infinity` instead of the bot. The pod stays Running with its
+## volumes and secrets mounted, so an operator can `kubectl exec` in and do
+## database work, inspect the config tree, or repair state — with the bot
+## definitely not scanning, building or submitting anything.
+##
+## ⛔ IT ALSO DISABLES BOTH PROBES, AND THAT IS THE POINT OF THE FEATURE RATHER
+## THAN A SIDE EFFECT. A sleeping container serves nothing on 8080, so
+## `/actuator/health` cannot answer and Kubernetes kills the pod.
+##
+## ⚠ And it would not kill it immediately, which is worse. `startupProbe` is
+## 60 x 10s, so the pod stays Running for TEN MINUTES, looks like maintenance
+## mode worked, and is then restarted out from under whoever is mid-operation.
+## A maintenance mode killed by its own probe is the failure this guards.
+##
+## The init container goes too when it is enabled: `waitForPostgres` blocks
+## until the database answers, so with it on you could not exec in to fix a
+## database that is down — which is the case maintenance mode exists for.
+maintenance:
+  enabled: false
+
+  # The command that replaces the bot. Overriding `command` replaces the image
+  # ENTRYPOINT entirely, so nothing of the application starts. `/bin/sh` and
+  # `sleep` are both present in the image (verified, not assumed).
+  command: ["/bin/sh", "-c", "sleep infinity"]
+
 # The startupProbe is what makes a tight liveness probe safe: liveness does not
 # begin until startup succeeds, so a slow Flyway migration on an empty database
 # cannot be mistaken for a dead process.
@@ -535,7 +578,19 @@ compound:
   #   operator STATES and owns — it still bounds the loss, since a candidate
   #   worse than the figure is refused. It is NOT a protection being switched
   #   off, and there is deliberately no `ignoreProfitCheck` twin here.
-  #   On mainnet a negative value is a HARD STARTUP FAILURE by design.
+  #
+  #   ⚠ CORRECTED 2026-09-04: an earlier version of this comment said a negative
+  #   value is a hard startup failure on mainnet. IT IS NOT, and versions 0.2.0
+  #   through 0.3.1 of this chart ship that wrong claim. Operating at a loss on
+  #   mainnet is a deliberate protocol-health capability: the application logs a
+  #   loud WARN naming the figure and proceeds. The stated floor still bounds it
+  #   — a candidate worse than the number is refused.
+  #
+  #   What IS refused on mainnet is `liquidation.ignoreProfitCheck`, which
+  #   disables both profitability gates rather than stating a bound. That is the
+  #   distinction the two draw, and conflating them is what produced the wrong
+  #   claim: a number the operator OWNS is allowed, a protection they SWITCH OFF
+  #   is not. The chart adds no render guard on a negative margin, deliberately.
   profitMarginLovelace: ""
 
   # Tuning. [documented] → AQUARIUM_COMPOUND_REFERENCE_SCRIPTS
@@ -653,6 +708,16 @@ liquidation:
   # Expected profit = fee value - tx fee - this. Covers the reference-script
   # surcharge and refuses dust liquidations whose fee slice would not repay the
   # transaction claiming it. Lowering it admits smaller candidates.
+  #
+  # ⚑ A NEGATIVE VALUE IS HONOURED ON MAINNET and logs a loud warning naming the
+  #   figure; `ignoreProfitCheck` is what mainnet refuses. Operating at a loss is
+  #   a deliberate protocol-health capability, and the stated floor still bounds
+  #   it — a candidate worse than the number is still refused.
+  #
+  #   The distinction, because it is the one that keeps getting lost: a number
+  #   the operator OWNS is allowed; a protection they SWITCH OFF is not. Chart
+  #   versions 0.2.0-0.3.1 claim the opposite at the compound margin. They are
+  #   wrong, and this chart adds no render guard against a negative value.
   profitMarginLovelace: ""
 
   ## Timing — knobs. Wrong values cost throughput or silence, not money.

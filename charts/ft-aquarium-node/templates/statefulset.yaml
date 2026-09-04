@@ -11,6 +11,7 @@
   vars would put the seed in the pod spec and reverse the chart's central
   security decision as a side effect of a refactor that looked like tidying.
 */ -}}
+{{- $maint := (.Values.maintenance | default dict).enabled -}}
 {{- $sec := .Values.secret | default dict -}}
 {{- $mn := $sec.mnemonic | default dict -}}
 {{- $bf := $sec.blockfrost | default dict -}}
@@ -95,7 +96,7 @@
 {{- $dbFile := and $dbName (eq $dbMode "file") -}}
 {{- $anyFile := or $mnFile $bfFile $dbFile -}}
 apiVersion: apps/v1
-kind: Deployment
+kind: StatefulSet
 metadata:
   name: {{ include "ft-aquarium-node.fullname" . }}
   labels:
@@ -113,9 +114,31 @@ spec:
     Only the application can do that, by keying submission on something on
     chain. No Kubernetes primitive closes that gap.
   */}}
-  replicas: 1
-  strategy:
-    type: Recreate
+  {{- /*
+    ⛔ 0 OR 1, NEVER MORE. This bot signs and submits with a single wallet; two
+    replicas means two schedulers scanning the same loans and building the same
+    liquidation, which is a double-spend of the operator's collateral at best and
+    two submitted liquidations at worst. Refused at render rather than documented.
+  */}}
+  {{- $replicas := int (.Values.replicaCount | default 0) }}
+  {{- if gt $replicas 1 }}
+  {{- fail (printf "replicaCount is %d. This is a singleton bot that signs and submits with one wallet; two replicas double-liquidate. Only 0 (stopped) or 1 (running) are valid." $replicas) }}
+  {{- end }}
+  replicas: {{ $replicas }}
+  {{- /*
+    A StatefulSet, not a Deployment, and the reason is the arming rather than
+    storage. StatefulSet's default OrderedReady management TERMINATES the old pod
+    before starting the new one on a roll, so two armed bots never overlap. A
+    Deployment's RollingUpdate can briefly run both — a window in which two
+    schedulers are live at once.
+
+    There is deliberately NO volumeClaimTemplate: the database is external (the
+    Zalando cluster), the wallet is a Secret, and the yaci-store cursor lives in
+    the database. Nothing is per-pod. Adding a claim we do not need would be a
+    liability, since volumeClaimTemplates are immutable and cannot be resized on
+    a running StatefulSet.
+  */}}
+  serviceName: {{ include "ft-aquarium-node.fullname" . }}-headless
   selector:
     matchLabels:
       {{- include "ft-aquarium-node.selectorLabels" . | nindent 6 }}
@@ -138,7 +161,12 @@ spec:
       terminationGracePeriodSeconds: {{ .Values.terminationGracePeriodSeconds }}
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
-      {{- if .Values.waitForPostgres.enabled }}
+      {{- /*
+        Skipped in maintenance mode: this init container blocks until Postgres
+        answers, so with it enabled you could not exec in to repair a database
+        that is down — which is the situation maintenance mode exists for.
+      */}}
+      {{- if and .Values.waitForPostgres.enabled (not $maint) }}
       initContainers:
         - name: wait-for-postgres
           image: "{{ .Values.waitForPostgres.image.repository }}:{{ .Values.waitForPostgres.image.tag }}"
@@ -156,6 +184,16 @@ spec:
         - name: {{ .Chart.Name }}
           image: "{{ include "ft-aquarium-node.image" . }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if $maint }}
+          {{- /*
+            Maintenance mode. Overriding `command` replaces the image ENTRYPOINT
+            entirely, so no part of the application starts — the bot cannot
+            scan, build or submit while this is set. Volumes and secrets stay
+            mounted so the pod is exec-able.
+          */}}
+          command:
+            {{- toYaml .Values.maintenance.command | nindent 12 }}
+          {{- end }}
           securityContext:
             {{- toYaml .Values.securityContext | nindent 12 }}
           env:
@@ -411,10 +449,23 @@ spec:
             means "ready"; gating on one would restart-loop the pod through
             ~49 million slots of chain. See values.yaml and README.md.
           */}}
+          {{- if not $maint }}
+          {{- /*
+            ⛔ BOTH PROBES ARE OMITTED IN MAINTENANCE MODE, and this is what makes
+            the feature work rather than a nicety. A sleeping container serves
+            nothing on 8080, so /actuator/health cannot answer.
+
+            And the kill would not be immediate, which is worse than if it were:
+            startupProbe is 60 x 10s, so the pod stays Running for TEN MINUTES,
+            looks like maintenance mode succeeded, and is then restarted out from
+            under an operator who is mid-operation. There is no readinessProbe to
+            omit — this chart deliberately ships none (see below).
+          */}}
           startupProbe:
             {{- toYaml .Values.startupProbe | nindent 12 }}
           livenessProbe:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
           {{- if $anyFile }}
