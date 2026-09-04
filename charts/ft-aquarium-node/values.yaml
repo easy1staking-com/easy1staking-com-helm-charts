@@ -578,7 +578,19 @@ compound:
   #   operator STATES and owns — it still bounds the loss, since a candidate
   #   worse than the figure is refused. It is NOT a protection being switched
   #   off, and there is deliberately no `ignoreProfitCheck` twin here.
-  #   On mainnet a negative value is a HARD STARTUP FAILURE by design.
+  #
+  #   ⚠ CORRECTED 2026-09-04: an earlier version of this comment said a negative
+  #   value is a hard startup failure on mainnet. IT IS NOT, and versions 0.2.0
+  #   through 0.3.1 of this chart ship that wrong claim. Operating at a loss on
+  #   mainnet is a deliberate protocol-health capability: the application logs a
+  #   loud WARN naming the figure and proceeds. The stated floor still bounds it
+  #   — a candidate worse than the number is refused.
+  #
+  #   What IS refused on mainnet is `liquidation.ignoreProfitCheck`, which
+  #   disables both profitability gates rather than stating a bound. That is the
+  #   distinction the two draw, and conflating them is what produced the wrong
+  #   claim: a number the operator OWNS is allowed, a protection they SWITCH OFF
+  #   is not. The chart adds no render guard on a negative margin, deliberately.
   profitMarginLovelace: ""
 
   # Tuning. [documented] → AQUARIUM_COMPOUND_REFERENCE_SCRIPTS

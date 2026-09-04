@@ -794,8 +794,17 @@ set it:
   the transaction fee and is refused out of the box. Negative is a figure the
   operator *states and owns* — it still bounds the loss, since anything worse
   than the figure is refused. It is not a protection being switched off, which
-  is why there is no `ignoreProfitCheck` twin here. **On mainnet a negative
-  value is a hard startup failure by design.**
+  is why there is no `ignoreProfitCheck` twin here.
+
+> ⚠ **Corrected 2026-09-04.** Chart versions **0.2.0–0.3.1 state here that a
+> negative value is a hard startup failure on mainnet. That is wrong.**
+> Operating at a loss on mainnet is a deliberate protocol-health capability: the
+> application logs a loud warning naming the figure and proceeds, and the stated
+> floor still bounds it. What *is* refused on mainnet is
+> `liquidation.ignoreProfitCheck`, which disables both profitability gates
+> instead of stating a bound — **a number the operator owns is allowed, a
+> protection they switch off is not.** Conflating those two produced the wrong
+> claim. This chart adds no render guard on a negative margin, deliberately.
 
 As with liquidation, **no values file in this repository sets any of it**, and
 that absence is the design.
