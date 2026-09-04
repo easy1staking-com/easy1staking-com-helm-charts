@@ -460,6 +460,9 @@ secret:
 ## says why, and says it about itself — that file ships inside the public
 ## operator image, so arming there "would arm it for every operator". The same
 ## sentence applies to a chart that anyone can `helm install`.
+
+compound:
+
 compound:
   # Safety gate. [documented] → AQUARIUM_COMPOUND_ENABLED
   # Empty (the default) means the chart says nothing and the image default —
@@ -498,6 +501,55 @@ compound:
   # here: they belong to a deployment, not to a public chart.
   referenceScripts: ""
 
+
+## The CONVERT path and the per-market policy.
+##
+## ⛔ NONE of this appears in the application's application.yaml. `convert` and
+## `markets` are bound in Java only, so a chart derived from that file alone —
+## which is how this chart was built — misses the lot. Established with the
+## application's own maintainer, 2026-09-04.
+convert:
+  # Tuning. [derived, Java-only] → LOANS_LIQUIDATION_CONVERT_ENABLED
+  # Image default TRUE, unlike most switches here.
+  enabled: ""
+  # Safety gate. [derived, Java-only] → LOANS_LIQUIDATION_CONVERT_PROFIT_MARGIN_LOVELACE
+  # Image default 0. A negative value is a stated operator loss, as with the
+  # other margins, and 0 is a real setting the chart emits correctly.
+  profitMarginLovelace: ""
+  # Tuning. [derived, Java-only] → LOANS_LIQUIDATION_CONVERT_DEX_COST_FLOOR_LOVELACE
+  # Image default 5000000.
+  dexCostFloorLovelace: ""
+
+## Per-market liquidation policy — A LIST, not a scalar.
+##
+## The global `liquidation.mode` is a CEILING; a market's own mode can only be
+## the same or more restrictive. An unlisted market simply runs at the node's
+## own mode, so an EMPTY LIST is legal and is the default.
+##
+## Rendered to Spring's indexed relaxed-binding form:
+##   LOANS_LIQUIDATION_MARKETS_0_UNIT / _MODE / _ACTION / _CAP
+##
+## ⚠ A MALFORMED ENTRY ABORTS STARTUP, by design — unknown mode, bad unit,
+## duplicate unit, or ANTICIPATE without a cap. That is an answer, not an outage,
+## but it means a typo here is a crash-loop rather than a quiet default.
+##
+## ⚠ `cap` is MANDATORY when `action: ANTICIPATE` and meaningless otherwise. It
+## is the most principal the bot may front, in the principal asset's own unit.
+## The chart refuses to render an ANTICIPATE entry without one rather than
+## letting the pod discover it at boot.
+##
+## No values file here sets a market: a market entry is deployment policy about
+## someone else's capital.
+##
+##   markets:
+##     - unit: lovelace
+##       mode: SHADOW        # DISABLED | SHADOW | LIVE
+##       action: ANTICIPATE  # CONVERT | ANTICIPATE
+##       cap: 50000000       # required for ANTICIPATE
+markets: []
+
+
+liquidation:
 
 liquidation:
   # Safety gate. [documented] → AQUARIUM_LIQUIDATION_MODE
@@ -600,9 +652,55 @@ liquidation:
     lmLiquidateAction: ""                 # [documented] → …_REF_LM_LIQUIDATE_ACTION
     lmLiquidateAndPayInAdvanceAction: ""  # [documented] → …_REF_LM_LIQUIDATE_AND_PAY_IN_ADVANCE_ACTION
     assetManager: ""                      # [documented] → …_REF_ASSET_MANAGER
+    # ⚠ The NINTH key, and it does not follow its siblings' env-var naming.
+    # The others map to AQUARIUM_LIQUIDATION_REF_*; this one is bound in Java
+    # only, so it reaches the application as
+    # LOANS_LIQUIDATION_REFERENCE_SCRIPTS_LM_LIQUIDATE_AND_CONVERT_ACTION.
+    # Missing it does not degrade the convert path — that validator then travels
+    # inline and the transaction exceeds maxTxSize.
+    lmLiquidateAndConvertAction: ""       # [derived, Java-only]
 
 ## Lending v4 subsystem.
+## ⛔ THE LAST ARMING BARRIER — `loans.submittableNetwork`.
+##
+## Not in the application's application.yaml; it is an @Value default in Java, so
+## it is invisible to anyone reading that file and was missing from this chart
+## until 0.2.0.
+##
+## A node whose mode is `live` AND whose `enabled` is true STILL SUBMITS NOTHING
+## unless the running network matches this string — it logs NETWORK_NOT_PREVIEW
+## and stops. That single word is the difference between a node that cannot spend
+## and one that can.
+##
+## The chart renders `preview` EXPLICITLY rather than leaving it unset. An absent
+## value is safe today because the image's own default is `preview`, but a
+## default that lives only in someone else's code can move without this chart
+## noticing, and the failure direction is a node that can suddenly spend. Stating
+## it here means the chart asserts the barrier instead of inheriting it.
+##
+## ⛔ NEVER render `mainnet`. It has never been set to anything else, on any node.
+
 loans:
+  # Safety gate. [derived, @Value not application.yaml] → LOANS_SUBMITTABLE_NETWORK
+  # See the block above. Explicitly `preview`; never `mainnet`.
+  submittableNetwork: preview
+
+  # Minswap coordinates for the CONVERT liquidation path.
+  #
+  # ⛔ EMPTY ON PURPOSE, and this is a correctness requirement rather than
+  # tidiness. These four are @Value defaults in the application, absent from its
+  # application.yaml, and THEIR BUILT-IN DEFAULTS ARE MAINNET VALUES —
+  # `poolAddress` is an addr1… bech32. A preview node that inherits them derives
+  # a convert action that cannot exist on preview.
+  #
+  # Network-specific: there is no value that is correct on both networks, so the
+  # chart supplies none and the deploying operator must.
+  minswap:
+    poolPolicyId: ""
+    poolSpendScriptHash: ""
+    orderSpendScriptHash: ""
+    poolAddress: ""
+
   ui:
     # Tuning. [documented] → LOANS_UI_ENABLED
     #

@@ -492,6 +492,85 @@ exposure, this trade changes and the Service should go back to `ClusterIP`.
 
 ---
 
+## What `application.yaml` does not tell you
+
+Most of this chart's parameters are readable from the application's
+`application.yaml`, where each is an `${ENV_VAR}` placeholder. **Four groups are
+not there at all** — they are bound in Java, so a chart derived from that file
+alone misses them silently. It did, until 0.2.0.
+
+### `loans.submittableNetwork` — the last arming barrier
+
+A node with `liquidation.mode: live` **and** `liquidation.enabled: true` still
+submits **nothing** unless the running network matches this string; it records
+the `NETWORK_NOT_PREVIEW` veto and stops. One word separates a node that cannot
+spend from one that can.
+
+The chart renders `preview` **explicitly** rather than leaving it unset. Unset is
+safe today because the image's default is also `preview` — but that default lives
+in someone else's code, and the failure direction if it ever moves is a node that
+can suddenly spend. **Never set this to `mainnet`.**
+
+### `loans.minswap.*` — mainnet defaults on a network-agnostic chart
+
+Four coordinates for the CONVERT path, and **their built-in defaults are mainnet
+values** (`poolAddress` is an `addr1…`). A preview node that inherits them
+derives a convert action that cannot exist there. The chart ships all four empty:
+there is no value correct on both networks, so the operator must supply them.
+
+### `convert.*` and `markets[]`
+
+`convert.enabled` defaults **true** in the image, unlike most switches here.
+`markets` is a **list**, and the only shape the application binds from the
+environment is Spring's indexed form, which the chart renders for you:
+
+```yaml
+markets:
+  - unit: lovelace
+    mode: SHADOW          # DISABLED | SHADOW | LIVE
+    action: ANTICIPATE    # CONVERT | ANTICIPATE
+    cap: 50000000         # MANDATORY for ANTICIPATE, meaningless otherwise
+```
+→ `LOANS_LIQUIDATION_MARKETS_0_UNIT`, `_MODE`, `_ACTION`, `_CAP`
+
+The global `liquidation.mode` is a **ceiling**: a market's own mode can only be
+equal or more restrictive. An unlisted market runs at the node's own mode, so an
+empty list is legal and is the default.
+
+**A malformed entry aborts the application's startup** — unknown mode, bad unit,
+duplicate unit, or `ANTICIPATE` without a cap. The chart validates all of those
+**at render**, so a typo is a refused upgrade rather than a crash-loop.
+
+### The ninth reference script
+
+`liquidation.referenceScripts.lmLiquidateAndConvertAction` does **not** follow
+its siblings' naming — the other eight map to `AQUARIUM_LIQUIDATION_REF_*`, this
+one is Java-bound and reaches the app as
+`LOANS_LIQUIDATION_REFERENCE_SCRIPTS_LM_LIQUIDATE_AND_CONVERT_ACTION`. Omitting
+it does not degrade the convert path: that validator then travels inline and the
+transaction **exceeds `maxTxSize`**.
+
+> ⚠ **Reference-script coordinates are deliberately empty in every values file
+> here.** `LoansReferenceScriptVerifier` hard-fails at boot on a coordinate that
+> no longer publishes the expected hash, so a chart shipping stale coordinates
+> does not degrade — it crash-loops. A stale coordinate is worse than an absent
+> one, which is why this public chart defaults none.
+
+---
+
+## Numbers in a values file were being mangled — fixed in 0.2.0
+
+**Helm parses every number from a values file as `float64`**, and Go's `toString`
+renders a large `float64` in scientific notation. Before 0.2.0,
+`liquidation.profitMarginLovelace: 1500000` in a values file reached the
+container as **`1.5e+06`**, which no Java `long` parses.
+
+It looked fine in testing because `--set` takes a different path and yields an
+`int64`. The chart now reformats integral floats before emitting them. If you are
+on 0.1.0 and set lovelace amounts through a values file, this affects you.
+
+---
+
 ## Compounding is a second arming switch
 
 `compound.enabled` arms the **repayment-escrow** path: collect a repaid loan's

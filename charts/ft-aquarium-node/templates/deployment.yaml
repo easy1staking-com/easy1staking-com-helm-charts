@@ -249,6 +249,45 @@ spec:
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LM_LIQUIDATE_ACTION" "value" $R.lmLiquidateAction) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LM_LIQUIDATE_AND_PAY_IN_ADVANCE_ACTION" "value" $R.lmLiquidateAndPayInAdvanceAction) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_ASSET_MANAGER" "value" $R.assetManager) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_SUBMITTABLE_NETWORK" "value" $N.submittableNetwork) }}
+            {{- $MS := $N.minswap | default dict }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_MINSWAP_POOL_POLICY_ID" "value" $MS.poolPolicyId) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_MINSWAP_POOL_SPEND_SCRIPT_HASH" "value" $MS.poolSpendScriptHash) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_MINSWAP_ORDER_SPEND_SCRIPT_HASH" "value" $MS.orderSpendScriptHash) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_MINSWAP_POOL_ADDRESS" "value" $MS.poolAddress) }}
+            {{- $CV := .Values.convert | default dict }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_LIQUIDATION_CONVERT_ENABLED" "value" $CV.enabled) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_LIQUIDATION_CONVERT_PROFIT_MARGIN_LOVELACE" "value" $CV.profitMarginLovelace) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_LIQUIDATION_CONVERT_DEX_COST_FLOOR_LOVELACE" "value" $CV.dexCostFloorLovelace) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_LIQUIDATION_REFERENCE_SCRIPTS_LM_LIQUIDATE_AND_CONVERT_ACTION" "value" $R.lmLiquidateAndConvertAction) }}
+            {{- /*
+              Per-market policy, rendered to Spring's INDEXED relaxed-binding form.
+              A list cannot be expressed as a typed scalar, and the indexed env
+              names are the only shape the application binds from the environment.
+
+              Validated HERE rather than at boot: an ANTICIPATE entry with no cap
+              aborts the application's startup by design, so catching it at render
+              turns a crash-loop into a refused upgrade. `cap` may legitimately be
+              0-like, so it is tested with kindIs, never for truthiness.
+            */}}
+            {{- range $i, $m := .Values.markets }}
+            {{- if not $m.unit }}
+            {{- fail (printf "markets[%d] has no unit" $i) }}
+            {{- end }}
+            {{- if and $m.mode (not (has (toString $m.mode) (list "DISABLED" "SHADOW" "LIVE"))) }}
+            {{- fail (printf "markets[%d].mode must be DISABLED|SHADOW|LIVE, got %q" $i (toString $m.mode)) }}
+            {{- end }}
+            {{- if and $m.action (not (has (toString $m.action) (list "CONVERT" "ANTICIPATE"))) }}
+            {{- fail (printf "markets[%d].action must be CONVERT|ANTICIPATE, got %q" $i (toString $m.action)) }}
+            {{- end }}
+            {{- if and (eq (toString $m.action) "ANTICIPATE") (kindIs "invalid" $m.cap) }}
+            {{- fail (printf "markets[%d] is action ANTICIPATE and has no cap; the application refuses to start without one" $i) }}
+            {{- end }}
+            {{- include "ft-aquarium-node.env" (dict "name" (printf "LOANS_LIQUIDATION_MARKETS_%d_UNIT" $i) "value" $m.unit) }}
+            {{- include "ft-aquarium-node.env" (dict "name" (printf "LOANS_LIQUIDATION_MARKETS_%d_MODE" $i) "value" $m.mode) }}
+            {{- include "ft-aquarium-node.env" (dict "name" (printf "LOANS_LIQUIDATION_MARKETS_%d_ACTION" $i) "value" $m.action) }}
+            {{- include "ft-aquarium-node.env" (dict "name" (printf "LOANS_LIQUIDATION_MARKETS_%d_CAP" $i) "value" $m.cap) }}
+            {{- end }}
             {{- include "ft-aquarium-node.env" (dict "name" "LOANS_UI_ENABLED" "value" ($N.ui | default dict).enabled) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_COMPOUND_ENABLED" "value" $C.enabled) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_COMPOUND_DELAY_SECONDS" "value" $C.delaySeconds) }}
