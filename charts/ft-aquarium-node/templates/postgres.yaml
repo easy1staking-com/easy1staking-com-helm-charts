@@ -5,10 +5,14 @@
   come from by default — see `secret.db` in values.yaml.
 
   ⚠ REQUIRES THE OPERATOR'S CRD. `helm install` fails outright with "no matches
-  for kind postgresql" on a cluster without it. That is why `postgres.enabled` is
-  the one capability-dependent default in this chart, and it is deliberate: this
-  chart's reason to exist is deploying this application, and the application
-  needs a database. Set `postgres.enabled: false` to bring your own.
+  for kind postgresql" on a cluster without it, which is why `postgres.enabled`
+  defaults to FALSE — a public chart must not default to on a cluster capability
+  it cannot verify.
+
+  Our own deployments turn it on INLINE in the Argo application rather than
+  through a values file, because Argo supplies values inline and never opens a
+  preset. When it is on, no other database value need be set: the credentials,
+  the host and the database name are all derived from what this CR creates.
 
   The cluster NAME must begin with the teamId — the operator rejects it
   otherwise, and rejects it at reconcile time rather than at apply, so the CR is

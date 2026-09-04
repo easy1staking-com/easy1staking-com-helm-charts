@@ -313,22 +313,31 @@ config:
 # Create the Secret out of band (sealed-secrets is the mechanism in use).
 ## The database this application consumes.
 ##
-## ⚠ `enabled: true` is the ONE capability-dependent default in this chart. It
-## renders a `postgresql` CR for the Zalando Postgres operator, so `helm install`
-## FAILS with "no matches for kind postgresql" on a cluster without that
-## operator's CRD. Everywhere else this chart defaults capability-dependent
-## things OFF, for the reason stated at `amaru`'s serviceMonitor: the person
-## installing for the first time has the least context and gets the failure.
+## ⛔ OFF BY DEFAULT, and when it is ON the deployer sets NO other database value.
 ##
-## This one is deliberate, and it is Giovanni's call rather than a drift: the
-## chart's reason to exist is deploying this application, the application needs a
-## database, and the operator is what provides one here. Bring your own with
-## `enabled: false` and set `config.db.host` plus `secret.db.*` yourself.
+## Off, because enabling it renders a `postgresql` CR for the Zalando Postgres
+## operator, and `helm install` fails with "no matches for kind postgresql" on a
+## cluster without that operator's CRD. A public chart must not default to on
+## anything that depends on a cluster capability it cannot verify — the person
+## installing for the first time has the least context and gets the failure. Same
+## rule as `amaru`'s serviceMonitor.
 ##
-## Nothing here exposes or arms anything — it provisions storage. The exposure
-## and arming defaults are untouched and still off.
+## ⚠ OUR OWN DEPLOYMENTS SET THIS TRUE **INLINE**, in the Argo application, not
+## through a values file. That is deliberate and it is why this default disagrees
+## with how we actually run it: Argo supplies values inline, so an operator never
+## opens `values-preview.yaml` and would silently inherit this `false`. A preset
+## here would read as coverage and provide none.
+##
+## When it IS on, everything database-side is derived and nothing else needs
+## setting — credentials from the Secret the operator generates, host from the
+## cluster it creates, database name from the CR the chart writes:
+##
+##   helm install ... --set postgres.enabled=true
+##
+## is a complete database configuration on its own. Set `config.db.*` only when
+## bringing your own Postgres.
 postgres:
-  enabled: true
+  enabled: false
 
   # The operator REQUIRES the cluster name to start with the teamId, and enforces
   # it at reconcile time rather than at apply — so a wrong name is accepted and
