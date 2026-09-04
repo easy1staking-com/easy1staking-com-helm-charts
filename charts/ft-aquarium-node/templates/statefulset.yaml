@@ -246,6 +246,24 @@ spec:
               about what 0 does to noOfBlocksToKeep. null omits the variable and
               inherits yaci-store's own default.
             */}}
+            {{- $sc := .Values.config.store.cardano }}
+            {{- $ss := $sc.syncStart | default dict }}
+            {{- include "ft-aquarium-node.env" (dict "name" "STORE_CARDANO_PROTOCOL_MAGIC" "value" $sc.protocolMagic) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "STORE_CARDANO_KEEP_ALIVE_INTERVAL" "value" $sc.keepAliveIntervalMillis) }}
+            {{- /*
+              The start point is ONE UNIT: a slot without its blockhash is not a
+              start point, and yaci-store rejects a mismatched pair at init with
+              "Shelley start point is not configured properly". Refused here so
+              the render fails rather than the pod.
+            */}}
+            {{- if and (or $ss.slot $ss.blockhash) (not (and $ss.slot $ss.blockhash)) }}
+            {{- fail "config.store.cardano.syncStart: set BOTH slot and blockhash, or neither. The blockhash pins the slot; one without the other is not a start point and yaci-store refuses it at init." }}
+            {{- end }}
+            {{- include "ft-aquarium-node.env" (dict "name" "STORE_CARDANO_SYNC_START_SLOT" "value" $ss.slot) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "STORE_CARDANO_SYNC_START_BLOCKHASH" "value" $ss.blockhash) }}
+            {{- $obs := .Values.observability | default dict }}
+            {{- include "ft-aquarium-node.env" (dict "name" "MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE" "value" $obs.actuatorExposure) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "APIPREFIX" "value" $obs.apiPrefix) }}
             {{- if not (kindIs "invalid" .Values.config.store.cardano.cursorCleanupIntervalSeconds) }}
             - name: STORE_CARDANO_CURSOR_CLEANUP_INTERVAL
               value: {{ .Values.config.store.cardano.cursorCleanupIntervalSeconds | quote }}
@@ -308,7 +326,15 @@ spec:
             */}}
             {{- $mode := toString .Values.liquidation.mode }}
             {{- if not (empty $mode) }}
-            {{- if not (has $mode (list "disabled" "shadow" "live")) }}
+            {{- /*
+              CASE-INSENSITIVE, because the application is: parseMode() matches
+              with equalsIgnoreCase. This guard previously demanded lowercase and
+              would have refused `SHADOW`, which the app accepts — the chart being
+              stricter than the thing it configures, which is a defect and not
+              caution. What IS fatal is a TYPO: an unrecognised mode aborts
+              startup, so the render still refuses one.
+            */}}
+            {{- if not (has (lower $mode) (list "disabled" "shadow" "live")) }}
             {{- fail (printf "liquidation.mode must be one of disabled|shadow|live, got %q" $mode) }}
             {{- end }}
             {{- end }}
@@ -399,13 +425,14 @@ spec:
             {{- if not $m.unit }}
             {{- fail (printf "markets[%d] has no unit" $i) }}
             {{- end }}
-            {{- if and $m.mode (not (has (toString $m.mode) (list "DISABLED" "SHADOW" "LIVE"))) }}
+            {{- /* Spring's enum converter is case- and dash-tolerant; match it. */}}
+            {{- if and $m.mode (not (has (upper (toString $m.mode)) (list "DISABLED" "SHADOW" "LIVE"))) }}
             {{- fail (printf "markets[%d].mode must be DISABLED|SHADOW|LIVE, got %q" $i (toString $m.mode)) }}
             {{- end }}
-            {{- if and $m.action (not (has (toString $m.action) (list "CONVERT" "ANTICIPATE"))) }}
+            {{- if and $m.action (not (has (upper (toString $m.action)) (list "CONVERT" "ANTICIPATE"))) }}
             {{- fail (printf "markets[%d].action must be CONVERT|ANTICIPATE, got %q" $i (toString $m.action)) }}
             {{- end }}
-            {{- if and (eq (toString $m.action) "ANTICIPATE") (kindIs "invalid" $m.cap) }}
+            {{- if and (eq (upper (toString $m.action)) "ANTICIPATE") (kindIs "invalid" $m.cap) }}
             {{- fail (printf "markets[%d] is action ANTICIPATE and has no cap; the application refuses to start without one" $i) }}
             {{- end }}
             {{- include "ft-aquarium-node.env" (dict "name" (printf "LOANS_LIQUIDATION_MARKETS_%d_UNIT" $i) "value" $m.unit) }}

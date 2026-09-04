@@ -291,6 +291,42 @@ config:
       host: preview-node.world.dev.cardano.org
       port: 3001
 
+      # Tuning. [derived] → STORE_CARDANO_PROTOCOL_MAGIC
+      # The handshake magic. It MUST match the network: a mismatch fails the
+      # relay handshake, which surfaces as a connectivity problem rather than as
+      # the configuration error it is. Empty inherits the profile's value
+      # (764824073 mainnet, 2 preview).
+      protocolMagic: ""
+
+      # Tuning. [derived] → STORE_CARDANO_KEEP_ALIVE_INTERVAL
+      # Relay keep-alive, milliseconds. Profile default 1000.
+      keepAliveIntervalMillis: ""
+
+      # ⛔ WHERE INDEXING BEGINS — and the setting most likely to do nothing.
+      #
+      # These two are ONE UNIT and the chart emits them together: the blockhash
+      # pins the slot, and a slot whose hash disagrees is not a start point. Set
+      # both or neither; the chart refuses one without the other.
+      #
+      # ⚠ A STORED CURSOR SILENTLY OVERRIDES BOTH. In yaci-store 0.1.7's
+      # StartService the configured start point is read ONLY when no cursor
+      # exists. So changing these on a pod that has already synced does NOTHING:
+      # it restarts cleanly, resumes where it was, indexes nothing new, and
+      # REPORTS SUCCESS. The two failure modes are asymmetric and only one is
+      # loud — wiping rows while keeping the cursor fails immediately and
+      # totally; changing config while keeping the cursor is a silent no-op that
+      # looks like a wrong number and sends you off to re-measure one that was
+      # never read. Moving the start point means clearing the cursor too.
+      #
+      # ⚠ It is a LOWER BOUND: indexing runs forward, so an OLDER value is
+      # strictly safer. Too early costs sync time; too late misses the
+      # deployment you meant to watch, permanently and silently.
+      #
+      # Empty inherits the profile's hardcoded pair.
+      syncStart:
+        slot: ""
+        blockhash: ""
+
       # --- Cursor cleanup: undocumented upstream, and load-bearing ---
       #
       # Yaci-store's CursorCleanupScheduler deletes aged cursor rows with a
@@ -339,6 +375,34 @@ config:
       #
       # Set to null to omit the variable and inherit yaci-store's 2160.
       cursorNoOfBlocksToKeep: 2160
+
+## Actuator and API surface — both change what is reachable on port 8080.
+##
+## Neither has a `${}` placeholder in the application: they are hardcoded yaml
+## leaves, overridable only through Spring's relaxed binding. They are exposed
+## here because an operator could not otherwise discover that they are settable.
+observability:
+  # Tuning. [derived] → MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE
+  #
+  # Application default `health,prometheus` — exactly what the probes and
+  # Prometheus need, and nothing else. Empty inherits that.
+  #
+  # ⚠ WIDENING THIS IS A DISCLOSURE DECISION, not a debugging convenience.
+  # `env`, `configprops` and `beans` print resolved configuration, on a pod that
+  # holds a wallet seed. The chart's NodePort exposure argument (README, "No
+  # ingress, deliberately") rests on this being narrow; widen it and that
+  # argument no longer holds.
+  actuatorExposure: ""
+
+  # Tuning. [derived] → APIPREFIX
+  #
+  # Prefix for the /loans* routes. Application default `/api/v1`.
+  #
+  # ⚠ `/healthcheck` is OUTSIDE this prefix and does not move with it. Changing
+  # the prefix relocates every documented URL — including the readiness page at
+  # <prefix>/loans/readiness — while the probes keep working, so nothing breaks
+  # loudly and every link in the runbook is quietly wrong.
+  apiPrefix: ""
 
 ## Secrets
 #
