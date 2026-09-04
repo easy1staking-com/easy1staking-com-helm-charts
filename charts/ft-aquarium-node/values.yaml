@@ -509,8 +509,6 @@ secret:
 ## sentence applies to a chart that anyone can `helm install`.
 
 compound:
-
-compound:
   # Safety gate. [documented] → AQUARIUM_COMPOUND_ENABLED
   # Empty (the default) means the chart says nothing and the image default —
   # `false` — governs. Set true ONLY in the deploying operator's own values.
@@ -595,8 +593,6 @@ convert:
 ##       cap: 50000000       # required for ANTICIPATE
 markets: []
 
-
-liquidation:
 
 liquidation:
   # Safety gate. [documented] → AQUARIUM_LIQUIDATION_MODE
