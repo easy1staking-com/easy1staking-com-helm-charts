@@ -462,8 +462,13 @@ readiness UI** is served by this pod and is meant to be opened in a browser, so
 ```yaml
 service:
   type: NodePort
-  nodePort: ""      # empty = Kubernetes assigns one, and keeps it across upgrades
+  nodePort: 30080   # empty = Kubernetes assigns one and keeps it across upgrades
 ```
+
+Pinning makes the URL knowable before the deploy and survives the Service being
+recreated. **The trade is that a pinned port another Service already holds fails
+the apply** — `provided port is already allocated` — where an assigned one
+cannot. It must sit inside the node-port range (`30000-32767` by default).
 
 **It is not the default and no preset turns it on for a public installer.**
 `values.yaml` stays `ClusterIP`; only `values-preview.yaml` — the preset for a

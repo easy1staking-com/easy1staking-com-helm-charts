@@ -15,13 +15,20 @@ config:
 
 # Reachable from Giovanni's laptop, on purpose. The liquidation readiness UI is
 # served by this pod and is meant to be opened in a browser; this is a preview
-# box on a trusted LAN. Kubernetes assigns the port — read it back with
-#   kubectl get svc <release> -o jsonpath='{.spec.ports[0].nodePort}'
+# box on a trusted LAN.
 #
 # Not set in values.yaml, and this is the ONLY file that turns it on: see the
 # NOTE there for what else port 8080 carries and why it is acceptable here.
+#
+# The port is PINNED rather than assigned, so the URL is knowable before the
+# deploy and survives the Service being recreated. The trade is real and worth
+# knowing: a pinned nodePort that another Service already holds fails the APPLY
+# with "provided port is already allocated" — an assigned one cannot fail that
+# way. 30080 is inside the default node-port range (30000-32767); a number
+# outside it is refused by the API server.
 service:
   type: NodePort
+  nodePort: 30080
 
 # The readiness UI.
 #
