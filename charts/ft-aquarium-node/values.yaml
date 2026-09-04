@@ -332,7 +332,45 @@ secret:
   # differs. Neither puts a secret in this repository.
   mode: file
 
-  # Keys within the Secret. These are the key names, not the values.
+  # ── Per-source addressing ──────────────────────────────────────────────────
+  #
+  # The three secrets are addressed INDEPENDENTLY: each has its own Secret name
+  # and its own key. That lets the mnemonic and the Blockfrost key share one
+  # Secret while the DB password comes from the Postgres operator's own role
+  # Secret — three names, one mount.
+  #
+  # Every `name` falls back to `secret.name` above, and every `key` falls back to
+  # the legacy `secret.keys.*` below, so setting only those keeps working exactly
+  # as before.
+  #
+  # ⛔ FILE MODE SURVIVES THE SPLIT. The pod mounts a PROJECTED volume with one
+  # source per Secret, so the wallet seed stays a 0400 file even when the three
+  # come from three different places. A three-way `secretKeyRef` split would have
+  # moved the seed into an environment variable — visible in `kubectl describe
+  # pod` and in Argo's UI — and reversed this chart's central security decision
+  # as a side effect of a refactor that looked like tidying.
+  mnemonic:
+    name: ""            # falls back to secret.name
+    key: ""             # falls back to secret.keys.walletMnemonic
+  blockfrost:
+    name: ""
+    key: ""
+  db:
+    name: ""
+    key: ""
+    # `file` (the default, following secret.mode) or `env`. The DB password is
+    # the one secret for which env was ever argued: it is operator-owned and
+    # rotatable, and the lowest-value of the three.
+    #
+    # ⚠ You probably do NOT need `env`. The rotation defect this was introduced
+    # for was a stale COPY of the password inside our own Secret — not the
+    # projection mechanism. Pointing `db.name` straight at the operator's Secret
+    # keeps no copy, so file mode survives rotation too AND keeps the password
+    # out of the pod spec. `env` remains available for anyone who wants it.
+    mode: ""
+
+  # Legacy key names. Still honoured, and still the default for any source that
+  # names no key of its own.
   keys:
     walletMnemonic: wallet-mnemonic
     blockfrostKey: blockfrost-key
@@ -376,10 +414,12 @@ secret:
   # move — wallet-mnemonic and blockfrost-key stay in file mode, untouched. Of
   # the three, the DB password is the lowest-value and the only one that is
   # operator-owned and rotatable.
+  # DEPRECATED — superseded by `secret.db` above, and still honoured so a values
+  # file written against the earlier shape keeps working unchanged. Setting it
+  # also forces `db.mode: env`, which is what it used to do; prefer `secret.db`,
+  # which defaults to file mode and keeps the password out of the pod spec.
   dbPasswordFrom:
-    # Name of the operator-managed Secret. Empty = current behaviour.
     secretName: ""
-    # Key within it. The Zalando operator's role Secrets use `password`.
     key: password
 
 ## Liquidation bot arming.

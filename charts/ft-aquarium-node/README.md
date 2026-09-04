@@ -392,6 +392,57 @@ the projection differs, and neither puts a secret in this repository.
 Leave `secret.name` empty and the secrets are absent from the render entirely —
 the application then fails at startup with a named error, which is §3 working.
 
+### Three secrets, three independent addresses
+
+Each secret has its own **name** and its own **key**, so they can come from
+different Secrets — the mnemonic and the Blockfrost key from one you created, the
+DB password straight from the Postgres operator's own role Secret:
+
+```yaml
+secret:
+  mnemonic:
+    name: aquarium-wallet          # falls back to secret.name
+    key: wallet-mnemonic           # falls back to secret.keys.walletMnemonic
+  blockfrost:
+    name: aquarium-wallet
+  db:
+    name: aquarium-db.credentials  # the operator's Secret
+    key: password
+```
+
+**Back-compatible:** every `name` falls back to `secret.name` and every `key` to
+the legacy `secret.keys.*`, so setting only those behaves exactly as before —
+same four files, same keys, same `0400`.
+
+> **⛔ The seed stays a file, and that is the point of the shape.**
+> A naive three-way split would have implemented all three as `secretKeyRef`
+> environment variables — which would put the **wallet mnemonic** in the pod
+> spec, visible in `kubectl describe pod` and in Argo's UI, reversing this
+> chart's central security decision as a side effect of a refactor that looked
+> like tidying. Instead the pod mounts a **projected** volume with one source per
+> Secret: three independent names, one directory, and the seed is still a `0400`
+> file.
+
+**`secret.db.mode`** is the one per-source projection override, because the DB
+password is the only one that is operator-owned and rotatable. It follows
+`secret.mode` by default.
+
+**You probably do not need `env` for it.** The rotation defect that first
+motivated an env var was a stale *copy* of the password inside our own Secret —
+not the projection mechanism. Pointing `db.name` straight at the operator's
+Secret keeps no copy, so **file mode survives rotation too**, and keeps the
+password out of the pod spec. `env` stays available.
+
+⚠ Whichever mode `db` uses, **`spring.datasource.password` and
+`spring.flyway.password` are two separate properties**. In env mode one variable
+covers both; in file mode each needs its own file, and the chart projects the one
+key twice. Miss the Flyway one and the application connects while the migration
+fails to authenticate — which reads as a bad secret and is not.
+
+`secret.dbPasswordFrom` is **deprecated** but still honoured, and still forces
+`db.mode: env` as it always did, so a values file written against the earlier
+shape does not silently change projection on upgrade.
+
 ### The DB password can come from the Postgres operator instead
 
 `secret.dbPasswordFrom` points the database password at a Secret **this chart

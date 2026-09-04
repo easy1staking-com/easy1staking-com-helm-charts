@@ -1,11 +1,54 @@
 {{- /*
-  Is the DB password coming from a Secret this chart does not own (the Zalando
-  operator's, which it rotates) rather than from the projected copy of
-  `secret.name`? Computed once; it gates BOTH the env var and the file
-  projection, which must move together or the pod gets two sources of truth.
+  ── Secret resolution ────────────────────────────────────────────────────────
+  The three secrets are addressed INDEPENDENTLY: each has its own Secret name and
+  its own key, so blockfrost and the mnemonic can share one Secret while the DB
+  password comes from the Postgres operator's own role Secret.
+
+  Every source falls back to `secret.name` and to the legacy `secret.keys.*`, so
+  an installer who set only those keeps working untouched.
+
+  ⛔ THE SEED STAYS A FILE. Splitting the sources must not quietly move the wallet
+  mnemonic into an environment variable — visible in `kubectl describe pod` and
+  in Argo's UI — which is what a naive three-way secretKeyRef split would do. A
+  PROJECTED volume takes multiple secret sources, so file mode survives the split
+  with three independent names, each contributing its own 0400 file.
 */ -}}
-{{- $dbFrom := .Values.secret.dbPasswordFrom | default dict -}}
-{{- $useOperatorDbPassword := not (empty (get $dbFrom "secretName")) -}}
+{{- $sec := .Values.secret | default dict -}}
+{{- $K := $sec.keys | default dict -}}
+{{- $mn := $sec.mnemonic | default dict -}}
+{{- $bf := $sec.blockfrost | default dict -}}
+{{- $db := $sec.db | default dict -}}
+{{- /* Deprecated alias, still honoured: `dbPasswordFrom` predates this split. */ -}}
+{{- $dbFrom := $sec.dbPasswordFrom | default dict -}}
+{{- $mnName := $mn.name | default $sec.name -}}
+{{- $bfName := $bf.name | default $sec.name -}}
+{{- $dbName := $db.name | default $dbFrom.secretName | default $sec.name -}}
+{{- $mnKey := $mn.key | default $K.walletMnemonic | default "wallet-mnemonic" -}}
+{{- $bfKey := $bf.key | default $K.blockfrostKey | default "blockfrost-key" -}}
+{{- /*
+  The deprecated alias contributes its key ONLY when it is actually in use.
+  `dbPasswordFrom.key` ships a default of `password`, so an unconditional
+  fallback would silently override `secret.keys.dbPassword` for every installer
+  who never touched the alias.
+*/ -}}
+{{- $dbFromKey := ternary $dbFrom.key "" (not (empty $dbFrom.secretName)) -}}
+{{- $dbKey := $db.key | default $dbFromKey | default $K.dbPassword | default "db-password" -}}
+{{- /*
+  The DB password may use a different projection from the other two. It is the
+  one secret that is operator-owned and rotatable, and the only one for which env
+  was ever argued. Default: follow `secret.mode`. The legacy `dbPasswordFrom`
+  forced env, so it still does — otherwise a values file written against the
+  earlier shape would silently change projection on upgrade.
+
+  File mode ALSO survives rotation now: the original defect was a stale COPY of
+  the password inside our own Secret, not the projection mechanism. Projecting
+  straight from the operator's Secret keeps no copy to go stale.
+*/ -}}
+{{- $dbMode := $db.mode | default (ternary "env" $sec.mode (not (empty $dbFrom.secretName))) -}}
+{{- $mnFile := and $mnName (eq $sec.mode "file") -}}
+{{- $bfFile := and $bfName (eq $sec.mode "file") -}}
+{{- $dbFile := and $dbName (eq $dbMode "file") -}}
+{{- $anyFile := or $mnFile $bfFile $dbFile -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -73,7 +116,7 @@ spec:
           env:
             - name: SPRING_PROFILES_ACTIVE
               value: {{ .Values.config.springProfile | quote }}
-            {{- if and .Values.secret.name (eq .Values.secret.mode "file") }}
+            {{- if $anyFile }}
             {{- /*
               Spring Boot config tree: every file under this directory becomes a
               property named for the file, with the file's contents as its
@@ -120,57 +163,41 @@ spec:
             - name: STORE_CARDANO_CURSOR_NO_OF_BLOCKS_TO_KEEP
               value: {{ .Values.config.store.cardano.cursorNoOfBlocksToKeep | quote }}
             {{- end }}
-            {{- if and .Values.secret.name (eq .Values.secret.mode "env") }}
             {{- /*
-              env mode: the three secrets as secretKeyRef variables. Still by
-              reference — there is no plaintext fallback in either mode — but
-              visible in `kubectl describe pod` and in Argo's UI, which is why
-              `file` is the default. DB_PASSWORD feeds both the datasource and
-              Flyway: the application's own configuration points both password
-              properties at this one variable.
+              env mode: secretKeyRef variables. Still by reference — there is no
+              plaintext fallback in any mode — but visible in `kubectl describe
+              pod` and in Argo's UI, which is why `file` is the default and why
+              the SEED in particular stays a file.
             */}}
+            {{- if and $mnName (eq $sec.mode "env") }}
             - name: WALLET_MNEMONIC
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secret.name }}
-                  key: {{ .Values.secret.keys.walletMnemonic }}
+                  name: {{ $mnName }}
+                  key: {{ $mnKey }}
+            {{- end }}
+            {{- if and $bfName (eq $sec.mode "env") }}
             - name: BLOCKFROST_KEY
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secret.name }}
-                  key: {{ .Values.secret.keys.blockfrostKey }}
-            {{- if not $useOperatorDbPassword }}
-            - name: DB_PASSWORD
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Values.secret.name }}
-                  key: {{ .Values.secret.keys.dbPassword }}
+                  name: {{ $bfName }}
+                  key: {{ $bfKey }}
             {{- end }}
-            {{- end }}
-            {{- if $useOperatorDbPassword }}
+            {{- if and $dbName (eq $dbMode "env") }}
             {{- /*
-              The DB password comes from a Secret this chart does not own — the
-              Zalando operator's, which it ROTATES. Taking it by reference rather
-              than copying it is what lets the pod survive a rotation: a projected
-              copy is a snapshot, it goes stale silently, and the failure only
-              appears at the next restart.
-
               ONE variable, not two. Verified against the shipped
               application.yaml: `spring.datasource.password` and
-              `spring.flyway.password` are BOTH `${DB_PASSWORD:password}`. The
-              "project it twice" rule further down is about FILE mode, where each
-              property needs its own file, and it stays true for that mode.
-
-              Deliberately independent of `secret.mode`: in file mode the two
-              db-password files are omitted and Spring falls back to this
-              variable; in env mode this replaces the projected DB_PASSWORD.
-              Either way the wallet seed stays a file.
+              `spring.flyway.password` are BOTH `${DB_PASSWORD:password}`, so env
+              mode needs one variable. The "project it twice" rule in the volume
+              below is about FILE mode, where each property needs its own file,
+              and it stays true there — miss the Flyway one and the application
+              connects while the migration fails.
             */}}
             - name: DB_PASSWORD
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.secret.dbPasswordFrom.secretName }}
-                  key: {{ .Values.secret.dbPasswordFrom.key }}
+                  name: {{ $dbName }}
+                  key: {{ $dbKey }}
             {{- end }}
             {{- /*
               ── The application's full parameter surface ──────────────────────
@@ -330,34 +357,55 @@ spec:
             {{- toYaml .Values.livenessProbe | nindent 12 }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
-          {{- if and .Values.secret.name (eq .Values.secret.mode "file") }}
+          {{- if $anyFile }}
           volumeMounts:
             - name: secrets
-              mountPath: {{ .Values.secret.mountPath }}
+              mountPath: {{ $sec.mountPath }}
               readOnly: true
           {{- end }}
-      {{- if and .Values.secret.name (eq .Values.secret.mode "file") }}
+      {{- if $anyFile }}
+      {{- /*
+        A PROJECTED volume, not a plain secret volume — that is what lets three
+        independently-named Secrets contribute files to ONE mount. The Spring
+        config tree reads the directory, so it neither knows nor cares that the
+        files arrived from different Secrets.
+
+        `defaultMode: 0400` sits on the projection and applies to every source.
+      */}}
       volumes:
         - name: secrets
-          secret:
-            secretName: {{ .Values.secret.name }}
+          projected:
             defaultMode: 0400
-            {{- /*
-              One key per property file. db-password is projected TWICE, on
-              purpose: Flyway has its own password property, separate from the
-              datasource, and a migration that cannot authenticate fails while
-              the application itself would have connected fine.
-            */}}
-            items:
-              - key: {{ .Values.secret.keys.walletMnemonic }}
-                path: wallet.mnemonic
-              - key: {{ .Values.secret.keys.blockfrostKey }}
-                path: blockfrost.key
-              {{- if not $useOperatorDbPassword }}
-              - key: {{ .Values.secret.keys.dbPassword }}
-                path: spring.datasource.password
-              - key: {{ .Values.secret.keys.dbPassword }}
-                path: spring.flyway.password
+            sources:
+              {{- if $mnFile }}
+              - secret:
+                  name: {{ $mnName }}
+                  items:
+                    - key: {{ $mnKey }}
+                      path: wallet.mnemonic
+              {{- end }}
+              {{- if $bfFile }}
+              - secret:
+                  name: {{ $bfName }}
+                  items:
+                    - key: {{ $bfKey }}
+                      path: blockfrost.key
+              {{- end }}
+              {{- if $dbFile }}
+              {{- /*
+                ONE key, TWO files, on purpose. Flyway has its own password
+                property, separate from the datasource; project only the
+                datasource one and the application connects fine while the
+                migration fails to authenticate — which reads as a bad secret
+                and is not.
+              */}}
+              - secret:
+                  name: {{ $dbName }}
+                  items:
+                    - key: {{ $dbKey }}
+                      path: spring.datasource.password
+                    - key: {{ $dbKey }}
+                      path: spring.flyway.password
               {{- end }}
       {{- end }}
       {{- with .Values.nodeSelector }}
