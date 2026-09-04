@@ -771,6 +771,77 @@ on 0.1.0 and set lovelace amounts through a values file, this affects you.
 
 ---
 
+## Settings the application never declares
+
+Most of this chart's values map to an `${ENV_VAR}` the application names in its
+own `application.yaml`. **Six do not.** They are hardcoded leaves — the file
+states a value and never mentions an environment variable — and they are
+settable anyway, because Spring's relaxed binding lets an env var outrank the
+file whether or not the file mentions one.
+
+They are exposed here because **an operator could not otherwise discover they
+are settable**, and two of them decide whether the node works at all.
+
+| value | env | why it is here |
+|---|---|---|
+| `config.store.cardano.syncStart.slot` / `.blockhash` | `STORE_CARDANO_SYNC_START_SLOT` / `_BLOCKHASH` | where indexing begins |
+| `config.store.cardano.protocolMagic` | `STORE_CARDANO_PROTOCOL_MAGIC` | must match the network |
+| `config.store.cardano.keepAliveIntervalMillis` | `STORE_CARDANO_KEEP_ALIVE_INTERVAL` | relay keep-alive |
+| `observability.actuatorExposure` | `MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE` | what the actuator publishes |
+| `observability.apiPrefix` | `APIPREFIX` | prefix for the `/loans*` routes |
+
+### The sync start point is one unit, and a cursor overrides it
+
+`slot` and `blockhash` are emitted **together** — the hash pins the slot, and the
+chart refuses a render that sets one without the other, because yaci-store
+rejects a mismatched pair at init.
+
+> ⛔ **A stored cursor silently overrides both.** In yaci-store 0.1.7 the
+> configured start point is read *only when no cursor exists*. Changing these on
+> a pod that has already synced does **nothing**: it restarts cleanly, resumes
+> where it was, indexes nothing new, and **reports success**. Moving the start
+> point means clearing the cursor as well.
+>
+> And it is a **lower bound** — indexing runs forward, so an *older* value is
+> strictly safer. Too early costs sync time; too late misses the deployment you
+> meant to watch, permanently and silently.
+
+### ⚠ The actuator exposure is a default, not a constant
+
+This chart argues elsewhere (*"No ingress, deliberately"*) that a NodePort
+publishes read access rather than control, and part of that argument is that
+actuator exposure is limited to `health,prometheus` so `/env`, `/configprops`
+and `/beans` are unreachable.
+
+**That is the application's default, and it is overridable — including from this
+chart.** Widening it publishes resolved configuration from a pod holding a wallet
+seed, and the NodePort argument no longer holds. Left empty, the application's
+narrow default applies.
+
+### `apiPrefix` moves every documented URL except one
+
+`/healthcheck` sits **outside** the prefix and does not move with it. Change the
+prefix and the readiness page, the loans API and every URL in the runbook
+relocate while the probes keep working — so nothing fails loudly and every link
+you have is quietly wrong.
+
+---
+
+## Mode values are case-insensitive; typos are fatal
+
+`liquidation.mode` and the per-market `mode`/`action` accept **any casing** —
+the application matches with `equalsIgnoreCase` and Spring's enum converter is
+case- and dash-tolerant. Write them however the values file reads best.
+
+**Earlier versions of this chart refused a casing the application accepts.** That
+was a chart-imposed restriction with no basis in the app, and it is gone.
+
+What *is* fatal is a **typo**: an unrecognised mode or action aborts startup,
+naming the legal set. The chart refuses those at render instead, so the failure
+is an upgrade that does not proceed rather than a pod that will not boot.
+
+---
+
 ## Compounding is a second arming switch
 
 `compound.enabled` arms the **repayment-escrow** path: collect a repaid loan's
