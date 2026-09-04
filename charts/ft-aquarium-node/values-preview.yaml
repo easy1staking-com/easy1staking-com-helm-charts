@@ -12,3 +12,31 @@ config:
     cardano:
       host: preview-node.world.dev.cardano.org
       port: 3001
+
+# ── Exposure and the operator UI ─────────────────────────────────────────────
+#
+# Preview only, and explicit. The chart defaults are ClusterIP and UI-off on
+# every network; this preset turns both on because the readiness page is meant
+# to be opened in a browser from a trusted LAN.
+#
+# The port is PINNED so the URL is knowable before the deploy and survives the
+# Service being recreated. The trade: a pinned port another Service already holds
+# fails the apply with "provided port is already allocated".
+#
+# ⚠ Port 8080 carries more than the UI — /healthcheck, the actuator and the
+# unauthenticated /api/v1 share it. Every /api/v1 route is GET-only and actuator
+# exposure is limited to health,prometheus, so this publishes READ access to a
+# wallet-holding pod, not control. On an untrusted network use port-forward
+# instead. See README, "No ingress, deliberately".
+service:
+  type: NodePort
+  nodePort: 30080
+
+loans:
+  ui:
+    # The readiness page. Read-only decision support; it arms nothing.
+    enabled: true
+
+# NOTE — arming is still absent here, deliberately, and that includes the new
+# `compound.enabled`. Neither this file nor any other in this repository may set
+# an arming value; that belongs in the deploying operator's own values.

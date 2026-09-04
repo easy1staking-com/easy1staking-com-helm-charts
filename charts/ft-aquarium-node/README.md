@@ -392,6 +392,110 @@ the projection differs, and neither puts a secret in this repository.
 Leave `secret.name` empty and the secrets are absent from the render entirely —
 the application then fails at startup with a named error, which is §3 working.
 
+### Three secrets, three independent addresses
+
+Each secret has its own **name** and its own **key**, so they can come from
+different Secrets — the mnemonic and the Blockfrost key from one you created, the
+DB password straight from the Postgres operator's own role Secret:
+
+```yaml
+secret:
+  mnemonic:
+    name: aquarium-wallet          # falls back to secret.name
+    key: wallet-mnemonic           # falls back to secret.keys.walletMnemonic
+  blockfrost:
+    name: aquarium-wallet
+  db:
+    name: aquarium-db.credentials  # the operator's Secret
+    key: password
+```
+
+**Back-compatible:** every `name` falls back to `secret.name` and every `key` to
+the legacy `secret.keys.*`, so setting only those behaves exactly as before —
+same four files, same keys, same `0400`.
+
+**All three or none — a partial configuration is refused at render.** Naming
+`mnemonic` while leaving `blockfrost` unnamed would render a pod that starts,
+runs, and only then fails against an API it cannot authenticate to: both
+`wallet.mnemonic` and `blockfrost.key` default to `""` in the application, so
+nothing fails fast. The render fails instead, naming the missing source.
+
+This invariant is not new. The single-secret design enforced it *structurally* —
+one `secret.name` always projected all three — and the split is simply what makes
+"one source silently absent" expressible for the first time. Naming nothing at all
+remains legal and unchanged.
+
+> **⛔ The seed stays a file, and that is the point of the shape.**
+> A naive three-way split would have implemented all three as `secretKeyRef`
+> environment variables — which would put the **wallet mnemonic** in the pod
+> spec, visible in `kubectl describe pod` and in Argo's UI, reversing this
+> chart's central security decision as a side effect of a refactor that looked
+> like tidying. Instead the pod mounts a **projected** volume with one source per
+> Secret: three independent names, one directory, and the seed is still a `0400`
+> file.
+
+**`secret.db.mode`** is the one per-source projection override, because the DB
+password is the only one that is operator-owned and rotatable. It follows
+`secret.mode` by default.
+
+**You probably do not need `env` for it.** The rotation defect that first
+motivated an env var was a stale *copy* of the password inside our own Secret —
+not the projection mechanism. Pointing `db.name` straight at the operator's
+Secret keeps no copy, so **file mode survives rotation too**, and keeps the
+password out of the pod spec. `env` stays available.
+
+⚠ Whichever mode `db` uses, **`spring.datasource.password` and
+`spring.flyway.password` are two separate properties**. In env mode one variable
+covers both; in file mode each needs its own file, and the chart projects the one
+key twice. Miss the Flyway one and the application connects while the migration
+fails to authenticate — which reads as a bad secret and is not.
+
+`secret.dbPasswordFrom` is **deprecated** but still honoured, and still forces
+`db.mode: env` as it always did, so a values file written against the earlier
+shape does not silently change projection on upgrade.
+
+### The DB password can come from the Postgres operator instead
+
+`secret.dbPasswordFrom` points the database password at a Secret **this chart
+does not own** — in practice the one the Zalando Postgres operator generates for
+its managed role:
+
+```yaml
+secret:
+  name: ft-aquarium-node-secrets     # still holds the mnemonic and the API key
+  dbPasswordFrom:
+    secretName: aquarium-db.credentials   # the operator's Secret
+    key: password
+```
+
+**Why it exists.** The projected copy is a **snapshot**. The operator *rotates*
+the role's password; its Secret changes and the copy does not. The running pod
+keeps working on its open connection, so nothing looks wrong — and then
+**cannot survive its next restart**, because the password it presents is stale.
+Referencing the operator's Secret by name removes the copy, and with it the
+drift.
+
+**What changes in the render.** Exactly two things: the two `db-password` items
+disappear from the file projection, and a `DB_PASSWORD` environment variable
+appears, sourced from the named Secret. **One variable covers both Spring
+properties** — verified against the shipped `application.yaml`, where
+`spring.datasource.password` and `spring.flyway.password` are both
+`${DB_PASSWORD:password}`. The "project it twice" rule above is about **file**
+mode, where each property needs its own file, and it stays true there.
+
+**The trade-off, stated rather than slipped in.** This makes the DB password an
+environment variable — visible in `kubectl describe pod` and in Argo's UI. That
+is a genuine regression in hygiene and it is accepted deliberately, because the
+argument for `file` mode is about protecting the **signing seed**, and the seed
+does not move: `wallet-mnemonic` and `blockfrost-key` stay files. Of the three
+secrets, the DB password has the smallest blast radius and is the only one that
+is operator-owned and rotatable. Rotation you survive beats a projection you do
+not.
+
+Empty `secretName` (the default) changes nothing, and **no values file in this
+chart ships it set** — same rule as the liquidation flags: a stranger's
+`helm install` must not reference a Secret that exists in one cluster only.
+
 ---
 
 ## No ingress, deliberately
@@ -410,6 +514,153 @@ that a one-line edit by anyone who installs the chart.
 For debugging, use `kubectl port-forward`. If the loans API or metrics should be
 published later, that is a deliberate decision — and it wants a path scoped to
 `/api/v1`, not `/`.
+
+### The one exception: `service.type: NodePort`
+
+The operator readiness page is served by this pod and is meant to be opened in a
+browser, so `service.type` accepts `NodePort` on **any** network:
+
+```yaml
+service:
+  type: NodePort
+  nodePort: 30080   # empty = Kubernetes assigns one and keeps it across upgrades
+```
+
+**Neither this nor the UI is ever on by default.** `values.yaml` is `ClusterIP`
+with `loans.ui.enabled` unset on every network; only a deploying operator's own
+values turn them on. `values-preview.yaml` does so for Giovanni's preview box
+and says why at the value.
+
+Pinning makes the URL knowable in advance and survives the Service being
+recreated. **The trade is that a pinned port another Service already holds fails
+the apply** — `provided port is already allocated` — where an assigned one
+cannot. It must sit inside the node-port range (`30000-32767` by default).
+
+**What a NodePort publishes, and why it is tolerable on a trusted LAN.** Port
+8080 carries everything: `/healthcheck`, the actuator, and the unauthenticated
+`/api/v1`. Two facts make that read-only, and **both are properties of the
+application, not of this chart** — re-check them before widening exposure:
+
+| | |
+|---|---|
+| Every `/api/v1` route is **GET-only** | no `POST`/`PUT`/`DELETE` exists, so nothing reachable can move funds or arm anything |
+| Actuator exposure is `health,prometheus` | set in the application's own configuration with no profile overriding it, so `/env`, `/configprops` and `/beans` are unreachable |
+
+The wallet seed is served by no endpoint. What is exposed is LAN-wide **read**
+access to lending positions and the node's wallet address — fine on a home LAN,
+not fine on an untrusted network, where `kubectl port-forward` remains the
+answer. If the application ever gains a mutating route or widens its actuator
+exposure, this trade changes and the Service should go back to `ClusterIP`.
+
+---
+
+## What `application.yaml` does not tell you
+
+Most of this chart's parameters are readable from the application's
+`application.yaml`, where each is an `${ENV_VAR}` placeholder. **Four groups are
+not there at all** — they are bound in Java, so a chart derived from that file
+alone misses them silently. It did, until 0.2.0.
+
+### `loans.submittableNetwork` — the last arming barrier
+
+A node with `liquidation.mode: live` **and** `liquidation.enabled: true` still
+submits **nothing** unless the running network matches this string; it records
+the `NETWORK_NOT_PREVIEW` veto and stops. One word separates a node that cannot
+spend from one that can.
+
+The chart renders `preview` **explicitly** rather than leaving it unset. Unset is
+safe today because the image's default is also `preview` — but that default lives
+in someone else's code, and the failure direction if it ever moves is a node that
+can suddenly spend. **Never set this to `mainnet`.**
+
+### `loans.minswap.*` — mainnet defaults on a network-agnostic chart
+
+Four coordinates for the CONVERT path, and **their built-in defaults are mainnet
+values** (`poolAddress` is an `addr1…`). A preview node that inherits them
+derives a convert action that cannot exist there. The chart ships all four empty:
+there is no value correct on both networks, so the operator must supply them.
+
+### `convert.*` and `markets[]`
+
+`convert.enabled` defaults **true** in the image, unlike most switches here.
+`markets` is a **list**, and the only shape the application binds from the
+environment is Spring's indexed form, which the chart renders for you:
+
+```yaml
+markets:
+  - unit: lovelace
+    mode: SHADOW          # DISABLED | SHADOW | LIVE
+    action: ANTICIPATE    # CONVERT | ANTICIPATE
+    cap: 50000000         # MANDATORY for ANTICIPATE, meaningless otherwise
+```
+→ `LOANS_LIQUIDATION_MARKETS_0_UNIT`, `_MODE`, `_ACTION`, `_CAP`
+
+The global `liquidation.mode` is a **ceiling**: a market's own mode can only be
+equal or more restrictive. An unlisted market runs at the node's own mode, so an
+empty list is legal and is the default.
+
+**A malformed entry aborts the application's startup** — unknown mode, bad unit,
+duplicate unit, or `ANTICIPATE` without a cap. The chart validates all of those
+**at render**, so a typo is a refused upgrade rather than a crash-loop.
+
+### The ninth reference script
+
+`liquidation.referenceScripts.lmLiquidateAndConvertAction` does **not** follow
+its siblings' naming — the other eight map to `AQUARIUM_LIQUIDATION_REF_*`, this
+one is Java-bound and reaches the app as
+`LOANS_LIQUIDATION_REFERENCE_SCRIPTS_LM_LIQUIDATE_AND_CONVERT_ACTION`. Omitting
+it does not degrade the convert path: that validator then travels inline and the
+transaction **exceeds `maxTxSize`**.
+
+> ⚠ **Reference-script coordinates are deliberately empty in every values file
+> here.** `LoansReferenceScriptVerifier` hard-fails at boot on a coordinate that
+> no longer publishes the expected hash, so a chart shipping stale coordinates
+> does not degrade — it crash-loops. A stale coordinate is worse than an absent
+> one, which is why this public chart defaults none.
+
+---
+
+## Numbers in a values file were being mangled — fixed in 0.2.0
+
+**Helm parses every number from a values file as `float64`**, and Go's `toString`
+renders a large `float64` in scientific notation. Before 0.2.0,
+`liquidation.profitMarginLovelace: 1500000` in a values file reached the
+container as **`1.5e+06`**, which no Java `long` parses.
+
+It looked fine in testing because `--set` takes a different path and yields an
+`int64`. The chart now reformats integral floats before emitting them. If you are
+on 0.1.0 and set lovelace amounts through a values file, this affects you.
+
+---
+
+## Compounding is a second arming switch
+
+`compound.enabled` arms the **repayment-escrow** path: collect a repaid loan's
+principal from the asset manager and deliver it into the lender's pool, keeping
+the pool owner's compounding fee. It is a **different on-chain action** from
+liquidation, with its own executor.
+
+**Arming one does not arm the other, in either direction.** A deployment that
+has `liquidation.enabled: true` is not compounding, and a deployment that has
+`compound.enabled: true` is not liquidating.
+
+Two things about `compound.profitMarginLovelace` are worth knowing before you
+set it:
+
+- **`0` is a real setting, not "unset".** It refuses every net loss while
+  allowing exact break-even. The chart emits it correctly — any value whose
+  string form is non-empty reaches the container, so `0` and `false` are not
+  dropped as falsy.
+- **A negative value arms compounding for pools that pay nothing.** The fee rate
+  is set by the pool owner, not by this node; a zero-fee pool nets exactly minus
+  the transaction fee and is refused out of the box. Negative is a figure the
+  operator *states and owns* — it still bounds the loss, since anything worse
+  than the figure is refused. It is not a protection being switched off, which
+  is why there is no `ignoreProfitCheck` twin here. **On mainnet a negative
+  value is a hard startup failure by design.**
+
+As with liquidation, **no values file in this repository sets any of it**, and
+that absence is the design.
 
 ---
 
