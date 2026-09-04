@@ -454,6 +454,47 @@ nothing fails fast. Naming nothing at all stays legal.
 > spec — visible in `kubectl describe pod` and in Argo's UI — reversing this
 > chart's central security decision as a side effect of a refactor.
 
+### The database is provisioned and wired by default
+
+`postgres.enabled` is `true`, and the chart renders a `postgresql` CR for the
+**Zalando Postgres operator**. Both database credentials then come from the
+Secret that operator generates for the role — nothing is hardcoded.
+
+```yaml
+postgres:
+  enabled: true
+  teamId: ft
+  clusterName: ft-aquarium-db     # must start with teamId — checked at render
+  username: fluidtokens
+```
+
+**Default-wired, never default-valued.** The chart ships a *reference* to a
+Secret whose contents it does not create. It ships no credential, here or
+anywhere; this repository is public. The Secret's name is **derived** from
+`postgres.username` + `postgres.clusterName` following the operator's own
+`{user}.{cluster}.credentials.postgresql.acid.zalan.do` convention, rather than
+restated — a restated name goes stale the moment someone renames the cluster,
+and the failure is a pod stuck in `CreateContainerConfigError` naming a Secret
+nobody typed. `config.db.host` is derived the same way, in one helper, because
+the host is read three times.
+
+> ⚠ **This is the one capability-dependent default in the chart.** `helm install`
+> fails with `no matches for kind postgresql` on a cluster without the operator's
+> CRD. Everywhere else this chart defaults such things *off* — see `amaru`'s
+> `serviceMonitor`, and the rule that the person installing for the first time
+> has the least context and gets the failure. This one is deliberate: the chart
+> exists to deploy this application, and the application needs a database. Bring
+> your own with `postgres.enabled: false`, then set `config.db.host` and
+> `secret.db.name` yourself.
+
+**The credentials arrive as files, not environment variables** — the chart's
+`file` mode, same as the wallet secrets, so the password stays out of
+`kubectl describe pod` and Argo's UI. `secret.db.mode: env` gives the classic
+`secretKeyRef` pair instead if you want it.
+
+**Nothing here exposes or arms anything.** NodePort, the operator UI,
+liquidation and compounding are all still off by default, unchanged.
+
 ### Migrating from 0.2.0
 
 Breaking for anyone who used the single-name form. The removed paths **fail the
@@ -469,6 +510,12 @@ no secrets at all, silently.
 | `secret.keys.dbPassword: K` | `secret.db.passwordKey: K` |
 | `secret.dbPasswordFrom.secretName: X` | `secret.db.name: X` (and `secret.db.mode: env` if you want the env projection it forced) |
 | `secret.dbPasswordFrom.key: K` | `secret.db.passwordKey: K` |
+
+Also changed in 0.3.0: the database is provisioned and its credentials wired by
+default. If you already run your own Postgres, set `postgres.enabled: false` and
+`secret.db.name` explicitly — otherwise the chart will try to create a cluster
+CR alongside it. `secret.db.usernameKey` now defaults to `username` (it was
+opt-in), so the username comes from the Secret unless you set it back to `""`.
 
 **`secret.db.mode`** is the one per-source projection override, because the DB
 password is the only one that is operator-owned and rotatable. It follows

@@ -207,6 +207,9 @@ config:
   db:
     driver: org.postgresql.Driver
     dialect: org.hibernate.dialect.PostgreSQLDialect
+    # Empty AND `postgres.enabled` resolves to the operator's cluster service,
+    # which is named after `postgres.clusterName`. Derived rather than restated,
+    # so the CR and the connection cannot drift.
     host: ""
     port: 5432
     database: aquarium
@@ -308,6 +311,43 @@ config:
 # Leave `name` empty and the secrets are simply absent from the render — the
 # application then fails at startup with a named error, which is correct.
 # Create the Secret out of band (sealed-secrets is the mechanism in use).
+## The database this application consumes.
+##
+## ⚠ `enabled: true` is the ONE capability-dependent default in this chart. It
+## renders a `postgresql` CR for the Zalando Postgres operator, so `helm install`
+## FAILS with "no matches for kind postgresql" on a cluster without that
+## operator's CRD. Everywhere else this chart defaults capability-dependent
+## things OFF, for the reason stated at `amaru`'s serviceMonitor: the person
+## installing for the first time has the least context and gets the failure.
+##
+## This one is deliberate, and it is Giovanni's call rather than a drift: the
+## chart's reason to exist is deploying this application, the application needs a
+## database, and the operator is what provides one here. Bring your own with
+## `enabled: false` and set `config.db.host` plus `secret.db.*` yourself.
+##
+## Nothing here exposes or arms anything — it provisions storage. The exposure
+## and arming defaults are untouched and still off.
+postgres:
+  enabled: true
+
+  # The operator REQUIRES the cluster name to start with the teamId, and enforces
+  # it at reconcile time rather than at apply — so a wrong name is accepted and
+  # then silently does nothing. The chart refuses it at render instead.
+  teamId: ft
+  clusterName: ft-aquarium-db
+
+  # The role the operator creates. The Secret it generates for this role is what
+  # `secret.db` reads by default; its name is DERIVED from these two values, not
+  # restated, so renaming the cluster cannot leave a stale Secret reference
+  # behind. The database itself comes from `config.db.database`, one source.
+  username: fluidtokens
+
+  instances: 1
+  volumeSize: 1Gi
+  storageClass: ""
+  version: "15"
+  resources: {}
+
 secret:
   # ── ONE mechanism: a name and a key PER SOURCE ─────────────────────────────
   #
@@ -348,17 +388,24 @@ secret:
     name: ""
     key: blockfrost-key
   db:
+    # Empty AND `postgres.enabled` means the Zalando-generated Secret, whose name
+    # is derived from postgres.username + postgres.clusterName. Set it to point
+    # at a Secret you manage instead.
+    #
+    # ⛔ DEFAULT-WIRED, NEVER DEFAULT-VALUED. The chart ships a REFERENCE to a
+    # Secret it does not create the contents of. It ships no credential, here or
+    # anywhere, and this repository is public.
     name: ""
     # The DB source carries TWO keys, so it names them both rather than reusing
-    # the single `key` its siblings use.
-    passwordKey: db-password
-    # Source the USERNAME from the same Secret too.
+    # the single `key` its siblings use. These are the Zalando operator's own key
+    # names, which is why they are the defaults.
+    passwordKey: password
+    # BOTH credentials come from the Secret by default. The Zalando per-role
+    # Secret carries them under `username` and `password`, which is where these
+    # defaults come from.
     #
-    # Empty (the default) means the username stays the plain `config.db.username`
-    # value — unchanged behaviour. Set it and the username comes from this
-    # Secret instead, which is what the Zalando Postgres operator's per-role
-    # Secret wants: it carries BOTH credentials, under its standard `username`
-    # and `password` keys.
+    # Set this to "" to fall back to the plain `config.db.username` value — for a
+    # database whose username is not a secret at all.
     #
     #   db:
     #     name: aquarium-db.credentials
@@ -369,7 +416,7 @@ secret:
     # chart refuses to emit both, so the value cannot silently disagree with the
     # Secret — but the plain value is still what composes the JDBC URL's
     # defaults, so leaving it accurate remains worthwhile.
-    usernameKey: ""
+    usernameKey: username
     # `file` (the default, following secret.mode) or `env`.
     #
     # ⚠ You probably do NOT need `env`. The rotation defect this once existed for

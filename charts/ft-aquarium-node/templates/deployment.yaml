@@ -29,7 +29,12 @@
 {{- end -}}
 {{- $mnName := $mn.name -}}
 {{- $bfName := $bf.name -}}
-{{- $dbName := $db.name -}}
+{{- /*
+  The DB Secret defaults to the one the Zalando operator generates for the role
+  this chart's CR asks for. DERIVED from postgres.username + postgres.clusterName
+  rather than restated, so renaming the cluster cannot leave a stale reference.
+*/ -}}
+{{- $dbName := $db.name | default (ternary (include "ft-aquarium-node.zalandoSecretName" .) "" .Values.postgres.enabled) -}}
 {{- $mnKey := $mn.key | default "wallet-mnemonic" -}}
 {{- $bfKey := $bf.key | default "blockfrost-key" -}}
 {{- $dbKey := $db.passwordKey | default "db-password" -}}
@@ -46,24 +51,28 @@
 */ -}}
 {{- $dbMode := $db.mode | default $sec.mode -}}
 {{- /*
-  ⛔ ALL THREE OR NONE. A partial configuration is refused at render.
+  ⛔ NO HALF-CONFIGURED SECRET SET.
 
-  The failure it prevents is NOT fast: `wallet.mnemonic` and `blockfrost.key`
+  The failure this prevents is NOT fast: `wallet.mnemonic` and `blockfrost.key`
   both default to "" in the application, so a pod missing one starts, runs, and
   fails later against an API it cannot authenticate to — an outage shape rather
-  than a config gap. Naming NOTHING stays legal and unchanged.
+  than a config gap.
+
+  Scoped to the two the OPERATOR supplies. The DB source resolves on its own when
+  `postgres.enabled`, so naming nothing at all stays legal and renders: the
+  database is wired, the wallet secrets are absent, and the application fails at
+  startup with a named error about the mnemonic. That is the documented
+  install-to-look-at-it state and it must keep working.
 */ -}}
-{{- $named := list -}}
-{{- $unnamed := list -}}
-{{- range $src := (list (dict "n" "mnemonic" "v" $mnName) (dict "n" "blockfrost" "v" $bfName) (dict "n" "db" "v" $dbName)) -}}
-{{- if $src.v -}}
-{{- $named = append $named $src.n -}}
-{{- else -}}
-{{- $unnamed = append $unnamed $src.n -}}
+{{- if and (or $mnName $bfName) (not (and $mnName $bfName)) -}}
+{{- fail (printf "secret: %s named but %s not. The mnemonic and the Blockfrost key must both be named (point them at the same Secret if that is what you want) or both be left unset — a pod with one and not the other starts and fails later against an API it cannot reach." (ternary "mnemonic" "blockfrost" (not (empty $mnName))) (ternary "blockfrost" "mnemonic" (not (empty $mnName)))) -}}
 {{- end -}}
-{{- end -}}
-{{- if and $named $unnamed -}}
-{{- fail (printf "secret: %s named but %s not. Set secret.<source>.name for each of the three (point them at the same Secret if that is what you want), or leave all three unset. A pod missing one secret starts and fails later against an API it cannot reach." (join ", " $named) (join ", " $unnamed)) -}}
+{{- /*
+  And the DB half: if the wallet secrets are configured but nothing supplies a
+  database credential, that is the same half-configured shape one table over.
+*/ -}}
+{{- if and $mnName $bfName (not $dbName) -}}
+{{- fail "secret: mnemonic and blockfrost are named but the database has no credential source. Either enable postgres.enabled (the operator generates the Secret) or set secret.db.name to a Secret you manage." -}}
 {{- end -}}
 {{- $mnFile := and $mnName (eq $sec.mode "file") -}}
 {{- $bfFile := and $bfName (eq $sec.mode "file") -}}
@@ -122,8 +131,8 @@ spec:
             - sh
             - -c
             - |
-              until nc -z {{ .Values.config.db.host }} {{ .Values.config.db.port }}; do
-                echo "waiting for postgres at {{ .Values.config.db.host }}:{{ .Values.config.db.port }}"
+              until nc -z {{ include "ft-aquarium-node.dbHost" . }} {{ .Values.config.db.port }}; do
+                echo "waiting for postgres at {{ include "ft-aquarium-node.dbHost" . }}:{{ .Values.config.db.port }}"
                 sleep 5
               done
       {{- end }}
@@ -153,7 +162,7 @@ spec:
             - name: DB_DIALECT
               value: {{ .Values.config.db.dialect | quote }}
             - name: POSTGRES_HOST
-              value: {{ .Values.config.db.host | quote }}
+              value: {{ include "ft-aquarium-node.dbHost" . | quote }}
             - name: POSTGRES_PORT
               value: {{ .Values.config.db.port | quote }}
             - name: POSTGRES_DB

@@ -1,0 +1,49 @@
+{{- if .Values.postgres.enabled }}
+{{- /*
+  The Zalando Postgres operator's cluster CR. The operator creates the database
+  and generates a Secret per role, which is where this chart's DB credentials
+  come from by default — see `secret.db` in values.yaml.
+
+  ⚠ REQUIRES THE OPERATOR'S CRD. `helm install` fails outright with "no matches
+  for kind postgresql" on a cluster without it. That is why `postgres.enabled` is
+  the one capability-dependent default in this chart, and it is deliberate: this
+  chart's reason to exist is deploying this application, and the application
+  needs a database. Set `postgres.enabled: false` to bring your own.
+
+  The cluster NAME must begin with the teamId — the operator rejects it
+  otherwise, and rejects it at reconcile time rather than at apply, so the CR is
+  accepted and nothing happens. The chart checks it here instead.
+*/}}
+{{- if not (hasPrefix (printf "%s-" .Values.postgres.teamId) .Values.postgres.clusterName) }}
+{{- fail (printf "postgres.clusterName %q must start with %q- : the Zalando operator requires the cluster name to begin with its teamId, and it enforces that at reconcile time rather than at apply, so a wrong name is accepted and then silently does nothing." .Values.postgres.clusterName .Values.postgres.teamId) }}
+{{- end }}
+apiVersion: acid.zalan.do/v1
+kind: postgresql
+metadata:
+  name: {{ .Values.postgres.clusterName }}
+  labels:
+    {{- include "ft-aquarium-node.labels" . | nindent 4 }}
+spec:
+  teamId: {{ .Values.postgres.teamId | quote }}
+  numberOfInstances: {{ .Values.postgres.instances }}
+  volume:
+    size: {{ .Values.postgres.volumeSize }}
+    {{- with .Values.postgres.storageClass }}
+    storageClass: {{ . }}
+    {{- end }}
+  users:
+    {{ .Values.postgres.username }}: []
+  databases:
+    {{- /*
+      The database name comes from `config.db.database`, the same value the
+      application is told to connect to. One source, so the CR and the
+      connection string cannot drift apart.
+    */}}
+    {{ .Values.config.db.database }}: {{ .Values.postgres.username }}
+  postgresql:
+    version: {{ .Values.postgres.version | quote }}
+  {{- with .Values.postgres.resources }}
+  resources:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+{{- end }}
