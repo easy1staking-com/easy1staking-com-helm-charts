@@ -1134,9 +1134,13 @@ scheduling:
   # above, so a node you merely install indexes, serves and spends nothing.
   # Leaving this empty means OFF: the application's own default is false and it
   # does not fall back to true if the variable is absent.
-  # ⚠ UPGRADING: a node whose processor was running WILL STOP when you take this
-  # version, until you set this. That is deliberate — arming is now something an
-  # operator does on purpose — but it is a behaviour change, not a no-op.
+  # ⚠ UPGRADING — AND THE TRIGGER IS THE IMAGE, NOT THIS CHART'S VERSION.
+  # Taking chart 0.8.0 alone changes NOTHING: `appVersion` here is 2026.07.13,
+  # which has no such gate, so the variable lands on an image that ignores it.
+  # A processor that was running STOPS the moment you run an image that HAS the
+  # gate — which, if you build your own, is a move this chart's version never
+  # sees. Set this before or with that image bump, not before this upgrade.
+  # The stop is deliberate: arming is now something an operator does on purpose.
   transactionProcessorEnabled: ""
   # Tuning. [documented] → SCHEDULING_TRANSACTION_PROCESSOR_DELAY_MINUTES
   transactionProcessorDelayMinutes: ""
