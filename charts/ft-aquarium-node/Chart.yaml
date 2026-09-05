@@ -7,7 +7,7 @@ type: application
 # Chart version — this chart's own semver. Bump on every chart change.
 # NOTE: bumping this in a commit to `main` publishes the chart immediately via
 # chart-releaser. That bump is the release gate and belongs to Giovanni.
-version: 0.6.0
+version: 0.6.1
 
 # Upstream image tag. This is FluidTokens' published build, NOT one we produce.
 # See README.md — this tag does not contain the Lending v4 liquidation work.

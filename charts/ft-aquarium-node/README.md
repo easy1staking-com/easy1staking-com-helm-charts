@@ -216,10 +216,11 @@ including it would imply the node reads it.
 
 ### 6. `replicaCount` is 0 or 1, and nothing else renders
 
-**Default `0`: nothing runs until someone asks.** Same rule as the UI, the arming
-flags and the Zalando CR — a stranger's `helm install` of a chart that signs and
-submits transactions must not start it. Our own deployments set `1` inline in the
-Argo application.
+**Default `1` since 0.6.1** — the chart deploys the workload it exists to
+deploy. It was `0` until then, so a stranger's `helm install` started nothing;
+that protection turned out to be doing no work, because a pod with no wallet
+Secret fails at startup with a named error and cannot sign, submit or arm
+anything regardless. The default was surprising rather than safe.
 
 **`replicaCount > 1` is refused at render.** This bot signs with a single wallet;
 two replicas means two schedulers scanning the same loans and building the same
