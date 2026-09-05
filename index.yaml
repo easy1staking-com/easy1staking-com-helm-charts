@@ -627,6 +627,16 @@ entries:
   ft-aquarium-node:
   - apiVersion: v2
     appVersion: 2026.07.13
+    created: "2026-09-05T07:36:17.908370626Z"
+    description: A Helm chart for the FluidTokens Aquarium node (preview)
+    digest: 65306676a7e071eee3540c456d8243a55438467fa2081f27d67d4ec6e24bfdfa
+    name: ft-aquarium-node
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ft-aquarium-node-0.6.0/ft-aquarium-node-0.6.0.tgz
+    version: 0.6.0
+  - apiVersion: v2
+    appVersion: 2026.07.13
     created: "2026-09-04T20:33:54.706896273Z"
     description: A Helm chart for the FluidTokens Aquarium node (preview)
     digest: 99c55596ddb7fb3d17d9f106d4d08861ad23c66d38d411c9a6d2e2d7f3a44572
@@ -1188,4 +1198,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ogmios-0.0.1-alpha2/ogmios-0.0.1-alpha2.tgz
     version: 0.0.1-alpha2
-generated: "2026-09-04T20:33:54.707226044Z"
+generated: "2026-09-05T07:36:17.908735795Z"
