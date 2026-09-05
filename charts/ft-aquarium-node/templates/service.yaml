@@ -6,11 +6,15 @@ metadata:
     {{- include "ft-aquarium-node.labels" . | nindent 4 }}
 spec:
   {{- /*
-    ClusterIP only. The node dials out to everything it needs — the relay,
-    Blockfrost, the FluidTokens oracle — and nothing outside the cluster needs
-    to reach it. This Service exists for the kubelet's probes and for
-    Prometheus. There is no NodePort value and no Ingress template: see
-    README.md, "No ingress, deliberately".
+    ClusterIP by DEFAULT. The node dials out to everything it needs — the
+    relay, Blockfrost, the FluidTokens oracle — and nothing outside the cluster
+    needs to reach it. This Service exists for the kubelet's probes and for
+    Prometheus.
+
+    Two ways to publish it, both opt-in and independent of each other:
+    `type: NodePort` with the optional pin below, and (since 0.7.0) the
+    ingress in ingress.yaml. Enabling one does not disable the other. See
+    README.md, "Publishing the UI".
   */}}
   type: {{ .Values.service.type }}
   ports:

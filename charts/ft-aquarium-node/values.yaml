@@ -67,7 +67,7 @@ service:
   #
   # `NodePort` is supported so the operator readiness UI can be opened in a
   # browser. It is a per-deployment decision, taken in the deploying operator's
-  # own values — see README, "No ingress, deliberately".
+  # own values — see README, "Publishing the UI".
   type: ClusterIP
 
   # NodePort only, and only meaningful when `type: NodePort`.
@@ -82,10 +82,73 @@ service:
   # here: /healthcheck, /actuator/health, /actuator/prometheus, /api/v1/**.
   port: 8080
 
-# Note: there is deliberately no ingress in this chart, and no ingress.enabled
-# value. See README.md ("No ingress, deliberately"): the unauthenticated
-# /api/v1 API and the Spring actuator share this one port, on a pod that holds a
-# wallet seed. Reachability for debugging is `kubectl port-forward`.
+# ── Ingress ──────────────────────────────────────────────────────────────────
+#
+# NEW IN 0.7.0. Versions up to 0.6.1 shipped no ingress template AT ALL, and the
+# README argued the absence was deliberate. It is present now because a DNS name
+# is a better handle than a node port. What has NOT changed is the reason the
+# absence was argued for, so read this before enabling it.
+#
+# ⚠ ONE PORT SERVES FOUR THINGS. `service.port` (8080) carries the operator
+# readiness UI, /healthcheck, the Spring actuator, and the unauthenticated
+# /api/v1. There is no auth in front of any of it. An ingress publishes whatever
+# `path` selects, from a pod that holds a wallet seed — so the question to settle
+# before enabling is not "which host" but "who can reach that host".
+#
+# A NodePort is reachable from the node's network; an ingress usually has public
+# DNS and a public controller in front of it. That is a genuine widening, not a
+# like-for-like swap. If this name resolves on the public internet, put
+# authentication in the ingress annotations (the controller's basic-auth or
+# forward-auth) — this chart cannot do it for you, and ships none.
+#
+# Additive: `service.type: NodePort` still works exactly as before and the two
+# are independent. Enabling this does not disable that — set `service.type:
+# ClusterIP` yourself if the node port should go away.
+ingress:
+  # OFF by default, on every network, like every other capability in this chart.
+  enabled: false
+
+  # The DNS name. REQUIRED when enabled — the template hard-fails without it.
+  #
+  # ⛔ This is not politeness about a missing value. An Ingress rule with no host
+  # is a CATCH-ALL: it matches every hostname arriving at the controller that no
+  # other Ingress claims. Left empty it would publish this pod's unauthenticated
+  # API on hostnames nobody chose, including ones added later. Hence the fail.
+  #
+  # No value is preset here or in ANY values-*.yaml: a real hostname is
+  # cluster-specific state, and this is a public repository.
+  host: ""
+
+  # The ingress controller to use. Empty uses the cluster's default
+  # IngressClass, which is right on a single-controller cluster.
+  className: ""
+
+  # Passed through verbatim. This is where controller-level authentication goes
+  # if the host is reachable from anywhere untrusted — see the warning above.
+  annotations: {}
+  #   nginx.ingress.kubernetes.io/auth-type: basic
+  #   nginx.ingress.kubernetes.io/auth-secret: aquarium-basic-auth
+  #   cert-manager.io/cluster-issuer: letsencrypt-prod
+
+  # `/` publishes everything on the port, which is what makes the readiness UI
+  # reachable at the bare hostname — and is also the widest possible choice.
+  #
+  # The narrower option, if only the API is wanted: `/api/v1` with `Prefix`.
+  # That leaves the actuator and the UI unreachable from outside, which was the
+  # shape this chart's README recommended back when it shipped no ingress.
+  path: /
+  pathType: Prefix
+
+  # TLS is OPTIONAL and OFF by default. Off means the ingress serves plain HTTP,
+  # so anything the UI or /api/v1 returns crosses the network in the clear.
+  # Acceptable on a trusted LAN; not acceptable on a public name.
+  tls:
+    enabled: false
+    # The Secret holding the certificate — typically the one cert-manager
+    # writes for `host`. OPTIONAL: left empty, the tls block still renders and
+    # the controller serves its own default certificate, which is a real
+    # deployment (a wildcard the controller already holds).
+    secretName: ""
 
 # Sizing. These are now reported adequate for steady state from a real preview
 # deployment that reached tip — the first evidence this chart has ever had.
