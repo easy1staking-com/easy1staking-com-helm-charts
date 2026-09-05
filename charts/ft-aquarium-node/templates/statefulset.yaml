@@ -460,6 +460,7 @@ spec:
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_COMPOUND_DELAY_SECONDS" "value" $C.delaySeconds) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_COMPOUND_PROFIT_MARGIN_LOVELACE" "value" $C.profitMarginLovelace) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_COMPOUND_REFERENCE_SCRIPTS" "value" $C.referenceScripts) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "SCHEDULING_TRANSACTION_PROCESSOR_ENABLED" "value" (.Values.scheduling | default dict).transactionProcessorEnabled) }}
             {{- include "ft-aquarium-node.env" (dict "name" "SCHEDULING_TRANSACTION_PROCESSOR_DELAY_MINUTES" "value" (.Values.scheduling | default dict).transactionProcessorDelayMinutes) }}
             {{- include "ft-aquarium-node.env" (dict "name" "SPRING_TASK_SCHEDULING_POOL_SIZE" "value" (.Values.scheduling | default dict).taskPoolSize) }}
             {{- /*
