@@ -1055,6 +1055,7 @@ design.
 | `liquidation.decisionLogSize` | `…_DECISION_LOG_SIZE` | in-memory decision ring buffer |
 | `loans.oracle.enabled` | `LOANS_ORACLE_ENABLED` | off ⇒ every collateral prices as unavailable, so nothing is liquidatable |
 | `loans.oracle.url` | `LOANS_ORACLE_URL` | wrong network's registry ⇒ collaterals silently price as unavailable |
+| `scheduling.transactionProcessorEnabled` | `SCHEDULING_TRANSACTION_PROCESSOR_ENABLED` | **The transaction processor is OFF unless this is `"true"`.** It builds and submits Scheduled Transactions from the operator wallet, so an unset value means a node that indexes and serves and spends nothing. ⚠ Upgrading: a processor that was running stops until this is set |
 | `scheduling.transactionProcessorDelayMinutes` | `SCHEDULING_TRANSACTION_PROCESSOR_DELAY_MINUTES` | |
 | `scheduling.taskPoolSize` | `SPRING_TASK_SCHEDULING_POOL_SIZE` | Spring's default of 1 lets the transaction processor starve the 30 s oracle refresh — observed as feeds ageing past expiry exactly while transactions were processing. The app corrects it to 4; lowering it reintroduces that |
 | `config.network` | `NETWORK` `[derived]` | the app derives this from the Spring profile. Setting it **overrides** that, so profile and network can disagree. Leave empty unless you mean to break the link |
