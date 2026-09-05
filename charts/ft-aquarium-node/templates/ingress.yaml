@@ -1,0 +1,55 @@
+{{- if .Values.ingress.enabled -}}
+{{- /*
+  This chart shipped NO ingress template at all until 0.7.0, and the absence was
+  documented as deliberate (README, "Publishing the UI"). It is present now
+  because Giovanni asked for a DNS name instead of a node port — but the reason
+  for the old absence has not gone away, so the guards below carry it.
+
+  Everything this chart serves lives on ONE port: the readiness UI, /healthcheck,
+  the Spring actuator, and the unauthenticated GET-only /api/v1. Publishing that
+  port publishes all four, from a pod holding a wallet seed.
+*/}}
+{{- if not .Values.ingress.host }}
+{{- fail "ingress.enabled is true but ingress.host is empty. An Ingress rule with no host is a CATCH-ALL: it matches every hostname that reaches the controller and is not claimed by another Ingress, which would publish this pod's unauthenticated /api/v1 and actuator on hostnames nobody chose. Set ingress.host to the DNS name you intend, or set ingress.enabled: false." }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "ft-aquarium-node.fullname" . }}
+  labels:
+    {{- include "ft-aquarium-node.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      {{- /*
+        Optional on purpose. Empty means "serve this host with the controller's
+        DEFAULT certificate", which is a real and supported deployment — a
+        wildcard already held by the controller. Named, it is the Secret
+        cert-manager writes (or that you create). Refusing an empty secretName
+        would make this chart stricter than Kubernetes, which is a defect.
+      */}}
+      {{- with .Values.ingress.tls.secretName }}
+      secretName: {{ . | quote }}
+      {{- end }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.path | quote }}
+            pathType: {{ .Values.ingress.pathType }}
+            backend:
+              service:
+                name: {{ include "ft-aquarium-node.fullname" . }}
+                port:
+                  number: {{ .Values.service.port }}
+{{- end }}

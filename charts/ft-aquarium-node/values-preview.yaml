@@ -27,7 +27,7 @@ config:
 # unauthenticated /api/v1 share it. Every /api/v1 route is GET-only and actuator
 # exposure is limited to health,prometheus, so this publishes READ access to a
 # wallet-holding pod, not control. On an untrusted network use port-forward
-# instead. See README, "No ingress, deliberately".
+# instead. See README, "Publishing the UI".
 service:
   type: NodePort
   nodePort: 30080

@@ -645,24 +645,75 @@ chart ships it set** — same rule as the liquidation flags: a stranger's
 
 ---
 
-## No ingress, deliberately
+## Publishing the UI
 
-`kupo` and `ogmios` in this repo both ship an ingress template, disabled by
-default. **This chart ships none at all, and that is a decision, not an
-omission.**
+The node requires no inbound access to do its job — it dials out to the relay
+(tcp 3001), Blockfrost and the oracle (HTTPS). Port 8080 needs to be reachable
+in-cluster for the kubelet's probes and for Prometheus, and that is all. But the
+operator readiness page is served by this pod and is meant to be opened in a
+browser, so there are two opt-in ways to publish it. **Neither is on by default,
+on any network, and they are independent of each other.**
 
-The node requires no inbound access — it dials out to the relay (tcp 3001),
-Blockfrost and the oracle (HTTPS). Port 8080 needs to be reachable **in-cluster
-only**, for the kubelet's probes and for Prometheus. And on that one port it
-serves the **unauthenticated** `/api/v1` API *and* the Spring actuator, from a pod
-holding a wallet seed. A disabled-but-present ingress would make exposing all of
-that a one-line edit by anyone who installs the chart.
+| | value | since |
+|---|---|---|
+| Node's network | `service.type: NodePort` | 0.1.0 |
+| DNS name via a controller | `ingress.enabled: true` | **0.7.0** |
 
-For debugging, use `kubectl port-forward`. If the loans API or metrics should be
-published later, that is a deliberate decision — and it wants a path scoped to
-`/api/v1`, not `/`.
+### Up to 0.6.1 this chart shipped NO ingress, and said so
 
-### The one exception: `service.type: NodePort`
+That is worth stating plainly rather than quietly deleting, because this file
+argued the opposite position for six releases and someone will find the old text.
+
+**The old argument.** `kupo` and `ogmios` both ship an ingress template disabled
+by default; this chart shipped none at all, on the grounds that a
+disabled-but-present ingress makes exposing the pod a one-line edit for anyone
+who installs the chart — and on that one port it serves the **unauthenticated**
+`/api/v1` *and* the Spring actuator, from a pod holding a wallet seed.
+
+**What changed is the requirement, not the risk.** Giovanni asked for a DNS name
+in place of a node port, which is a reasonable thing to want and which a chart
+cannot provide by being absent. **Every fact in the old argument still holds.**
+So the template exists, and the argument survives as guards rather than as
+absence:
+
+- `enabled: false` by default, on every network.
+- **`host` is mandatory when enabled — the template hard-fails without it.** Not
+  pedantry: an Ingress rule with no host is a **catch-all** that matches every
+  hostname reaching the controller which no other Ingress claims. An empty host
+  would publish this pod on names nobody chose, including ones added later.
+- No `values-*.yaml` in this repository presets `host`, `enabled`, or TLS — same
+  rule that keeps liquidation flags and LAN addresses out of a public chart.
+- TLS off by default, so choosing it is deliberate rather than inherited.
+
+**⚠ An ingress is a wider exposure than a NodePort, not a like-for-like swap.** A
+node port is reachable from the node's network; an ingress usually has public DNS
+and a public controller in front of it. The read-access argument below was made
+for a **trusted LAN**. If the name resolves publicly, put authentication in
+`ingress.annotations` — the controller's basic-auth or forward-auth. This chart
+ships none and cannot add it for you.
+
+**The narrower path, if only the API is wanted.** `ingress.path` defaults to `/`
+because that is what makes the readiness UI reachable at the bare hostname, and
+it is also the widest choice. `path: /api/v1` with `pathType: Prefix` leaves the
+actuator and the UI unreachable from outside — the shape this file recommended
+back when it shipped no ingress at all.
+
+```yaml
+ingress:
+  enabled: true
+  host: aquarium.example.internal   # required; no default, anywhere
+  className: ""                     # empty = the cluster's default IngressClass
+  path: /
+  pathType: Prefix
+  tls:
+    enabled: false                  # off by default; plain HTTP when off
+    secretName: ""                  # empty = the controller's default certificate
+```
+
+Enabling this does **not** turn off the NodePort. Set `service.type: ClusterIP`
+yourself if the node port should go away.
+
+### `service.type: NodePort`
 
 The operator readiness page is served by this pod and is meant to be opened in a
 browser, so `service.type` accepts `NodePort` on **any** network:
@@ -693,11 +744,16 @@ application, not of this chart** — re-check them before widening exposure:
 | Every `/api/v1` route is **GET-only** | no `POST`/`PUT`/`DELETE` exists, so nothing reachable can move funds or arm anything |
 | Actuator exposure is `health,prometheus` | set in the application's own configuration with no profile overriding it, so `/env`, `/configprops` and `/beans` are unreachable |
 
-The wallet seed is served by no endpoint. What is exposed is LAN-wide **read**
-access to lending positions and the node's wallet address — fine on a home LAN,
-not fine on an untrusted network, where `kubectl port-forward` remains the
-answer. If the application ever gains a mutating route or widens its actuator
-exposure, this trade changes and the Service should go back to `ClusterIP`.
+The wallet seed is served by no endpoint. What is exposed is **read** access to
+lending positions and the node's wallet address — fine on a home LAN, not fine on
+an untrusted network, where `kubectl port-forward` remains the answer. If the
+application ever gains a mutating route or widens its actuator exposure, this
+trade changes: the Service should go back to `ClusterIP` and the ingress off.
+
+**This table is the whole argument for BOTH mechanisms, and it assumes a trusted
+network.** An ingress on a publicly-resolvable name does not inherit it — the
+same GET-only API is then readable by anyone, not by the LAN. Re-read the two
+rows above before pointing public DNS at this.
 
 ---
 
@@ -825,7 +881,7 @@ rejects a mismatched pair at init.
 
 ### ⚠ The actuator exposure is a default, not a constant
 
-This chart argues elsewhere (*"No ingress, deliberately"*) that a NodePort
+This chart argues elsewhere (*"Publishing the UI"*) that a NodePort
 publishes read access rather than control, and part of that argument is that
 actuator exposure is limited to `health,prometheus` so `/env`, `/configprops`
 and `/beans` are unreachable.
