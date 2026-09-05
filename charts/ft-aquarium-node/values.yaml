@@ -163,19 +163,22 @@ terminationGracePeriodSeconds: 60
 #
 ## How many bots run. 0 or 1 — nothing else is valid.
 ##
-## ⛔ DEFAULT 0: NOTHING RUNS UNTIL SOMEONE ASKS. Same rule as the UI, the arming
-## flags and the Zalando CR — a stranger's `helm install` of a chart that signs
-## and submits transactions must not start it. Our own deployments set 1 in the
-## Argo application, inline, where the deployment is described.
+## Default 1: the chart deploys the workload it exists to deploy. Changed from 0
+## in 0.6.1 — 0 was chosen so a stranger's `helm install` started nothing, but
+## that protection was doing no work: a pod with no wallet Secret fails at
+## startup with a named error, and it cannot sign, submit or arm anything,
+## because the arming values and the secrets are separately absent. It bought a
+## surprising default rather than safety.
 ##
-## ⛔ AND MORE THAN 1 IS REFUSED AT RENDER. This bot signs with a single wallet;
-## two replicas means two schedulers scanning the same loans and building the
-## same liquidation. That is not a scaling knob with a bad value, it is a
-## different and much worse program, so the chart will not render it.
+## ⛔ MORE THAN 1 IS STILL REFUSED AT RENDER, and that guard is the one that
+## matters. This bot signs with a single wallet; two replicas means two
+## schedulers scanning the same loans and building the same liquidation. That is
+## not a scaling knob with a bad value, it is a different and much worse
+## program, so the chart will not render it.
 ##
-## Scaling to 0 is also the honest way to STOP the bot. Maintenance mode below
-## keeps the pod alive for exec access; `replicaCount: 0` removes it entirely.
-replicaCount: 0
+## `replicaCount: 0` remains the honest way to STOP the bot outright. Maintenance
+## mode below keeps the pod alive for exec access instead; 0 removes it.
+replicaCount: 1
 
 ## Maintenance mode.
 ##
