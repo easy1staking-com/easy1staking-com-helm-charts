@@ -71,10 +71,25 @@ listenPort: ""
 
 # ── [protocol] ───────────────────────────────────────────────────────────────
 protocol:
-  # How often to poll. The BLOCKFROST BUDGET LEVER — this is a local tuning knob,
-  # not a roster-wide agreement, so unlike the demo values it is safe to change
-  # alone. Lower burns request quota faster.
-  pollIntervalMs: 5000
+  # ⚠ 20000, DELIBERATELY NOT THE BINARY'S OWN 5000. The chart overrides the
+  # upstream default and the reasoning belongs here, at the value:
+  #
+  #   A Cardano block is ~20s. At 5000 roughly FOUR POLLS IN FIVE RE-READ A TIP
+  #   THAT HAS NOT MOVED — Blockfrost request budget spent on nothing. At 20000
+  #   each block is sampled about once.
+  #
+  #   And not slower than that: this bridge's 24h VIRTUAL EPOCH shrinks the DKG
+  #   join window to roughly 180s. That is 9 polls at 20s and only 3 at 60s —
+  #   three samples is not enough to reliably notice and join a window you must
+  #   not miss.
+  #
+  # A LOCAL knob: the roster does not compare it, so changing it alone is safe.
+  # Contrast the roster-wide values under `cardano:` below.
+  #
+  # ⚑ BITCOIN IS NEVER POLLED. heimdall cannot talk to a Bitcoin node at all, so
+  # this interval is Cardano-only — the [bitcoin] section below invites the
+  # opposite assumption.
+  pollIntervalMs: 20000
 
 # ── [bitcoin] ────────────────────────────────────────────────────────────────
 bitcoin:
@@ -106,14 +121,53 @@ cardano:
   # implicit so the rendered file states what is in force.
   submitOracle: true
   oracleConstructor: 0
+
+  # ── ROSTER-WIDE VALUES — CONSENSUS-AFFECTING, NOT TUNABLE ─────────────────
+  #
+  # ⛔ EVERYTHING IN THIS GROUP IS PUBLISHED ON /health AND COMPARED ACROSS THE
+  # ROSTER BY NAME. A peer that disagrees is LEFT OUT OF THAT CEREMONY. These are
+  # not preferences and not performance knobs: they are an agreement, and the
+  # only correct value is the one the rest of the federation is running.
+  #
+  # ⇒ Never change one of these to fix a local symptom. Changing it alone does
+  # not misconfigure this node, it REMOVES this node from ceremonies — which
+  # looks like a peer problem, not like a config edit.
+
+  # Compared across the roster BY NAME. The binary's own default, kept.
   stakeSource: blockfrost
 
-  # ⛔ DEMO STAKE — a BOOLEAN, no default, and think before setting it.
-  # This is a ROSTER-WIDE agreement, REFUSED OUTRIGHT ON MAINNET. A default here
-  # would not merely misconfigure one node, it would SPLIT THE ROSTER: nodes
-  # disagreeing on demo stake compute different rosters and stop signing
-  # together. Emitted only when explicitly set. This pilot roster runs `true`.
+  # ⛔ A BOOLEAN, no default, roster-wide, and REFUSED OUTRIGHT ON MAINNET.
+  # Emitted only when explicitly set. This pilot roster runs `true`.
   demoLiveStake: ""
+
+  # ⚠ `demo_exclude_unstaked` IS ALSO COMPARED ACROSS THE ROSTER, AND THIS CHART
+  # CANNOT SET IT YET — deliberately, not by oversight.
+  #
+  # It is absent from the binary's shipped example, so its section and type are
+  # unconfirmed. That used to be a survivable guess; it is not any more. Measured
+  # against the binary: a key under the WRONG SECTION is SILENTLY IGNORED and the
+  # config loads, so a guess here would produce a node that reports one thing on
+  # /health, runs a compiled default, and is dropped from ceremonies with nothing
+  # anywhere saying why.
+  #
+  # ⇒ Confirm the section and type against the guide's complete config, then add
+  # it here with the other two.
+
+  # ── end roster-wide group ─────────────────────────────────────────────────
+
+  # OPTIONAL, no default, integer (lovelace). The registration stake gate.
+  #
+  # ⚠ OMITTING IT DOES NOT MEAN "NO MINIMUM" — it means an UNKNOWN COMPILED
+  # DEFAULT governs the gate. It is absent from the binary's shipped example but
+  # present in the guide's complete config, so the chart can set it and cannot
+  # tell you what the fallback is.
+  #
+  # ⚑ Why that matters here specifically: our epoch-snapshot active stake is ZERO
+  # until epoch 315. If the compiled default is greater than zero, `register-spo`
+  # REFUSES and prints the dry run instead of registering — which reads as a
+  # broken registration rather than as a stake threshold. Setting this to 0 is
+  # the way to state "no minimum" out loud.
+  minStakeLovelace: ""
 
 # ── The Blockfrost credential — BY REFERENCE, NEVER BY VALUE ─────────────────
 #

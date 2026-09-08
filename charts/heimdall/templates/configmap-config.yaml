@@ -11,13 +11,21 @@
   start by the init container in deployment.yaml, into a memory-backed volume.
   What lives here is the template, carrying a placeholder.
 
+  ⛔ EVERY SECTION HEADER IN THIS FILE IS LOAD-BEARING, AND A TYPO IN ONE IS
+  SILENT. Measured against the binary with `heimdall doctor`: an unknown key
+  inside a real section is IGNORED and the config loads; a REAL key under the
+  WRONG header is IGNORED and the config loads. Only TYPE errors are refused.
+  ⇒ So moving a key to the wrong section does not fail, it makes the daemon run
+  a compiled default nobody chose, on a node that signs. `helm template` cannot
+  see that and neither can a rendered diff. ../verify-config-schema.py asserts
+  the exact (section, key) set against an allowlist — run it after ANY edit here.
+
   ⛔ KEYS DELIBERATELY ABSENT, each for a reason that bites if "fixed":
     [cardano] mnemonic          its PRESENCE disables $HEIMDALL_MNEMONIC
     [cardano] cold_skey_path    the pool cold key never enters the cluster
     [cardano] cold_vkey_path    likewise
-    peg-out freshness margin    now compiled in; a config setting it is REFUSED
-                                AT LOAD, so emitting it would stop the daemon
-    everything else             an unrecognised key is refused, not ignored
+    peg-out freshness margin    now compiled in, and the ONE key the binary
+                                refuses BY NAME — emitting it stops the daemon
 */ -}}
 apiVersion: v1
 kind: ConfigMap
@@ -56,6 +64,18 @@ data:
     submit_oracle = {{ .Values.cardano.submitOracle }}
     oracle_constructor = {{ include "heimdall.num" .Values.cardano.oracleConstructor }}
     stake_source = {{ .Values.cardano.stakeSource | quote }}
+    {{- /*
+      OPTIONAL, u64. Emitted only when set — and omitting it means an UNKNOWN
+      COMPILED DEFAULT governs the registration stake gate, not "no minimum".
+      Through the numeric helper because a values-file number would otherwise
+      render as a float, which the daemon DOES refuse (type errors are the one
+      class it does not ignore).
+    */}}
+    {{- if not (kindIs "invalid" .Values.cardano.minStakeLovelace) }}
+    {{- if ne (toString .Values.cardano.minStakeLovelace) "" }}
+    min_stake_lovelace = {{ include "heimdall.num" .Values.cardano.minStakeLovelace }}
+    {{- end }}
+    {{- end }}
     {{- /*
       Roster-wide and refused on mainnet — emitted ONLY when explicitly set. A
       default would split the roster rather than merely misconfigure a node.

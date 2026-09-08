@@ -93,6 +93,13 @@ spec:
             - sh
             - -ec
             - |
+              command -v sed >/dev/null 2>&1 || {
+                echo "heimdall: no 'sed' in the init image ({{ include "heimdall.initImage" . }})." >&2
+                echo "  This step assembles the config with sed; the application image is" >&2
+                echo "  Alpine-based and has it. If you have moved to a distroless base, set" >&2
+                echo "  initImage to any image providing a POSIX shell and sed." >&2
+                exit 1
+              }
               if [ -z "${BLOCKFROST_PROJECT_ID:-}" ]; then
                 echo "heimdall: the Secret named by blockfrost.secretName gave an EMPTY project id." >&2
                 echo "  Secret key: {{ .Values.blockfrost.secretKey }}" >&2

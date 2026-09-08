@@ -256,19 +256,79 @@ a 6-hour ceremony grid, but treat the numbers as a starting point.
 a request larger than that headroom leaves the pod `Pending` however much memory
 is actually free.
 
-## Where the config schema comes from
+## Where the config schema comes from — and the guard that keeps it honest
 
-Sections, keys and types are taken from the binary's own shipped example —
+Sections, keys and types come from the binary's own shipped example,
 `/usr/share/heimdall/heimdall.toml.example` inside
-`ghcr.io/lantr-io/heimdall:0.1-M5.3` — not from inference. An earlier draft of
-this chart guessed the layout and placed `skey_path` and `url` under `[cardano]`;
-they are under `[bifrost]`. That guess is gone.
+`ghcr.io/lantr-io/heimdall:0.1-M5.3`, plus `min_stake_lovelace` from the guide's
+complete config. An earlier draft guessed and put `skey_path` and `url` under
+`[cardano]`; they are under `[bifrost]`.
 
-`[protocol].state_dir` is **required by the daemon**: it refuses to start without
-one, because an empty trie would **double-pay a peg-out**. The chart emits it
-from `persistence.mountPath`, the same key the volume mount uses, so the config
-and the mount cannot disagree.
+⛔ **A wrong section header is silent, so the chart has to catch it itself.**
+Measured against the binary with `heimdall doctor`:
 
-`[protocol].poll_interval_ms` is the **Blockfrost budget lever** and is a local
-tuning knob rather than a roster-wide agreement — safe to change alone, unlike
-the demo values. Lower burns request quota faster.
+| | |
+|---|---|
+| unknown key inside a real section | **silently ignored**, config loads |
+| a real key under the **wrong** header | **silently ignored**, config loads |
+| wrong **type** | refused — `invalid type: string, expected u64` |
+
+Only type errors are refused, plus exactly one deprecated key by name. So a
+typo'd header produces **no error and no effect**, and the daemon runs a compiled
+default nobody chose — on a node that signs. `helm template`, `helm lint` and a
+rendered diff all look fine, because the key *is* there, just under the wrong
+heading.
+
+`verify-config-schema.py` renders the chart, assembles the config, and asserts
+the **exact set of `(section, key)` pairs** against an allowlist, plus integer
+types where the daemon wants `u64`. **Run it after any edit to
+`templates/configmap-config.yaml`:**
+
+```bash
+./charts/heimdall/verify-config-schema.py <your-values.yaml>
+```
+
+It is mutation-tested: a moved key, a typo'd key, a missing required key, a
+stray key, a float where an integer belongs, and each forbidden key are all
+caught. Excluded from `helm package` — it is a repo tool, not a chart artifact.
+
+## Values that are agreements, not settings
+
+⛔ `cardano.stakeSource` and `cardano.demoLiveStake` are **published on `/health`
+and compared across the roster by name.** A peer that disagrees is **left out of
+that ceremony**.
+
+⇒ **Never change one to fix a local symptom.** Doing so does not misconfigure
+this node — it *removes* this node from ceremonies, which presents as a peer
+problem rather than as a config edit.
+
+⚠ `demo_exclude_unstaked` is also compared, and **this chart cannot set it yet,
+deliberately.** Its section and type are unconfirmed, and a guess is no longer
+survivable: a key under the wrong section is silently ignored, so the node would
+report one thing and run another. Confirm it, then add it beside the other two.
+
+`protocol.pollIntervalMs` is the opposite — a **local** knob the roster does not
+compare, safe to change alone.
+
+## Two knobs worth understanding before you change them
+
+**`protocol.pollIntervalMs` defaults to `20000`, not the binary's `5000`.** A
+Cardano block is ~20s, so at 5000 roughly four polls in five re-read a tip that
+has not moved — Blockfrost budget spent on nothing. Not slower, either: this
+bridge's 24h virtual epoch shrinks the DKG join window to ~180s, which is 9 polls
+at 20s but only 3 at 60s.
+
+⚑ **Bitcoin is never polled** — heimdall cannot talk to a Bitcoin node at all.
+The `[bitcoin]` section invites the opposite assumption.
+
+**`cardano.minStakeLovelace` is optional with no default, and omitting it does
+not mean "no minimum"** — it means an unknown compiled default governs the
+registration gate. Our epoch-snapshot active stake is zero until epoch 315, so if
+that default is above zero, `register-spo` refuses and prints the dry run
+instead, which reads as a broken registration rather than a stake threshold.
+Setting it to `0` states "no minimum" out loud.
+
+`[protocol].state_dir` is **required by the daemon** — it refuses to start
+without one, because an empty trie would **double-pay a peg-out**. The chart
+emits it from `persistence.mountPath`, the same key the volume mount uses, so
+config and mount cannot diverge.
