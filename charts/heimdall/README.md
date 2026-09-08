@@ -3,6 +3,10 @@
 Easy1Staking's node in the **Bifrost** BTC↔Cardano bridge. Preprod pilot now,
 mainnet later.
 
+> ⚠ **ALPHA — no node has yet been run against this chart.** Pilot preprod,
+> 09-2026. Published as `0.1.0-alpha.1`, so `helm search` and `helm install` will
+> not select it without `--devel` or an explicit version.
+
 A single Rust/musl binary (`/usr/bin/heimdall`) from `ghcr.io/lantr-io/heimdall`.
 It is **not** a JVM service — none of this repo's `JAVA_TOOL_OPTIONS`,
 `MaxRAMPercentage` or heap-sizing conventions apply, and nothing is built

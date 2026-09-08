@@ -7,7 +7,12 @@ type: application
 # Chart version — this chart's own semver. Bump on every chart change.
 # NOTE: bumping this in a commit to `main` publishes the chart immediately via
 # chart-releaser. That bump is the release gate and belongs to Giovanni.
-version: 0.1.0
+#
+# ⚠ ALPHA — NOT YET RUN AGAINST A LIVE NODE. Pilot preprod 09-2026.
+# The SemVer pre-release suffix is doing real work: `helm search` and
+# `helm install` will NOT select this without `--devel` or an explicit version,
+# which is the point. It comes off when a node has actually run against it.
+version: 0.1.0-alpha.1
 
 # ⛔ THERE IS DELIBERATELY NO `appVersion`, and that is a divergence from every
 # other chart in this repository. Do not "fix" it by adding one.
