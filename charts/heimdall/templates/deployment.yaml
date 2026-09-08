@@ -1,0 +1,132 @@
+{{- /*
+  ⛔ replicas: 1, HARDCODED. There is no `replicaCount`, no HPA and no
+  autoscaling stanza anywhere in this chart — nothing that invites a 2.
+
+  This is CORRECTNESS, not preference or cost. The node signs from ONE key with
+  no idempotence key: two replicas race the same state and BOTH SIGN before
+  either is rejected. Same reason ft-aquarium-node in this repo exposes no
+  replicaCount — do not normalise either toward the other charts.
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "heimdall.fullname" . }}
+  labels:
+    {{- include "heimdall.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  {{- /*
+    Recreate, not RollingUpdate. RollingUpdate deliberately OVERLAPS the old and
+    new pods, which is the precise state the single-signer rule above forbids —
+    and the state volume is ReadWriteOnce, so the new pod would not schedule
+    anyway.
+
+    ⚠ THE ACCEPTED TRADE, stated because it is real: under Recreate NO DEPLOY
+    FAILS SAFELY. The old pod is gone before the new one starts, so a bad image
+    tag is downtime rather than a rollout that halts with the old pod serving.
+  */}}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "heimdall.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- /* Roll the pod when the rendered config changes. */}}
+        checksum/config: {{ include (print $.Template.BasePath "/secret-config.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "heimdall.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- /* 0700 on the state dir, per the upstream package's own posture. */}}
+        fsGroup: 1000
+      containers:
+        - name: heimdall
+          image: {{ include "heimdall.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: heimdall
+              containerPort: {{ include "heimdall.port" . }}
+              protocol: TCP
+          env:
+            {{- /*
+              ⚠ ENV VAR, NOT A FILE, AND THAT IS A DIVERGENCE FROM THIS REPO'S
+              USUAL POSTURE — stated here rather than only in a commit message.
+              Elsewhere we mount secrets as files because a file beats an env
+              var. The heimdall binary reads ONLY $HEIMDALL_MNEMONIC; there is no
+              file mode, and inventing one would configure nothing.
+
+              ⛔ It is read ONLY WHEN `cardano.mnemonic` IS ABSENT from the TOML.
+              secret-config.yaml never emits that key, which is what makes this
+              work — the absence is the mechanism, not an oversight.
+            */}}
+            - name: HEIMDALL_MNEMONIC
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "heimdall: mnemonic.secretName is REQUIRED. Create the Secret out of band and name it here — this chart references Secrets, it never contains them." .Values.mnemonic.secretName }}
+                  key: {{ .Values.mnemonic.secretKey | quote }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/heimdall/heimdall.toml
+              subPath: heimdall.toml
+              readOnly: true
+            - name: state
+              mountPath: /var/lib/heimdall
+          {{- /*
+            ⛔ NO readinessProbe, DELIBERATELY. Do not add one.
+
+            /health answers "is this process up", NOT "is this node healthy" — it
+            says nothing about roster membership, sync or ceremony state, and no
+            endpoint does. A plausible readiness probe would assert something it
+            cannot know; a FAILING one would pull this pod out of the Service and
+            break the peer reachability every ceremony depends on. Shipping none
+            is the honest option, and this comment is here so nobody "completes"
+            the chart later.
+
+            Liveness on /health is fine — that is exactly what /health reports.
+            The generous budget goes in startupProbe, never in
+            livenessProbe.initialDelaySeconds.
+          */}}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: heimdall
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: heimdall
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: config
+          secret:
+            secretName: {{ include "heimdall.fullname" . }}-config
+            defaultMode: 0400
+        - name: state
+          persistentVolumeClaim:
+            claimName: {{ include "heimdall.claimName" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

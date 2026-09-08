@@ -1,0 +1,35 @@
+{{- /*
+  ⛔ THE VOLUME THAT LOSES MONEY IF IT IS LOST.
+
+  It holds the epoch's DKG signing share and federation-key.json. A container
+  replaced without it comes back UNABLE TO RESUME, and the federation share has
+  no second copy: once surviving shares fall below the threshold the recovery
+  path is gone for good. It never regenerates.
+
+  `helm.sh/resource-policy: keep` means `helm uninstall` LEAVES THIS BEHIND.
+  That is the point. Deleting it is a decision someone should make on purpose,
+  with the backup in hand.
+
+  Skipped entirely when persistence.existingClaim is set — replacing a container
+  onto EXISTING state is stage 3 of the pilot, and a chart that provisioned a
+  fresh claim there would fail that stage by construction.
+*/ -}}
+{{- if not .Values.persistence.existingClaim }}
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: {{ include "heimdall.fullname" . }}-state
+  labels:
+    {{- include "heimdall.labels" . | nindent 4 }}
+  annotations:
+    helm.sh/resource-policy: keep
+spec:
+  accessModes:
+    - ReadWriteOnce
+  {{- with .Values.persistence.storageClass }}
+  storageClassName: {{ . | quote }}
+  {{- end }}
+  resources:
+    requests:
+      storage: {{ .Values.persistence.size | quote }}
+{{- end }}

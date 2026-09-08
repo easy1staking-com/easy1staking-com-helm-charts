@@ -1,0 +1,20 @@
+{{- /*
+  ONE port. It serves /health plus the DKG and signing round payloads — there is
+  no second surface, no metrics endpoint (upstream WI-058 is unstarted) and
+  therefore no ServiceMonitor in this chart.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "heimdall.fullname" . }}
+  labels:
+    {{- include "heimdall.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ include "heimdall.port" . }}
+      targetPort: heimdall
+      protocol: TCP
+      name: heimdall
+  selector:
+    {{- include "heimdall.selectorLabels" . | nindent 4 }}
