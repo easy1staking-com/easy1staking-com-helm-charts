@@ -725,6 +725,17 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ft-aquarium-node-0.1.0/ft-aquarium-node-0.1.0.tgz
     version: 0.1.0
+  heimdall:
+  - apiVersion: v2
+    created: "2026-09-08T21:32:35.331688165Z"
+    description: Easy1Staking's node in the Bifrost BTC<->Cardano bridge (preprod
+      pilot)
+    digest: 6bf445df126b8b38a2c27f10ccf66c41d6c39da470074aa8ed3e74e69daf1994
+    name: heimdall
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/heimdall-0.1.0-alpha.1/heimdall-0.1.0-alpha.1.tgz
+    version: 0.1.0-alpha.1
   kupo:
   - apiVersion: v2
     appVersion: v2.11.0
@@ -1228,4 +1239,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ogmios-0.0.1-alpha2/ogmios-0.0.1-alpha2.tgz
     version: 0.0.1-alpha2
-generated: "2026-09-05T21:24:06.292596893Z"
+generated: "2026-09-08T21:32:35.332030788Z"
