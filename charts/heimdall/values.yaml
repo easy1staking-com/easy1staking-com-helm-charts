@@ -27,29 +27,76 @@ imagePullSecrets: []
 nameOverride: ""
 fullnameOverride: ""
 
-# ── The one port ─────────────────────────────────────────────────────────────
+# ── The advertised URL and the listening port — TWO INDEPENDENT VALUES ───────
 #
-# ⛔ REQUIRED, no default. Heimdall serves exactly one port: /health plus the DKG
-# and signing round payloads. Nothing else is exposed.
+# ⛔ BOTH REQUIRED, NO DEFAULTS, AND THEY ARE NOT THE SAME THING. Conflating them
+# is the mistake this pair exists to prevent.
 #
-# ⚠ THIS PORT IS PUBLIC BY CONSTRUCTION AND CHANGING IT LATER IS A CHAIN WRITE.
-# The node's URL is registered ON CHAIN, and the port inside that URL is the port
-# the daemon binds. Pick it once, with the URL. The container always binds
-# 0.0.0.0 — reachability is decided by the Service and Ingress below, not by the
-# bind address.
-port: ""
+#   advertisedUrl  what peers dial, written ON CHAIN at registration
+#   listenPort     what the daemon binds inside the container
+#
+# Two documented shapes, and the roster runs both:
+#
+#   1. PROXY:    advertisedUrl: https://heimdall.example.org   (no port)
+#                listenPort:    8901
+#                TLS terminated in front (Cloudflare, ingress). The URL carries
+#                no port; the pod still listens on listenPort.
+#
+#   2. DIRECT:   advertisedUrl: http://203.0.113.10:8901
+#                listenPort:    8901
+#                No proxy. THE PORT IN THE URL MUST EQUAL listenPort — peers dial
+#                exactly what is registered. The chart enforces this: if
+#                advertisedUrl carries an explicit port and it disagrees with
+#                listenPort, the render fails rather than shipping a node nobody
+#                can reach.
+#
+# ⚠ https is NOT required by the bridge. All four live pilot nodes register plain
+# `http://ip:port`. The proxy shape is the documented alternative, not an upgrade.
+#
+# ⛔ THE ADVERTISED URL IS A ONE-WAY DOOR. It is registered on chain, so changing
+# it later is a CHAIN WRITE, not a values edit and a rollout. Decide it once,
+# with whoever runs the roster.
+#
+# ⚠ The chart does NOT emit advertisedUrl into heimdall.toml — registration is
+# performed off-cluster by `heimdall sign-registration`, beside the cold key. It
+# is required here so the port invariant above can be checked, and so the
+# deployment itself records what was registered. See README if the daemon turns
+# out to want it in config after all.
+advertisedUrl: ""
+listenPort: ""
+
+# ── The Blockfrost credential — BY REFERENCE, NEVER BY VALUE ─────────────────
+#
+# ⛔ THERE IS NO `blockfrostProjectId` VALUE AND THERE MUST NEVER BE ONE.
+# This repository is public and carries no secret in any form, tracked or
+# untracked. Charts here reference Secret objects by name; they never contain
+# their contents, and never render them from values either — a credential passed
+# through `--set` still lands in the release's stored manifest.
+#
+# Create the Secret out of band and name it here. Same posture as `mnemonic`
+# below.
+#
+# ⚠ HOW THE VALUE REACHES THE DAEMON IS NOT YET SETTLED — see README, "The two
+# things that need checking". If heimdall reads the project id from the
+# environment, the wiring below is complete as it stands. If it is TOML-only, the
+# file must be assembled at container start from this env var, and THAT is the
+# one line that changes. The values surface is identical either way, which is the
+# point of settling it now.
+blockfrost:
+  # ⛔ REQUIRED. Name of an EXISTING Secret you created out of band.
+  secretName: ""
+  secretKey: project-id
 
 # ── Cardano / Bifrost configuration -> /etc/heimdall/heimdall.toml ───────────
 #
-# ⛔ THIS BLOCK IS RENDERED INTO A **SECRET**, NEVER A CONFIGMAP, because
-# `blockfrostProjectId` is a credential — the same reason the upstream Debian
-# package installs heimdall.toml 0640 root:heimdall.
+# ⛔ RENDERED INTO A **SECRET**, NEVER A ConfigMap — the upstream Debian package
+# installs heimdall.toml 0640 root:heimdall for the same reason.
 #
-# ⚠ CONSEQUENCE, READ IT: whatever you put in `blockfrostProjectId` ends up in a
-# rendered Kubernetes Secret. Supply it from a private values file or `--set` at
-# install time. It must NEVER be written into this repository — see README,
-# "Where the credential lives", and the standing rule that this repo carries no
-# secret in any form, tracked or untracked.
+# Nothing in this block is a credential: the one credential is referenced above.
+# These keys stay TEMPLATED with `required` precisely because they are not
+# secrets — and that enforcement is what makes the mainnet-by-omission trap
+# impossible. Handing the whole file to an operator-supplied Secret would drop
+# every one of those checks.
 config:
   # ⛔ REQUIRED as soon as a Blockfrost URL is set — and the failure mode is why
   # it has no default: heimdall REFUSES TO START without it, and an UNRESOLVABLE
@@ -57,9 +104,8 @@ config:
   # forward onto real funds.
   network: ""
 
-  # ⛔ REQUIRED. A credential. See the SECRET warning above.
-  blockfrostProjectId: ""
   # The Blockfrost endpoint for `network`. Empty leaves the binary's own default.
+  # Not a credential — the project id is referenced separately, below.
   blockfrostUrl: ""
 
   # ⛔ REQUIRED both. The on-chain config UTxO the roster reads.

@@ -69,9 +69,10 @@ from a wallet.
 | Value | Why it has no default |
 |---|---|
 | `image.tag` | Run the build **the roster runs**. Peers compare `version` *and* `blueprint_digest` before every ceremony; a mismatched node is named by pool id and dropped |
-| `port` | The node's URL is registered **on chain** and this is the port inside it. Changing it later is a chain write |
+| `advertisedUrl` | What peers dial, written **on chain** at registration — a one-way door |
+| `listenPort` | What the daemon binds inside the container. **Not the same value** |
+| `blockfrost.secretName` | Names an existing Secret holding the project id |
 | `config.network` | heimdall refuses to start without it, and an **unresolvable network is treated as mainnet** — a typo falls forward onto real funds, not back to preprod |
-| `config.blockfrostProjectId` | A credential |
 | `config.configAddress`, `config.configNftPolicyId` | The on-chain config UTxO |
 | `config.stakeSource`, `config.minStakeLovelace` | Roster-wide stake policy |
 | `mnemonic.secretName` | Names an existing Secret; the chart never contains one |
@@ -105,16 +106,71 @@ generated it per install would mint a **new identity on every reinstall** and
 silently orphan the old one along with its shares. Generate it once, back it up
 off-cluster.
 
-## Where the credential lives
+## Where the credentials live — all by reference, none by value
 
-`heimdall.toml` is rendered into a **Secret, never a ConfigMap**, because it
-carries `blockfrost_project_id` — the same reason the upstream Debian package
-installs it `0640 root:heimdall`.
+| | |
+|---|---|
+| Blockfrost project id | `blockfrost.secretName` / `secretKey` → `BLOCKFROST_PROJECT_ID` |
+| Wallet mnemonic | `mnemonic.secretName` / `secretKey` → `HEIMDALL_MNEMONIC` |
 
-⚠ **This means `config.blockfrostProjectId` reaches a rendered Kubernetes
-Secret.** Supply it from a private values file or `--set` at install time. It
-must **never** be written into this repository, which is public and carries no
-secret in any form, tracked or untracked.
+**There is no `blockfrostProjectId` value and there must never be one.** This
+repository is public and carries no secret in any form, tracked or untracked.
+Charts here reference Secrets by name; they never contain their contents — and
+never render them from values either, since a credential passed via `--set`
+still lands in the release's stored manifest.
+
+`heimdall.toml` is still a **Secret, not a ConfigMap** (the upstream Debian
+package installs it `0640 root:heimdall`), but it now carries no credential —
+`blockfrost_project_id` is deliberately absent from the rendered file.
+
+The non-credential config stays **templated with `required`**, and that is the
+point: those checks are what make the mainnet-by-omission trap impossible.
+Handing the whole file to an operator-supplied Secret would drop every one of
+them.
+
+## The advertised URL and the listening port are two different values
+
+⛔ **`advertisedUrl` is a one-way door.** It is written **on chain** at
+registration, so changing it later is a **chain write** — not a values edit and
+a rollout. Decide it once, with whoever runs the roster.
+
+Two documented shapes, and the roster runs both:
+
+| | `advertisedUrl` | `listenPort` | in front |
+|---|---|---|---|
+| **Proxy** | `https://heimdall.example.org` (no port) | `8901` | Cloudflare / ingress terminates TLS |
+| **Direct** | `http://203.0.113.10:8901` | `8901` | nothing |
+
+⚠ **https is not required by the bridge.** All four live pilot nodes register
+plain `http://ip:port`. The proxy shape is the documented alternative, not an
+upgrade.
+
+**In the direct shape the two must agree, and the chart enforces it**: if
+`advertisedUrl` carries an explicit port that differs from `listenPort`, the
+render fails. Registering a port nothing listens on is discovered by peers, and
+correcting it costs a chain write. A URL with no port is the proxy shape and is
+left alone.
+
+`bind_address` is always `0.0.0.0` in the container — loopback is unreachable
+from outside the network namespace even with a published port — and stays
+`0.0.0.0` behind an ingress. Reachability is decided by the Service and Ingress,
+never by narrowing the bind.
+
+Traffic is ordinary HTTP request/response (`/health` plus DKG and signing round
+payloads). No client certificates, no websockets, no long-poll — a standard
+reverse proxy or ingress does not break it, and this chart's ingress template is
+correspondingly plain.
+
+## Which build to run
+
+The roster currently runs **version `0.1.0`, `blueprint_digest
+e8987f35bc2e577f`**. ⚠ **Which release tag that is has not been established** —
+so `image.tag` stays required with no default, and this paragraph is a pointer to
+ask the roster, not a value to copy.
+
+Before every ceremony each node compares peers' `/health`: both `version` and
+`blueprint_digest` must match, and a mismatched peer is named by pool id and left
+out of that ceremony.
 
 ## Single replica, and `Recreate`
 
@@ -140,14 +196,24 @@ a 6-hour ceremony grid, but treat the numbers as a starting point.
 a request larger than that headroom leaves the pod `Pending` however much memory
 is actually free.
 
-## ⚠ The one thing that needs checking before this is deployed
+## ⚠ The two things that need checking before this is deployed
 
-**The TOML *section layout* in `templates/secret-config.yaml` is inferred, not
-verified.** The key *names* come from the operator guide; their grouping into
-`[cardano]` and `[bifrost]` is an inference from the single documented
-dotted-path reference, `cardano.mnemonic`.
+**1. The TOML section layout is inferred, not verified.** The key *names* come
+from the operator guide; their grouping into `[http]`, `[cardano]` and
+`[bifrost]` is largely inference — `http.listen_port` and `cardano.mnemonic` are
+the only documented dotted paths, and the rest is placed by analogy.
 
 Every key could be correct and the file still rejected if a section boundary is
 wrong. **Confirm the layout against the upstream guide before the first deploy.**
-A render proves the chart produces the file it intends to; it cannot prove the
+A render proves the chart produces the file it intends; it cannot prove the
 binary accepts it.
+
+**2. How the Blockfrost project id reaches the daemon is unsettled.** The chart
+injects `BLOCKFROST_PROJECT_ID` from a Secret and omits the key from the TOML,
+which is complete *if* the daemon reads it from the environment.
+
+If it turns out to be **TOML-only**, exactly two places change: the omission in
+`templates/secret-config.yaml`, and the env block in
+`templates/deployment.yaml`. The file would then be assembled at container start
+from the same env var, so that no credential ever appears in chart output. **The
+values surface is identical either way** — which is why it was settled first.

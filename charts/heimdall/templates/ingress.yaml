@@ -42,5 +42,5 @@ spec:
               service:
                 name: {{ include "heimdall.fullname" . }}
                 port:
-                  number: {{ include "heimdall.port" . }}
+                  number: {{ include "heimdall.listenPort" . }}
 {{- end }}

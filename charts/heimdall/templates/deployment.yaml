@@ -35,6 +35,25 @@ spec:
       annotations:
         {{- /* Roll the pod when the rendered config changes. */}}
         checksum/config: {{ include (print $.Template.BasePath "/secret-config.yaml") . | sha256sum }}
+        {{- /*
+          ⛔ THIS ANNOTATION IS LOAD-BEARING — it is not decoration, and removing
+          it disables two guards.
+
+          `advertisedUrl` is not emitted into heimdall.toml (registration happens
+          off-cluster), so this is the ONLY place the helper is invoked — and a
+          Helm helper that nothing calls is dead code. Rendering it here is what
+          makes `advertisedUrl` actually REQUIRED, and what actually runs the
+          check that a port inside the URL matches listenPort.
+
+          Measured while writing this chart: both guards existed and neither
+          fired, because the helper was defined and never included. The render
+          was green and the guards were decorative.
+
+          It also earns its place on merit: the running Deployment records what
+          was registered on chain, which is otherwise written down nowhere in the
+          cluster.
+        */}}
+        heimdall.easy1staking.com/advertised-url: {{ include "heimdall.advertisedUrl" . | quote }}
         {{- with .Values.podAnnotations }}
         {{- toYaml . | nindent 8 }}
         {{- end }}
@@ -54,7 +73,7 @@ spec:
           imagePullPolicy: {{ .Values.image.pullPolicy }}
           ports:
             - name: heimdall
-              containerPort: {{ include "heimdall.port" . }}
+              containerPort: {{ include "heimdall.listenPort" . }}
               protocol: TCP
           env:
             {{- /*
@@ -68,6 +87,22 @@ spec:
               secret-config.yaml never emits that key, which is what makes this
               work — the absence is the mechanism, not an oversight.
             */}}
+            {{- /*
+              The Blockfrost project id, by reference. The chart renders no
+              credential into its own output; see secret-config.yaml, which
+              deliberately omits the TOML key.
+
+              ⚠ Provisional NAME: BLOCKFROST_PROJECT_ID is the expected variable
+              but is not yet confirmed against the guide, and neither is whether
+              the daemon reads it from the environment at all. This block and the
+              omission in the TOML are the two places that change if it is
+              TOML-only.
+            */}}
+            - name: BLOCKFROST_PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "heimdall: blockfrost.secretName is REQUIRED. The Blockfrost project id is a CREDENTIAL: create the Secret out of band and name it here. This chart never carries a credential in values, and never renders one into its own output." .Values.blockfrost.secretName }}
+                  key: {{ .Values.blockfrost.secretKey | quote }}
             - name: HEIMDALL_MNEMONIC
               valueFrom:
                 secretKeyRef:

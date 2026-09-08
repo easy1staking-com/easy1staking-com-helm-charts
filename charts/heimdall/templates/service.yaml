@@ -12,7 +12,7 @@ metadata:
 spec:
   type: {{ .Values.service.type }}
   ports:
-    - port: {{ include "heimdall.port" . }}
+    - port: {{ include "heimdall.listenPort" . }}
       targetPort: heimdall
       protocol: TCP
       name: heimdall

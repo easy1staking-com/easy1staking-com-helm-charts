@@ -37,11 +37,35 @@ this chart. See Chart.yaml for why there is no appVersion to fall back on.
 {{- end }}
 
 {{/*
-⛔ REQUIRED, and the reason is the failure mode, not tidiness: heimdall refuses
-to start without a network, and an UNRESOLVABLE one is TREATED AS MAINNET.
+The port the daemon BINDS. Distinct from the port inside the advertised URL —
+see heimdall.advertisedUrl below, which enforces the one case where they must
+agree.
 */}}
-{{- define "heimdall.port" -}}
-{{- required "heimdall: `port` is REQUIRED and has no default. This node's URL is registered ON CHAIN and the port inside that URL is the port the daemon binds, so changing it later is a chain write. Choose it together with the URL." .Values.port -}}
+{{- define "heimdall.listenPort" -}}
+{{- required "heimdall: `listenPort` is REQUIRED and has no default. It is the port the daemon binds inside the container. Note it is NOT necessarily the port peers dial: with TLS terminated in front, `advertisedUrl` carries no port at all." .Values.listenPort -}}
+{{- end }}
+
+{{/*
+The URL peers dial, registered ON CHAIN.
+
+⛔ THE INVARIANT: if this URL carries an EXPLICIT PORT there is no proxy in
+front, so that port must be the one the daemon binds. A mismatch registers an
+address nobody answers on — and because the URL is on chain, discovering it
+later costs a chain write, not a values edit. A URL with no port is the
+terminate-TLS-in-front shape and is left alone.
+*/}}
+{{- define "heimdall.advertisedUrl" -}}
+{{- $url := required "heimdall: `advertisedUrl` is REQUIRED and has no default. It is what peers dial and it is written ON CHAIN at registration, so changing it later is a chain write. Both `https://host` (TLS terminated in front) and `http://host:PORT` (no proxy) are documented shapes." .Values.advertisedUrl -}}
+{{- $hostport := $url | replace "https://" "" | replace "http://" "" | trimSuffix "/" -}}
+{{- $hostport = (splitList "/" $hostport) | first -}}
+{{- if contains ":" $hostport -}}
+{{- $urlPort := (splitList ":" $hostport) | last -}}
+{{- $listen := printf "%v" (include "heimdall.listenPort" $) -}}
+{{- if ne $urlPort $listen -}}
+{{- fail (printf "heimdall: advertisedUrl names port %s but listenPort is %s. A URL carrying an explicit port means NO PROXY IN FRONT, so peers dial that port directly and the daemon must bind it. Registering a port nothing listens on costs a CHAIN WRITE to correct, not a values edit. Either make them equal, or drop the port from advertisedUrl if TLS is terminated in front." $urlPort $listen) -}}
+{{- end -}}
+{{- end -}}
+{{- $url -}}
 {{- end }}
 
 {{/*
@@ -70,5 +94,26 @@ The claim the pod mounts: an adopted existing one, or the one this chart creates
 {{- .Values.persistence.existingClaim -}}
 {{- else -}}
 {{- printf "%s-state" (include "heimdall.fullname" .) -}}
+{{- end -}}
+{{- end }}
+
+{{/*
+⛔ INTEGER-SAFE RENDERING. Do not emit a number into the TOML without this.
+
+Helm parses numbers from a VALUES FILE as float64, so `min_stake_lovelace:
+1000000000` renders as `1e+09` — which TOML reads as a FLOAT, not the integer
+count of lovelace the daemon expects. `--set` yields an int64 and renders fine,
+so the two paths DISAGREE and the values-file path is the broken one.
+
+Caught live while writing this chart, by reading the rendered TOML rather than
+the exit code: the render succeeded and the file was wrong. The same trap
+shipped in ft-aquarium-node 0.1.0-0.2.0 for the same reason.
+*/}}
+{{- define "heimdall.num" -}}
+{{- $v := . -}}
+{{- if kindIs "float64" $v -}}
+{{- if eq $v (floor $v) -}}{{- printf "%.0f" $v -}}{{- else -}}{{- printf "%v" $v -}}{{- end -}}
+{{- else -}}
+{{- printf "%v" $v -}}
 {{- end -}}
 {{- end }}
