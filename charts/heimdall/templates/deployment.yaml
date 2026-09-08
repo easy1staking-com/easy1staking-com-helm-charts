@@ -1,0 +1,228 @@
+{{- /*
+  ⛔ replicas: 1, HARDCODED. There is no `replicaCount`, no HPA and no
+  autoscaling stanza anywhere in this chart — nothing that invites a 2.
+
+  This is CORRECTNESS, not preference or cost. The node signs from ONE key with
+  no idempotence key: two replicas race the same state and BOTH SIGN before
+  either is rejected. Same reason ft-aquarium-node in this repo exposes no
+  replicaCount — do not normalise either toward the other charts.
+*/ -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "heimdall.fullname" . }}
+  labels:
+    {{- include "heimdall.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  {{- /*
+    Recreate, not RollingUpdate. RollingUpdate deliberately OVERLAPS the old and
+    new pods, which is the precise state the single-signer rule above forbids —
+    and the state volume is ReadWriteOnce, so the new pod would not schedule
+    anyway.
+
+    ⚠ THE ACCEPTED TRADE, stated because it is real: under Recreate NO DEPLOY
+    FAILS SAFELY. The old pod is gone before the new one starts, so a bad image
+    tag is downtime rather than a rollout that halts with the old pod serving.
+  */}}
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      {{- include "heimdall.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        {{- /* Roll the pod when the rendered config changes. */}}
+        checksum/config: {{ include (print $.Template.BasePath "/configmap-config.yaml") . | sha256sum }}
+        {{- /*
+          ⛔ THIS ANNOTATION IS LOAD-BEARING — it is not decoration, and removing
+          it disables two guards.
+
+          `advertisedUrl` is not emitted into heimdall.toml (registration happens
+          off-cluster), so this is the ONLY place the helper is invoked — and a
+          Helm helper that nothing calls is dead code. Rendering it here is what
+          makes `advertisedUrl` actually REQUIRED, and what actually runs the
+          check that a port inside the URL matches listenPort.
+
+          Measured while writing this chart: both guards existed and neither
+          fired, because the helper was defined and never included. The render
+          was green and the guards were decorative.
+
+          It also earns its place on merit: the running Deployment records what
+          was registered on chain, which is otherwise written down nowhere in the
+          cluster.
+        */}}
+        heimdall.easy1staking.com/advertised-url: {{ include "heimdall.advertisedUrl" . | quote }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "heimdall.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- /* 0700 on the state dir, per the upstream package's own posture. */}}
+        fsGroup: 1000
+      initContainers:
+        {{- /*
+          ⛔ THIS IS WHERE THE CREDENTIAL ENTERS, AND IT NEVER ENTERS ANYWHERE ELSE.
+
+          heimdall reads blockfrost_project_id from the CONFIG FILE ONLY — the
+          shipped example names exactly one environment variable and it is
+          $HEIMDALL_MNEMONIC. So a chart that refuses to render a credential into
+          its own output (this one) has to complete the file at start.
+
+          Template (ConfigMap, no secret) + Secret -> memory-backed emptyDir.
+          The assembled file exists only in the pod's tmpfs: it is never a
+          ConfigMap, never a Secret, never in `helm get manifest`, and never on
+          disk on the node.
+
+          ⛔ THE PLACEHOLDER MUST NOT SURVIVE. Both failure modes are checked and
+          both exit non-zero, because a file still containing the literal
+          __BLOCKFROST_PROJECT_ID__ would start the daemon against a nonexistent
+          project and fail somewhere far away from the cause.
+        */}}
+        - name: assemble-config
+          image: {{ include "heimdall.initImage" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          command:
+            - sh
+            - -ec
+            - |
+              command -v sed >/dev/null 2>&1 || {
+                echo "heimdall: no 'sed' in the init image ({{ include "heimdall.initImage" . }})." >&2
+                echo "  This step assembles the config with sed; the application image is" >&2
+                echo "  Alpine-based and has it. If you have moved to a distroless base, set" >&2
+                echo "  initImage to any image providing a POSIX shell and sed." >&2
+                exit 1
+              }
+              if [ -z "${BLOCKFROST_PROJECT_ID:-}" ]; then
+                echo "heimdall: the Secret named by blockfrost.secretName gave an EMPTY project id." >&2
+                echo "  Secret key: {{ .Values.blockfrost.secretKey }}" >&2
+                echo "  Refusing to assemble a config whose credential is blank — the daemon would" >&2
+                echo "  start and fail against Blockfrost far away from this cause." >&2
+                exit 1
+              fi
+              sed "s|__BLOCKFROST_PROJECT_ID__|${BLOCKFROST_PROJECT_ID}|" /template/heimdall.toml.template > /assembled/heimdall.toml
+              if grep -q '__BLOCKFROST_PROJECT_ID__' /assembled/heimdall.toml; then
+                echo "heimdall: substitution did not take — the placeholder is still present." >&2
+                exit 1
+              fi
+              chmod 0400 /assembled/heimdall.toml
+          env:
+            - name: BLOCKFROST_PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "heimdall: blockfrost.secretName is REQUIRED. The Blockfrost project id is a CREDENTIAL: create the Secret out of band and name it here. This chart never carries a credential in values and never renders one into its own output." .Values.blockfrost.secretName }}
+                  key: {{ .Values.blockfrost.secretKey | quote }}
+          volumeMounts:
+            - name: config-template
+              mountPath: /template
+              readOnly: true
+            - name: config
+              mountPath: /assembled
+      containers:
+        - name: heimdall
+          image: {{ include "heimdall.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: peer
+              containerPort: {{ include "heimdall.listenPort" . }}
+              protocol: TCP
+            {{- if .Values.health.enabled }}
+            {{- /*
+              ⛔ THE OPERATOR SURFACE — unauthenticated, and NEVER routed by the
+              ingress. Reachable in-cluster only, for the kubelet's probes and
+              for Prometheus.
+            */}}
+            - name: health
+              containerPort: {{ include "heimdall.num" (.Values.health.port | float64) }}
+              protocol: TCP
+            {{- end }}
+          env:
+            {{- /*
+              ⚠ ENV VAR, NOT A FILE, AND THAT IS A DIVERGENCE FROM THIS REPO'S
+              USUAL POSTURE — stated here rather than only in a commit message.
+              Elsewhere we mount secrets as files because a file beats an env
+              var. The heimdall binary reads ONLY $HEIMDALL_MNEMONIC; there is no
+              file mode, and inventing one would configure nothing.
+
+              ⛔ It is read ONLY WHEN `cardano.mnemonic` IS ABSENT from the TOML.
+              secret-config.yaml never emits that key, which is what makes this
+              work — the absence is the mechanism, not an oversight.
+            */}}
+            - name: HEIMDALL_MNEMONIC
+              valueFrom:
+                secretKeyRef:
+                  name: {{ required "heimdall: mnemonic.secretName is REQUIRED. Create the Secret out of band and name it here — this chart references Secrets, it never contains them." .Values.mnemonic.secretName }}
+                  key: {{ .Values.mnemonic.secretKey | quote }}
+          volumeMounts:
+            - name: config
+              mountPath: /etc/heimdall/heimdall.toml
+              subPath: heimdall.toml
+              readOnly: true
+            - name: state
+              mountPath: {{ .Values.persistence.mountPath }}
+          {{- /*
+            ⛔ NO readinessProbe, DELIBERATELY. Do not add one.
+
+            /health answers "is this process up", NOT "is this node healthy" — it
+            says nothing about roster membership, sync or ceremony state, and no
+            endpoint does. A plausible readiness probe would assert something it
+            cannot know; a FAILING one would pull this pod out of the Service and
+            break the peer reachability every ceremony depends on. Shipping none
+            is the honest option, and this comment is here so nobody "completes"
+            the chart later.
+
+            Liveness on /health is fine — that is exactly what /health reports.
+            The generous budget goes in startupProbe, never in
+            livenessProbe.initialDelaySeconds.
+          */}}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: health
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: health
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        {{- /* The template: no secret, so a ConfigMap is correct. */}}
+        - name: config-template
+          configMap:
+            name: {{ include "heimdall.fullname" . }}-config
+        {{- /*
+          The ASSEMBLED file. medium: Memory — tmpfs, so the completed config
+          carrying the credential never reaches the node's disk and dies with the
+          pod.
+        */}}
+        - name: config
+          emptyDir:
+            medium: Memory
+            sizeLimit: 1Mi
+        - name: state
+          persistentVolumeClaim:
+            claimName: {{ include "heimdall.claimName" . }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}

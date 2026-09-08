@@ -1,0 +1,54 @@
+{{- if .Values.ingress.enabled -}}
+{{- /*
+  Peers must reach this node at the URL registered ON CHAIN, so an ingress is
+  expected here — unlike most workloads in this repo, which need no inbound
+  access at all.
+
+  ⛔ THE PEER PORT ONLY. The health port is the unauthenticated operator surface
+  and is deliberately not referenced anywhere in this file. Do not add a second
+  path or host that reaches it.
+
+  Traffic is ordinary HTTP request/response — no client certificates, no
+  websockets, no long-poll — so a standard controller needs no special
+  annotations and this template is plain on purpose.
+*/ -}}
+{{- if not .Values.ingress.host }}
+{{- fail "heimdall: ingress.enabled is true but ingress.host is empty. An Ingress rule with no host is a CATCH-ALL — it matches every hostname reaching the controller that no other Ingress claims, publishing this node on names nobody chose. Set ingress.host to the DNS name registered on chain, or set ingress.enabled: false." }}
+{{- end }}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "heimdall.fullname" . }}
+  labels:
+    {{- include "heimdall.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      {{- /* Empty secretName = the controller's own default certificate, which
+             is a real deployment. Refusing it would make this chart stricter
+             than Kubernetes. */}}
+      {{- with .Values.ingress.tls.secretName }}
+      secretName: {{ . | quote }}
+      {{- end }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.path | quote }}
+            pathType: {{ .Values.ingress.pathType }}
+            backend:
+              service:
+                name: {{ include "heimdall.fullname" . }}
+                port:
+                  number: {{ include "heimdall.listenPort" . }}
+{{- end }}

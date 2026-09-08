@@ -1,0 +1,131 @@
+{{- /*
+  The heimdall.toml TEMPLATE — a ConfigMap, and only because it holds NO SECRET.
+
+  Sections and keys are from the binary's own shipped example,
+  /usr/share/heimdall/heimdall.toml.example inside
+  ghcr.io/lantr-io/heimdall:0.1-M5.3. Not inferred.
+
+  ⛔ THE ASSEMBLED FILE IS NEVER A ConfigMap AND NEVER IN CHART OUTPUT.
+  `blockfrost_project_id` is a credential with NO environment path in the daemon
+  — it is read from the config file only — so the file is completed at container
+  start by the init container in deployment.yaml, into a memory-backed volume.
+  What lives here is the template, carrying a placeholder.
+
+  ⛔ EVERY SECTION HEADER IN THIS FILE IS LOAD-BEARING, AND A TYPO IN ONE IS
+  SILENT. Measured against the binary with `heimdall doctor`: an unknown key
+  inside a real section is IGNORED and the config loads; a REAL key under the
+  WRONG header is IGNORED and the config loads. Only TYPE errors are refused.
+  ⇒ So moving a key to the wrong section does not fail, it makes the daemon run
+  a compiled default nobody chose, on a node that signs. `helm template` cannot
+  see that and neither can a rendered diff. ../verify-config-schema.py asserts
+  the exact (section, key) set against an allowlist — run it after ANY edit here.
+
+  ⛔ KEYS DELIBERATELY ABSENT, each for a reason that bites if "fixed":
+    [cardano] mnemonic          its PRESENCE disables $HEIMDALL_MNEMONIC
+    [cardano] cold_skey_path    the pool cold key never enters the cluster
+    [cardano] cold_vkey_path    likewise
+    peg-out freshness margin    now compiled in, and the ONE key the binary
+                                refuses BY NAME — emitting it stops the daemon
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "heimdall.fullname" . }}-config
+  labels:
+    {{- include "heimdall.labels" . | nindent 4 }}
+data:
+  heimdall.toml.template: |
+    [protocol]
+    {{- /*
+      REQUIRED by the daemon: it refuses to start without a state_dir, because an
+      EMPTY TRIE WOULD DOUBLE-PAY A PEG-OUT. Emitted from persistence.mountPath,
+      the same key the volumeMount uses, so the two cannot disagree.
+    */}}
+    state_dir = {{ .Values.persistence.mountPath | quote }}
+    poll_interval_ms = {{ include "heimdall.num" .Values.protocol.pollIntervalMs }}
+
+    [bitcoin]
+    network = {{ required "heimdall: bitcoin.network is REQUIRED." .Values.bitcoin.network | quote }}
+
+    [cardano]
+    network = {{ required "heimdall: cardano.network is REQUIRED and has no default. heimdall refuses to start without it, and an UNRESOLVABLE network is TREATED AS MAINNET — a typo does not fall back to preprod, it falls forward onto real funds." .Values.cardano.network | quote }}
+    {{- /*
+      ⛔ PLACEHOLDER, SUBSTITUTED AT CONTAINER START. Never a real value here.
+      The init container fails loudly rather than letting this string survive
+      into the assembled file.
+    */}}
+    blockfrost_project_id = "__BLOCKFROST_PROJECT_ID__"
+    {{- with .Values.cardano.blockfrostUrl }}
+    blockfrost_url = {{ . | quote }}
+    {{- end }}
+    config_address = {{ required "heimdall: cardano.configAddress is REQUIRED and has no default." .Values.cardano.configAddress | quote }}
+    config_nft_policy_id = {{ required "heimdall: cardano.configNftPolicyId is REQUIRED and has no default." .Values.cardano.configNftPolicyId | quote }}
+    config_nft_asset_name = {{ required "heimdall: cardano.configNftAssetName is REQUIRED and has no default. It is a THIRD bridge identifier, distinct from the policy id — the right policy with the wrong asset name finds the wrong config UTxO." .Values.cardano.configNftAssetName | quote }}
+    submit_oracle = {{ .Values.cardano.submitOracle }}
+    oracle_constructor = {{ include "heimdall.num" .Values.cardano.oracleConstructor }}
+    stake_source = {{ .Values.cardano.stakeSource | quote }}
+    {{- /*
+      OPTIONAL, u64. Emitted only when set — and omitting it means an UNKNOWN
+      COMPILED DEFAULT governs the registration stake gate, not "no minimum".
+      Through the numeric helper because a values-file number would otherwise
+      render as a float, which the daemon DOES refuse (type errors are the one
+      class it does not ignore).
+    */}}
+    {{- if not (kindIs "invalid" .Values.cardano.minStakeLovelace) }}
+    {{- if ne (toString .Values.cardano.minStakeLovelace) "" }}
+    min_stake_lovelace = {{ include "heimdall.num" .Values.cardano.minStakeLovelace }}
+    {{- end }}
+    {{- end }}
+    {{- /*
+      Roster-wide and refused on mainnet — emitted ONLY when explicitly set. A
+      default would split the roster rather than merely misconfigure a node.
+    */}}
+    {{- if not (kindIs "invalid" .Values.cardano.demoLiveStake) }}
+    {{- if ne (toString .Values.cardano.demoLiveStake) "" }}
+    demo_live_stake = {{ .Values.cardano.demoLiveStake }}
+    {{- end }}
+    {{- end }}
+
+    [http]
+    {{- /*
+      0.0.0.0 in a container: loopback is unreachable from outside the network
+      namespace even with a published port. It stays 0.0.0.0 behind an ingress —
+      reachability is the Service's and Ingress's business, never the bind's.
+    */}}
+    bind_address = "0.0.0.0"
+    listen_port = {{ include "heimdall.num" (include "heimdall.listenPort" . | float64) }}
+
+    [health]
+    {{- /*
+      ⛔ THE OPERATOR SURFACE, UNAUTHENTICATED, AND NOT THE PEER ENDPOINT.
+      Upstream binds 127.0.0.1 by default for exactly that reason. In Kubernetes
+      it must bind 0.0.0.0 to be reachable from the kubelet and Prometheus at
+      all, so containment is the Service — ClusterIP, and the ingress never
+      routes here.
+
+      `enabled` is emitted explicitly because the shipped example does not settle
+      whether it defaults on, and an explicit value cannot be wrong about that.
+    */}}
+    enabled = {{ .Values.health.enabled }}
+    bind = "0.0.0.0:{{ include "heimdall.num" (.Values.health.port | float64) }}"
+
+    [bifrost]
+    {{- /*
+      A PATH ON THE PVC, not a Secret mount. Generated once per node, 0600,
+      backed up off-cluster — never chart-generated, or a reinstall mints a new
+      identity and orphans the old one with its shares.
+    */}}
+    skey_path = {{ .Values.bifrost.skeyPath | quote }}
+    {{- /*
+      ⛔ AN INPUT TO REGISTRATION, AND THE BYTES MUST MATCH EXACTLY.
+      `register-spo` and `sign-registration` both read this string; a trailing
+      slash or a port difference between them INVALIDATES BOTH SIGNATURES.
+
+      This include is also what enforces `advertisedUrl` being required and runs
+      the URL-port invariant — see _helpers.tpl.
+    */}}
+    url = {{ include "heimdall.advertisedUrl" . | quote }}
+
+    [log]
+    level = {{ .Values.log.level | quote }}
+    format = {{ .Values.log.format | quote }}
