@@ -1,7 +1,22 @@
 {{- /*
-  ONE port. It serves /health plus the DKG and signing round payloads — there is
-  no second surface, no metrics endpoint (upstream WI-058 is unstarted) and
-  therefore no ServiceMonitor in this chart.
+  TWO ports, and the difference between them is a security boundary.
+
+    peer    what other nodes dial: /health-for-peers plus DKG and signing round
+            payloads. This is the one the ingress routes.
+    health  the OPERATOR surface. UNAUTHENTICATED, and upstream binds it to
+            127.0.0.1 by default precisely for that reason. In Kubernetes it has
+            to bind 0.0.0.0 to be reachable by the kubelet and Prometheus at all,
+            so the containment is HERE: ClusterIP, and ingress.yaml never
+            references this port.
+
+  ⛔ DO NOT expose the health port through the Ingress, a NodePort or a
+  LoadBalancer.
+
+  There is no ServiceMonitor in this chart: upstream has no operator metrics
+  surface yet (WI-058). Point monitoring at the health port and alert on
+  `last_progress_ms` FAILING TO ADVANCE — the "up but wedged" case, which a
+  liveness probe structurally cannot catch because a wedged process answers
+  /health perfectly.
 */ -}}
 apiVersion: v1
 kind: Service
@@ -13,8 +28,14 @@ spec:
   type: {{ .Values.service.type }}
   ports:
     - port: {{ include "heimdall.listenPort" . }}
-      targetPort: heimdall
+      targetPort: peer
       protocol: TCP
-      name: heimdall
+      name: peer
+    {{- if .Values.health.enabled }}
+    - port: {{ include "heimdall.num" (.Values.health.port | float64) }}
+      targetPort: health
+      protocol: TCP
+      name: health
+    {{- end }}
   selector:
     {{- include "heimdall.selectorLabels" . | nindent 4 }}

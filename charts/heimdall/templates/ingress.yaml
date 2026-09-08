@@ -3,6 +3,14 @@
   Peers must reach this node at the URL registered ON CHAIN, so an ingress is
   expected here — unlike most workloads in this repo, which need no inbound
   access at all.
+
+  ⛔ THE PEER PORT ONLY. The health port is the unauthenticated operator surface
+  and is deliberately not referenced anywhere in this file. Do not add a second
+  path or host that reaches it.
+
+  Traffic is ordinary HTTP request/response — no client certificates, no
+  websockets, no long-poll — so a standard controller needs no special
+  annotations and this template is plain on purpose.
 */ -}}
 {{- if not .Values.ingress.host }}
 {{- fail "heimdall: ingress.enabled is true but ingress.host is empty. An Ingress rule with no host is a CATCH-ALL — it matches every hostname reaching the controller that no other Ingress claims, publishing this node on names nobody chose. Set ingress.host to the DNS name registered on chain, or set ingress.enabled: false." }}

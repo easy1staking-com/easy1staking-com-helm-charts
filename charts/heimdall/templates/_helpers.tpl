@@ -117,3 +117,11 @@ shipped in ft-aquarium-node 0.1.0-0.2.0 for the same reason.
 {{- printf "%v" $v -}}
 {{- end -}}
 {{- end }}
+
+{{/*
+The init container's image. Defaults to the application image so this chart adds
+no dependency; needs a POSIX shell.
+*/}}
+{{- define "heimdall.initImage" -}}
+{{- default (include "heimdall.image" .) .Values.initImage -}}
+{{- end }}

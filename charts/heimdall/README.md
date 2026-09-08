@@ -68,19 +68,24 @@ from a wallet.
 
 | Value | Why it has no default |
 |---|---|
-| `image.tag` | Run the build **the roster runs**. Peers compare `version` *and* `blueprint_digest` before every ceremony; a mismatched node is named by pool id and dropped |
-| `advertisedUrl` | What peers dial, written **on chain** at registration — a one-way door |
+| `image.tag` | Run the build **the roster runs**. Peers compare `version` *and* `blueprint_digest` before every ceremony; a mismatched node is dropped. ⚠ **The GHCR tag has no `v`** — `0.1-M5.3`, not `v0.1-M5.3` (that is the git release tag, and pasting it gives an image that does not exist) |
+| `advertisedUrl` | What peers dial, written **on chain** at registration — a one-way door, and an input to the registration signatures |
 | `listenPort` | What the daemon binds inside the container. **Not the same value** |
+| `cardano.network` | heimdall refuses to start without it, and an **unresolvable network is treated as mainnet** — a typo falls forward onto real funds, not back to preprod |
+| `cardano.configAddress`, `configNftPolicyId`, `configNftAssetName` | The three bridge identifiers naming the on-chain config UTxO. The **asset name is a third one**: the right policy with the wrong asset finds the wrong UTxO |
 | `blockfrost.secretName` | Names an existing Secret holding the project id |
-| `config.network` | heimdall refuses to start without it, and an **unresolvable network is treated as mainnet** — a typo falls forward onto real funds, not back to preprod |
-| `config.configAddress`, `config.configNftPolicyId` | The on-chain config UTxO |
-| `config.stakeSource`, `config.minStakeLovelace` | Roster-wide stake policy |
-| `mnemonic.secretName` | Names an existing Secret; the chart never contains one |
+| `mnemonic.secretName` | Names an existing Secret holding the wallet mnemonic |
 
-`config.demoLiveStake` also has no default and is **not** required. Demo values
-are a roster-wide agreement, refused on mainnet — a default would not merely be
-wrong for one node, it would **split the roster**, since nodes disagreeing on
-demo stake compute different rosters and stop signing together.
+`cardano.demoLiveStake` (a **boolean**) also has no default and is **not**
+required. Demo values are a roster-wide agreement, refused on mainnet — a default
+would not merely be wrong for one node, it would **split the roster**, since nodes
+disagreeing on demo stake compute different rosters and stop signing together.
+This pilot roster runs `true`.
+
+⛔ **There is no `extraConfig` passthrough, deliberately.** A key heimdall does
+not recognise is **refused at load**, not ignored — a former peg-out freshness
+margin is now compiled in, and a config that still sets it fails to start. The
+chart emits only keys taken from the binary's own shipped example.
 
 ## Keys, and which ones may enter the cluster
 
@@ -106,33 +111,88 @@ generated it per install would mint a **new identity on every reinstall** and
 silently orphan the old one along with its shares. Generate it once, back it up
 off-cluster.
 
-## Where the credentials live — all by reference, none by value
+## How the credentials reach the daemon — two different mechanisms
 
-| | |
+| | mechanism |
 |---|---|
-| Blockfrost project id | `blockfrost.secretName` / `secretKey` → `BLOCKFROST_PROJECT_ID` |
-| Wallet mnemonic | `mnemonic.secretName` / `secretKey` → `HEIMDALL_MNEMONIC` |
+| Wallet mnemonic | `$HEIMDALL_MNEMONIC`, straight from a Secret |
+| Blockfrost project id | **config file only** — no env path exists, so the file is *assembled at container start* |
 
 **There is no `blockfrostProjectId` value and there must never be one.** This
-repository is public and carries no secret in any form, tracked or untracked.
-Charts here reference Secrets by name; they never contain their contents — and
-never render them from values either, since a credential passed via `--set`
-still lands in the release's stored manifest.
+repo is public and carries no secret in any form. Charts here reference Secrets
+by name; they never contain their contents, and never render them from values
+either — a credential passed via `--set` still lands in the release's stored
+manifest.
 
-`heimdall.toml` is still a **Secret, not a ConfigMap** (the upstream Debian
-package installs it `0640 root:heimdall`), but it now carries no credential —
-`blockfrost_project_id` is deliberately absent from the rendered file.
+But heimdall reads the project id from `heimdall.toml` **only**; the shipped
+example names exactly one environment variable, and it is `$HEIMDALL_MNEMONIC`.
+So the chart assembles the file:
 
-The non-credential config stays **templated with `required`**, and that is the
-point: those checks are what make the mainnet-by-omission trap impossible.
-Handing the whole file to an operator-supplied Secret would drop every one of
-them.
+```
+ConfigMap (template, placeholder, no secret)  ─┐
+                                               ├─► initContainer ─► emptyDir{medium: Memory}
+Secret (blockfrost.secretName/secretKey) ──────┘                     /etc/heimdall/heimdall.toml (0400, ro)
+```
+
+**The assembled file is never a ConfigMap, never a Secret, never in
+`helm get manifest`, and never on the node's disk** — it lives in tmpfs and dies
+with the pod.
+
+⛔ **The placeholder cannot survive.** The init container exits non-zero if the
+Secret gives an empty value, *and* again if `__BLOCKFROST_PROJECT_ID__` is still
+present after substitution. A config carrying the literal placeholder would start
+the daemon against a nonexistent project and fail far from the cause.
+
+**The mnemonic is an env var, not a file — a deliberate divergence** from this
+repo's usual posture. The binary reads only `$HEIMDALL_MNEMONIC`, so inventing a
+file mode would configure nothing. It is read **only when `mnemonic` is absent
+from `[cardano]`**, so the chart never emits that key. The absence is the
+mechanism.
+
+**The Bifrost identity key is a path on the PVC, not a Secret mount and not
+chart-generated.** A chart generating it per install would mint a **new identity
+on every reinstall** and orphan the old one with its shares. Generate it once,
+`0600`, back it up off-cluster.
+
+**The pool cold key has no field, mount, Secret key or comment in this chart.**
+The daemon never reads it. Registration is signed beside the key on a separate
+machine with `heimdall sign-registration`, which touches no chain and no network.
+
+## Two ports, and the difference is a security boundary
+
+| port | what it is | exposed |
+|---|---|---|
+| `listenPort` (peer) | `/health` for peers, DKG and signing round payloads | Service **and** Ingress |
+| `health.port` (18580) | the **operator** surface | Service only — **never the Ingress** |
+
+⛔ **The health port is unauthenticated.** Upstream binds it to `127.0.0.1` by
+default for that reason. In Kubernetes it must bind `0.0.0.0` to be reachable by
+the kubelet and Prometheus at all, so the containment is the Service: ClusterIP,
+and `ingress.yaml` never references it. Do not expose it via Ingress, NodePort or
+LoadBalancer.
+
+⚑ **What to alert on: `last_progress_ms` failing to advance.** That is the "up
+but wedged" case — and it is exactly what a liveness probe cannot catch, because
+a wedged process answers `/health` perfectly.
+
+⛔ **Do not add a watchdog or a liveness probe on progress.** Upstream ships none
+deliberately: restarting a wedged signer mid-ceremony is not obviously safer than
+leaving it wedged and visible. **Alert a human; do not restart a signer.**
+
+There is no `ServiceMonitor` — upstream has no operator metrics surface yet
+(WI-058).
 
 ## The advertised URL and the listening port are two different values
 
 ⛔ **`advertisedUrl` is a one-way door.** It is written **on chain** at
 registration, so changing it later is a **chain write** — not a values edit and
 a rollout. Decide it once, with whoever runs the roster.
+
+⛔ **And it is an input to the registration signatures, so the bytes must match
+exactly.** It is emitted into the config as `[bifrost].url`, and both
+`register-spo` and `sign-registration` read that string. **A trailing slash or a
+port difference between them invalidates both signatures.** Copy it once,
+character for character.
 
 Two documented shapes, and the roster runs both:
 
@@ -196,24 +256,19 @@ a 6-hour ceremony grid, but treat the numbers as a starting point.
 a request larger than that headroom leaves the pod `Pending` however much memory
 is actually free.
 
-## ⚠ The two things that need checking before this is deployed
+## Where the config schema comes from
 
-**1. The TOML section layout is inferred, not verified.** The key *names* come
-from the operator guide; their grouping into `[http]`, `[cardano]` and
-`[bifrost]` is largely inference — `http.listen_port` and `cardano.mnemonic` are
-the only documented dotted paths, and the rest is placed by analogy.
+Sections, keys and types are taken from the binary's own shipped example —
+`/usr/share/heimdall/heimdall.toml.example` inside
+`ghcr.io/lantr-io/heimdall:0.1-M5.3` — not from inference. An earlier draft of
+this chart guessed the layout and placed `skey_path` and `url` under `[cardano]`;
+they are under `[bifrost]`. That guess is gone.
 
-Every key could be correct and the file still rejected if a section boundary is
-wrong. **Confirm the layout against the upstream guide before the first deploy.**
-A render proves the chart produces the file it intends; it cannot prove the
-binary accepts it.
+`[protocol].state_dir` is **required by the daemon**: it refuses to start without
+one, because an empty trie would **double-pay a peg-out**. The chart emits it
+from `persistence.mountPath`, the same key the volume mount uses, so the config
+and the mount cannot disagree.
 
-**2. How the Blockfrost project id reaches the daemon is unsettled.** The chart
-injects `BLOCKFROST_PROJECT_ID` from a Secret and omits the key from the TOML,
-which is complete *if* the daemon reads it from the environment.
-
-If it turns out to be **TOML-only**, exactly two places change: the omission in
-`templates/secret-config.yaml`, and the env block in
-`templates/deployment.yaml`. The file would then be assembled at container start
-from the same env var, so that no credential ever appears in chart output. **The
-values surface is identical either way** — which is why it was settled first.
+`[protocol].poll_interval_ms` is the **Blockfrost budget lever** and is a local
+tuning knob rather than a roster-wide agreement — safe to change alone, unlike
+the demo values. Lower burns request quota faster.

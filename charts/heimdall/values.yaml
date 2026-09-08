@@ -6,22 +6,38 @@
 # is PUBLIC: a stranger running `helm install` must get an error, never a node
 # that joins a federation or spends from a wallet.
 #
-# `helm template` with this file alone is EXPECTED TO FAIL. See README.md,
-# "Required values", for the minimum set.
+# `helm template` with this file alone is EXPECTED TO FAIL. See README.md.
+#
+# Config keys and section boundaries are taken from the binary's own shipped
+# example, /usr/share/heimdall/heimdall.toml.example inside
+# ghcr.io/lantr-io/heimdall:0.1-M5.3 — not from inference.
+#
+# ⛔ NO PASSTHROUGH. There is deliberately no `extraConfig` map. A key heimdall
+# does not recognise is REFUSED AT LOAD, not ignored — a former peg-out freshness
+# margin is now compiled in and a config that still sets it fails to start. Emit
+# nothing you do not know.
 
-# ── Image ────────────────────────────────────────────────────────────────────
 image:
   repository: ghcr.io/lantr-io/heimdall
   # ⛔ REQUIRED, no default, and never `latest`.
   #
-  # Run the build THE ROSTER runs, not the newest one released. Each node
-  # compares peers' /health before a ceremony and both `version` and
-  # `blueprint_digest` must be equal; a mismatched peer is named by pool id and
-  # dropped from that ceremony. A default here would silently answer a question
-  # that has to be asked of the roster — v0.1-M5.3 being the newest release does
-  # not make it ours.
+  # ⚠ THE GHCR TAG HAS NO `v`. The container tags are `0.1-M5.3`, `0.1-M5.2`,
+  # `0.1-M5`; the matching GIT RELEASE tags are `v0.1-M5.3` and so on. Pasting
+  # the release tag here gives an image that does not exist. This is the GHCR
+  # string.
+  #
+  # Run the build THE ROSTER runs, not the newest released. Before each ceremony
+  # peers compare /health and both `version` and `blueprint_digest` must be
+  # equal; a mismatched peer is named by pool id and dropped from that ceremony.
   tag: ""
   pullPolicy: IfNotPresent
+
+# Image used only by the config-assembly initContainer. Defaults to the
+# application image so this chart adds no new dependency.
+#
+# ⚠ It needs a POSIX shell. If the runtime image turns out to be distroless the
+# init will fail loudly at first deploy — point this at any image with `sh`.
+initImage: ""
 
 imagePullSecrets: []
 nameOverride: ""
@@ -29,153 +45,182 @@ fullnameOverride: ""
 
 # ── The advertised URL and the listening port — TWO INDEPENDENT VALUES ───────
 #
-# ⛔ BOTH REQUIRED, NO DEFAULTS, AND THEY ARE NOT THE SAME THING. Conflating them
-# is the mistake this pair exists to prevent.
-#
-#   advertisedUrl  what peers dial, written ON CHAIN at registration
+#   advertisedUrl  what peers dial. Written ON CHAIN at registration AND emitted
+#                  into the config as [bifrost].url
 #   listenPort     what the daemon binds inside the container
 #
+# ⛔ THE URL IS AN INPUT TO REGISTRATION AND THE BYTES MUST MATCH EXACTLY.
+# `register-spo` and `sign-registration` both read this string; a trailing slash
+# or a port difference between them INVALIDATES BOTH SIGNATURES. Copy it once,
+# character for character.
+#
+# ⛔ AND IT IS A ONE-WAY DOOR. It is registered on chain, so changing it later is
+# a CHAIN WRITE, not a values edit and a rollout.
+#
 # Two documented shapes, and the roster runs both:
-#
-#   1. PROXY:    advertisedUrl: https://heimdall.example.org   (no port)
-#                listenPort:    8901
-#                TLS terminated in front (Cloudflare, ingress). The URL carries
-#                no port; the pod still listens on listenPort.
-#
-#   2. DIRECT:   advertisedUrl: http://203.0.113.10:8901
-#                listenPort:    8901
-#                No proxy. THE PORT IN THE URL MUST EQUAL listenPort — peers dial
-#                exactly what is registered. The chart enforces this: if
-#                advertisedUrl carries an explicit port and it disagrees with
-#                listenPort, the render fails rather than shipping a node nobody
-#                can reach.
+#   PROXY   advertisedUrl: https://heimdall.example.org   listenPort: 8901
+#           TLS terminated in front. The URL carries no port.
+#   DIRECT  advertisedUrl: http://203.0.113.10:8901       listenPort: 8901
+#           No proxy. THE PORT IN THE URL MUST EQUAL listenPort — the chart
+#           fails the render if it does not.
 #
 # ⚠ https is NOT required by the bridge. All four live pilot nodes register plain
-# `http://ip:port`. The proxy shape is the documented alternative, not an upgrade.
-#
-# ⛔ THE ADVERTISED URL IS A ONE-WAY DOOR. It is registered on chain, so changing
-# it later is a CHAIN WRITE, not a values edit and a rollout. Decide it once,
-# with whoever runs the roster.
-#
-# ⚠ The chart does NOT emit advertisedUrl into heimdall.toml — registration is
-# performed off-cluster by `heimdall sign-registration`, beside the cold key. It
-# is required here so the port invariant above can be checked, and so the
-# deployment itself records what was registered. See README if the daemon turns
-# out to want it in config after all.
+# `http://ip:port`; the proxy shape is the documented alternative, not an upgrade.
 advertisedUrl: ""
 listenPort: ""
+
+# ── [protocol] ───────────────────────────────────────────────────────────────
+protocol:
+  # How often to poll. The BLOCKFROST BUDGET LEVER — this is a local tuning knob,
+  # not a roster-wide agreement, so unlike the demo values it is safe to change
+  # alone. Lower burns request quota faster.
+  pollIntervalMs: 5000
+
+# ── [bitcoin] ────────────────────────────────────────────────────────────────
+bitcoin:
+  # A property of THE BRIDGE, not of this operator — every node on this bridge
+  # uses the same one, which is why it has a default where the Cardano network
+  # does not. Everything else in this TOML section is bridge stand-up and is
+  # deliberately not emitted.
+  network: testnet4
+
+# ── [cardano] ────────────────────────────────────────────────────────────────
+cardano:
+  # ⛔ REQUIRED, and the failure mode is why: heimdall refuses to start without
+  # it, and an UNRESOLVABLE network is TREATED AS MAINNET. A typo does not fall
+  # back to preprod — it falls forward onto real funds.
+  network: ""
+
+  # ⛔ REQUIRED, all three. The bridge identifiers naming the on-chain config
+  # UTxO. The ASSET NAME is a third one, distinct from the policy id — a config
+  # naming the right policy and the wrong asset finds the wrong UTxO.
+  configAddress: ""
+  configNftPolicyId: ""
+  configNftAssetName: ""
+
+  # Optional. Omit for hosted Blockfrost; the binary picks the endpoint from
+  # `network`. Not a credential — the project id is referenced separately.
+  blockfrostUrl: ""
+
+  # The binary's own documented defaults, emitted explicitly rather than left
+  # implicit so the rendered file states what is in force.
+  submitOracle: true
+  oracleConstructor: 0
+  stakeSource: blockfrost
+
+  # ⛔ DEMO STAKE — a BOOLEAN, no default, and think before setting it.
+  # This is a ROSTER-WIDE agreement, REFUSED OUTRIGHT ON MAINNET. A default here
+  # would not merely misconfigure one node, it would SPLIT THE ROSTER: nodes
+  # disagreeing on demo stake compute different rosters and stop signing
+  # together. Emitted only when explicitly set. This pilot roster runs `true`.
+  demoLiveStake: ""
 
 # ── The Blockfrost credential — BY REFERENCE, NEVER BY VALUE ─────────────────
 #
 # ⛔ THERE IS NO `blockfrostProjectId` VALUE AND THERE MUST NEVER BE ONE.
-# This repository is public and carries no secret in any form, tracked or
-# untracked. Charts here reference Secret objects by name; they never contain
-# their contents, and never render them from values either — a credential passed
-# through `--set` still lands in the release's stored manifest.
+# This repository is public and carries no secret in any form. Charts here
+# reference Secret objects by name; they never contain their contents, and never
+# render them from values either — a credential passed through `--set` still
+# lands in the release's stored manifest.
 #
-# Create the Secret out of band and name it here. Same posture as `mnemonic`
-# below.
-#
-# ⚠ HOW THE VALUE REACHES THE DAEMON IS NOT YET SETTLED — see README, "The two
-# things that need checking". If heimdall reads the project id from the
-# environment, the wiring below is complete as it stands. If it is TOML-only, the
-# file must be assembled at container start from this env var, and THAT is the
-# one line that changes. The values surface is identical either way, which is the
-# point of settling it now.
+# ⚠ heimdall reads this from THE CONFIG FILE ONLY. There is no environment
+# variable for it (the shipped example names exactly one env var, and it is
+# $HEIMDALL_MNEMONIC). So the file is ASSEMBLED AT CONTAINER START: a template
+# holding a placeholder, plus this Secret, combined into a memory-backed volume
+# that never touches the API server. See README, "How the credential reaches the
+# daemon".
 blockfrost:
   # ⛔ REQUIRED. Name of an EXISTING Secret you created out of band.
   secretName: ""
   secretKey: project-id
 
-# ── Cardano / Bifrost configuration -> /etc/heimdall/heimdall.toml ───────────
-#
-# ⛔ RENDERED INTO A **SECRET**, NEVER A ConfigMap — the upstream Debian package
-# installs heimdall.toml 0640 root:heimdall for the same reason.
-#
-# Nothing in this block is a credential: the one credential is referenced above.
-# These keys stay TEMPLATED with `required` precisely because they are not
-# secrets — and that enforcement is what makes the mainnet-by-omission trap
-# impossible. Handing the whole file to an operator-supplied Secret would drop
-# every one of those checks.
-config:
-  # ⛔ REQUIRED as soon as a Blockfrost URL is set — and the failure mode is why
-  # it has no default: heimdall REFUSES TO START without it, and an UNRESOLVABLE
-  # network is TREATED AS MAINNET. A typo does not fall back to preprod; it falls
-  # forward onto real funds.
-  network: ""
-
-  # The Blockfrost endpoint for `network`. Empty leaves the binary's own default.
-  # Not a credential — the project id is referenced separately, below.
-  blockfrostUrl: ""
-
-  # ⛔ REQUIRED both. The on-chain config UTxO the roster reads.
-  configAddress: ""
-  configNftPolicyId: ""
-
-  # ⛔ REQUIRED both. Roster-wide stake policy.
-  stakeSource: ""
-  minStakeLovelace: ""
-
-  # ⛔ DEMO VALUES — no default, and think before setting one.
-  # These are ROSTER-WIDE agreements, refused outright on mainnet. A default here
-  # would not merely be wrong for one node, it would SPLIT A ROSTER: nodes
-  # disagreeing on demo stake compute different rosters and stop signing
-  # together. Leave empty unless the whole federation has agreed the value.
-  demoLiveStake: ""
-
-  # Where the Bifrost identity key is read from, INSIDE the state volume.
-  #
-  # ⚠ THE CHART DOES NOT CREATE THIS FILE, deliberately. `bifrost.skey` is
-  # generated ONCE per node and backed up OFF-CLUSTER; a chart that generated it
-  # per-install would mint a NEW IDENTITY on every reinstall and silently orphan
-  # the old one. Place it in the state volume yourself, mode 0600.
-  skeyPath: /var/lib/heimdall/bifrost.skey
-
 # ── Wallet mnemonic ──────────────────────────────────────────────────────────
 #
-# ⚠ ENV VAR, NOT A FILE — and that is a DIVERGENCE from this repo's usual
-# posture, stated here rather than in a commit message. Elsewhere we mount
-# secrets as files (Spring config trees) because a file beats an env var. The
-# heimdall binary reads ONLY $HEIMDALL_MNEMONIC; there is no file mode to use, so
-# inventing one would produce a chart that configures nothing.
+# ⚠ ENV VAR, NOT A FILE — a DIVERGENCE from this repo's usual posture, stated
+# here rather than only in a commit message. Elsewhere secrets are mounted as
+# files because a file beats an env var; the heimdall binary reads only
+# $HEIMDALL_MNEMONIC, so inventing a file mode would configure nothing.
 #
-# ⛔ AND IT IS READ ONLY WHEN `cardano.mnemonic` IS ABSENT FROM THE TOML.
-# Leaving that key out is what ACTIVATES the env var. This chart therefore never
-# emits `cardano.mnemonic` under any values, and there is no chart key for it.
+# ⛔ AND IT IS READ ONLY WHEN `mnemonic` IS ABSENT FROM [cardano]. Leaving that
+# key out is what ACTIVATES the env var — its absence is the mechanism, not an
+# oversight. This chart never emits it and has no key that could.
 mnemonic:
-  # ⛔ REQUIRED. Name of an EXISTING Secret you created out of band. The chart
-  # references it; it never contains it.
+  # ⛔ REQUIRED. Names an EXISTING Secret. The chart references it, never contains it.
   secretName: ""
   secretKey: mnemonic
+
+# ── [bifrost] ────────────────────────────────────────────────────────────────
+bifrost:
+  # Where the Bifrost identity key is read from, INSIDE the state volume.
+  #
+  # ⚠ THE CHART DOES NOT CREATE THIS FILE, and it is NOT a Secret mount. It is a
+  # 0600 file generated ONCE per node and backed up OFF-CLUSTER. A chart that
+  # generated it per install would mint a NEW IDENTITY on every reinstall and
+  # silently orphan the old one along with its shares. Place it yourself.
+  skeyPath: /var/lib/heimdall/bifrost.skey
+
+# ── [health] — THE OPERATOR SURFACE, AND IT IS NOT THE PEER ENDPOINT ─────────
+#
+# ⛔ NEVER PUT THIS PORT ON THE INGRESS. It is UNAUTHENTICATED and deliberately
+# separate from the peer endpoint; upstream binds it to 127.0.0.1 by default for
+# that reason. In Kubernetes it must bind 0.0.0.0 to be reachable from the
+# kubelet and Prometheus at all, so the containment is the Service — ClusterIP
+# only, and the ingress template never references it.
+#
+# ⚑ WHAT TO ALERT ON: `last_progress_ms` FAILING TO ADVANCE. That is the "up but
+# wedged" case, and it is the one a liveness probe structurally cannot catch — a
+# wedged process answers /health perfectly.
+#
+# ⛔ DO NOT ADD A WATCHDOG OR A LIVENESS PROBE ON PROGRESS. Upstream deliberately
+# ships none: restarting a wedged signer mid-ceremony is not obviously safer than
+# leaving it wedged and visible. Alert a human; do not restart a signer.
+health:
+  # Emitted EXPLICITLY because the example does not settle whether it defaults
+  # on. An explicit value cannot be wrong about the default.
+  enabled: true
+  port: 18580
 
 # ── Persistent state — the one that loses money ──────────────────────────────
 #
 # ⛔ NEVER emptyDir, AT ANY SIZE. This volume holds the epoch's DKG signing share
 # and federation-key.json. A container replaced without it comes back UNABLE TO
-# RESUME, and for the federation share this is the only copy: below the threshold
-# in surviving shares, the recovery path is GONE FOR GOOD. It does not regenerate.
+# RESUME, and the federation share is the only copy: below the threshold in
+# surviving shares the recovery path is GONE FOR GOOD. It never regenerates.
+#
+# ⛔ [protocol].state_dir IS REQUIRED BY THE DAEMON — it refuses to start without
+# one, because an EMPTY TRIE WOULD DOUBLE-PAY A PEG-OUT. `mountPath` below is
+# emitted as that value, from this single key, so the mount and the config can
+# never disagree.
 #
 # The PVC carries `helm.sh/resource-policy: keep`, so `helm uninstall` LEAVES IT
-# BEHIND. That is deliberate and it is the whole point — deleting it by hand is a
-# decision someone should have to make on purpose.
+# BEHIND. That is the point.
 persistence:
+  mountPath: /var/lib/heimdall
   size: 1Gi
-  # Empty uses the cluster's default StorageClass.
   storageClass: ""
-  # Existing claim to adopt instead of creating one. Set this when replacing a
-  # container onto state that already exists.
+  # Adopt an existing claim instead of provisioning. Pilot stage 3 replaces the
+  # container onto the SAME volume; a chart that provisioned a fresh one there
+  # would fail that stage by construction.
   existingClaim: ""
+
+# ── [log] ────────────────────────────────────────────────────────────────────
+log:
+  level: info
+  # json, because these logs are collected by a cluster log pipeline.
+  format: json
 
 # ── Exposure ─────────────────────────────────────────────────────────────────
 service:
   type: ClusterIP
 
-# Peers must reach this node's registered URL, so an ingress is expected here —
-# unlike most workloads in this repo, which need no inbound access at all.
+# Peers must reach this node at the URL registered on chain, so an ingress is
+# expected — unlike most workloads in this repo, which need no inbound access.
 #
-# ⛔ NO DEFAULT HOSTNAME, in this file or any other in this repository. A real
+# ⛔ NO DEFAULT HOSTNAME, here or in any other file in this repository. A real
 # hostname is cluster-specific state and this repo is public. The template
-# hard-fails if you enable this without a host.
+# hard-fails if enabled without a host.
+#
+# ⛔ The ingress reaches the PEER PORT ONLY. The health port is never routed here.
 ingress:
   enabled: false
   host: ""
@@ -189,14 +234,12 @@ ingress:
 
 # ── Sizing ───────────────────────────────────────────────────────────────────
 #
-# ⚠ THESE ARE UNMEASURED, and saying so matters: it is "nobody has measured it",
-# not "it has been tuned low". A single Rust/musl process, mostly idle on a
-# 6-hour ceremony grid — but no upstream figures exist, and none of the JVM
-# heap heuristics used elsewhere in this repo apply to a static binary.
+# ⚠ UNMEASURED — "nobody has measured it", not "tuned low". No upstream figures
+# exist, and none of the JVM heap heuristics used elsewhere in this repo apply to
+# a static musl binary.
 #
-# ⚠ The target cluster schedules by REQUESTS and has limited request headroom; a
-# request larger than that headroom leaves the pod Pending however much memory is
-# actually free.
+# ⚠ The target cluster schedules by REQUESTS with limited headroom: a request
+# larger than that headroom leaves the pod Pending however much memory is free.
 resources:
   requests:
     cpu: 50m
@@ -206,14 +249,11 @@ resources:
 
 # ── Probes ───────────────────────────────────────────────────────────────────
 #
-# ⛔ THERE IS NO readinessProbe IN THIS CHART AND YOU SHOULD NOT ADD ONE.
-# /health answers "is this process up", NOT "is this node healthy" — it says
-# nothing about roster membership, sync, or ceremony state, and no endpoint does.
-# A plausible-looking readiness probe would be a lie; worse, a failing one pulls
-# the pod OUT OF THE SERVICE, breaking exactly the peer reachability every
-# ceremony depends on.
-#
-# The generous budget lives in startupProbe, never in livenessProbe.initialDelay.
+# ⛔ NO readinessProbe, AND DO NOT ADD ONE. /health answers "is this process up",
+# NOT "is this node healthy" — it says nothing about roster membership, sync or
+# ceremony state, and no endpoint does. A plausible readiness probe would assert
+# what it cannot know; a FAILING one would pull the pod out of the Service and
+# break the peer reachability every ceremony depends on.
 probes:
   liveness:
     periodSeconds: 20
@@ -221,7 +261,6 @@ probes:
     failureThreshold: 3
   startup:
     periodSeconds: 10
-    # 10s x 60 = 10 minutes before liveness takes over.
     failureThreshold: 60
 
 podAnnotations: {}
