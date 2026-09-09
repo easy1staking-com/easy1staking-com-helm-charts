@@ -752,17 +752,6 @@ compound:
 ## `markets` are bound in Java only, so a chart derived from that file alone —
 ## which is how this chart was built — misses the lot. Established with the
 ## application's own maintainer, 2026-09-04.
-convert:
-  # Tuning. [derived, Java-only] → LOANS_LIQUIDATION_CONVERT_ENABLED
-  # Image default TRUE, unlike most switches here.
-  enabled: ""
-  # Safety gate. [derived, Java-only] → LOANS_LIQUIDATION_CONVERT_PROFIT_MARGIN_LOVELACE
-  # Image default 0. A negative value is a stated operator loss, as with the
-  # other margins, and 0 is a real setting the chart emits correctly.
-  profitMarginLovelace: ""
-  # Tuning. [derived, Java-only] → LOANS_LIQUIDATION_CONVERT_DEX_COST_FLOOR_LOVELACE
-  # Image default 5000000.
-  dexCostFloorLovelace: ""
 
 ## Per-market liquidation policy — A LIST, not a scalar.
 ##
@@ -796,11 +785,41 @@ convert:
 ## No values file here sets a market: a market entry is deployment policy about
 ## someone else's capital.
 ##
+## ⛔ `unit` IS THE LOAN'S PRINCIPAL ASSET, NOT THE COLLATERAL. This is the
+## mistake that costs money quietly: a collateral-keyed entry MATCHES NOTHING, so
+## the market it was meant to govern falls through to the unlisted default — which
+## is CONVERT at the node's own mode. You do not get an error; you get the
+## opposite of the policy you wrote.
+##
+## ⛔ `cap` IS A PER-CANDIDATE PASS/FAIL CEILING, NOT A BUDGET AND NOT A LIMITER.
+## If a candidate needs more than the cap it is REFUSED — never trimmed to fit,
+## never partially filled. It is denominated in the market asset's OWN units, not
+## in lovelace, unless the market asset is ada.
+##
+## ⚠ `cap: ""` IS NOT "no cap" and is refused at render since 0.9.0 — it used to
+## pass the guard and then be dropped, handing the pod an ANTICIPATE market with
+## no cap and a startup abort. Write a real number, or 0 if you mean zero.
+##
+## A worked example — the three shapes, uncommented into your own values file:
+##
 ##   markets:
+##     # 1. CONVERT: route the collateral through Minswap. The bot fronts
+##     #    nothing, so no cap applies.
 ##     - unit: lovelace
-##       mode: SHADOW        # DISABLED | SHADOW | LIVE
-##       action: ANTICIPATE  # CONVERT | ANTICIPATE
-##       cap: 50000000       # required for ANTICIPATE
+##       mode: LIVE
+##       action: CONVERT
+##
+##     # 2. ANTICIPATE: the bot FRONTS THE PRINCIPAL from its own wallet and
+##     #    takes the collateral. `cap` bounds what it may front per candidate.
+##     - unit: c48cbb3d5e57ed56e276bc45f99ab39abe94e6cd7ac39fb402da47ad0014df105553444d
+##       mode: LIVE
+##       action: ANTICIPATE
+##       cap: "1500000000"   # 1500 USDM — the ASSET's units, not lovelace
+##
+##     # 3. DISABLED: the only way to hold a market back. Omitting it does the
+##     #    opposite — an unlisted market converts at the node's own mode.
+##     - unit: <some other principal unit>
+##       mode: DISABLED
 markets: []
 
 
@@ -896,7 +915,41 @@ liquidation:
   #   the operator OWNS is allowed; a protection they SWITCH OFF is not. Chart
   #   versions 0.2.0-0.3.1 claim the opposite at the compound margin. They are
   #   wrong, and this chart adds no render guard against a negative value.
-  profitMarginLovelace: ""
+  profitMarginLovelace: "5000000"
+
+  # ── Conversions ────────────────────────────────────────────────────────────
+  #
+  # ⛔ MOVED IN 0.9.0. This was a TOP-LEVEL `convert:` key through 0.8.0. A values
+  # file still setting the old location is REFUSED at render — see the guard in
+  # statefulset.yaml — because an unknown top-level key is silently ignored by
+  # Helm, and a silently ignored `convert.enabled: false` is a node converting
+  # when its operator believes it is not.
+  #
+  # ⛔ AND CONVERT NO LONGER HAS ITS OWN MARGIN. `convert.profitMarginLovelace` is
+  # gone; `liquidation.profitMarginLovelace` above gates EVERY mode including
+  # conversion. Setting the old key is a render failure naming the replacement,
+  # not a silent no-op.
+  convert:
+    # A conversion is a liquidation that routes the collateral through Minswap
+    # rather than fronting principal. On by default — a case exists to disable
+    # conversions wholesale, which is what this is for. Nothing is armed by it:
+    # `liquidation.mode` still gates everything.
+    enabled: true
+
+    # The Minswap order ADA — a FIXED EXPENSE of doing a conversion, not a
+    # preference. It is the ada that must accompany the order, and it comes back
+    # only when the order executes.
+    #
+    # ⛔ The application REFUSES TO START if this is below the transaction
+    # builder's own constant, so lowering it to flatter the economics is not a
+    # thing you can do. Raise it if Minswap's requirement rises.
+    minswapOrderCostLovelace: "4000000"
+
+    # The assumed DEX cost floor. A judgement, not a measurement — it stands in
+    # for costs the builder does not itemise, and the gate charges the greater of
+    # this and the measured outlay rather than their sum.
+    dexCostFloorLovelace: "5000000"
+
 
   ## Timing — knobs. Wrong values cost throughput or silence, not money.
 

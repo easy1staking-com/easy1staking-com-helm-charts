@@ -38,6 +38,12 @@
   producing two different wrong diagnoses first, because every layer in between
   was working correctly.
 */ -}}
+{{- if .Values.convert -}}
+{{- fail "values set a TOP-LEVEL `convert:` key. It moved under `liquidation:` in 0.9.0 — use `liquidation.convert:`. This fails rather than being ignored because Helm discards unknown top-level keys SILENTLY, and a discarded `convert.enabled: false` is a node converting while its operator believes it is not." -}}
+{{- end -}}
+{{- if (((.Values.liquidation | default dict).convert) | default dict).profitMarginLovelace -}}
+{{- fail "values set `liquidation.convert.profitMarginLovelace`, REMOVED in 0.9.0. A conversion is a liquidation and there is now ONE margin: set `liquidation.profitMarginLovelace`, which gates every mode including convert. The scales differ — convert's old margin was measured against a net that already carried the DEX floor — so re-decide the number rather than copying it across." -}}
+{{- end -}}
 {{- if .Values.secrets -}}
 {{- fail "values set a top-level `secrets:` key, but this chart's key is `secret:` (singular). Helm ignores unknown top-level keys silently, so `secrets:` mounts NOTHING and the application fails at startup with \"Invalid mnemonic phrase\" — a message about the value, caused by the key. Rename `secrets:` to `secret:`." -}}
 {{- end -}}
@@ -421,9 +427,9 @@ spec:
             {{- include "ft-aquarium-node.env" (dict "name" "LOANS_MINSWAP_POOL_SPEND_SCRIPT_HASH" "value" $MS.poolSpendScriptHash) }}
             {{- include "ft-aquarium-node.env" (dict "name" "LOANS_MINSWAP_ORDER_SPEND_SCRIPT_HASH" "value" $MS.orderSpendScriptHash) }}
             {{- include "ft-aquarium-node.env" (dict "name" "LOANS_MINSWAP_POOL_ADDRESS" "value" $MS.poolAddress) }}
-            {{- $CV := .Values.convert | default dict }}
+            {{- $CV := (.Values.liquidation | default dict).convert | default dict }}
             {{- include "ft-aquarium-node.env" (dict "name" "LOANS_LIQUIDATION_CONVERT_ENABLED" "value" $CV.enabled) }}
-            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_LIQUIDATION_CONVERT_PROFIT_MARGIN_LOVELACE" "value" $CV.profitMarginLovelace) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "LOANS_LIQUIDATION_CONVERT_MINSWAP_ORDER_COST_LOVELACE" "value" $CV.minswapOrderCostLovelace) }}
             {{- include "ft-aquarium-node.env" (dict "name" "LOANS_LIQUIDATION_CONVERT_DEX_COST_FLOOR_LOVELACE" "value" $CV.dexCostFloorLovelace) }}
             {{- include "ft-aquarium-node.env" (dict "name" "LOANS_LIQUIDATION_REFERENCE_SCRIPTS_LM_LIQUIDATE_AND_CONVERT_ACTION" "value" $R.lmLiquidateAndConvertAction) }}
             {{- /*
@@ -447,8 +453,18 @@ spec:
             {{- if and $m.action (not (has (upper (toString $m.action)) (list "CONVERT" "ANTICIPATE"))) }}
             {{- fail (printf "markets[%d].action must be CONVERT|ANTICIPATE, got %q" $i (toString $m.action)) }}
             {{- end }}
-            {{- if and (eq (upper (toString $m.action)) "ANTICIPATE") (kindIs "invalid" $m.cap) }}
-            {{- fail (printf "markets[%d] is action ANTICIPATE and has no cap; the application refuses to start without one" $i) }}
+            {{- /*
+              ⛔ NIL *AND* EMPTY, and the empty case is the one that bit. `kindIs
+              "invalid"` alone is the nil test, chosen so `cap: 0` stays legal — but the
+              env helper SEPARATELY DROPS empty values, so `cap: ""` passed this guard
+              and was then discarded, handing the pod an ANTICIPATE market with no cap
+              and a startup abort. Two mechanisms testing different conditions with a
+              gap between them. Measured on published 0.8.0. `cap: 0` still renders.
+            */}}
+            {{- if eq (upper (toString $m.action)) "ANTICIPATE" }}
+            {{- if or (kindIs "invalid" $m.cap) (eq (toString $m.cap) "") }}
+            {{- fail (printf "markets[%d] is action ANTICIPATE and its cap is nil or EMPTY; the application refuses to start without one. `cap: \"\"` is not a way to say \"no cap\" — write a real number, or 0 if you mean zero." $i) }}
+            {{- end }}
             {{- end }}
             {{- include "ft-aquarium-node.env" (dict "name" (printf "LOANS_LIQUIDATION_MARKETS_%d_UNIT" $i) "value" $m.unit) }}
             {{- include "ft-aquarium-node.env" (dict "name" (printf "LOANS_LIQUIDATION_MARKETS_%d_MODE" $i) "value" $m.mode) }}

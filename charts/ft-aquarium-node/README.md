@@ -645,6 +645,86 @@ chart ships it set** — same rule as the liquidation flags: a stranger's
 
 ---
 
+## One margin, since 0.9.0
+
+**A conversion is a liquidation.** It repays the loan by routing the collateral
+through Minswap instead of fronting the principal, and that is a difference of
+mechanism, not of kind. So there is **one margin**:
+`liquidation.profitMarginLovelace` gates every mode, conversion included.
+
+`convert.profitMarginLovelace` is **gone**. A values file still setting it is
+**refused at render**, naming the replacement — silently ignoring it would leave
+an operator believing a number governs something it no longer touches.
+
+⚠ **Do not copy the old convert number across.** The two were measured against
+different quantities: convert's margin was tested against a net that already
+carried the DEX cost floor. Re-decide the value; do not translate it.
+
+⚑ **A margin of `0` on a conversion already means "it must cover the order
+cost"** — the Minswap order ada is charged as an expense before the margin is
+applied, so zero is a real break-even, not a free pass.
+
+### The knob that is an expense, not a preference
+
+`liquidation.convert.minswapOrderCostLovelace` (default `4000000`) is the ada
+that must accompany a Minswap order. It is a **cost of doing a conversion**,
+returned only when the order executes.
+
+⛔ **The application refuses to start if it is set below the transaction
+builder's own constant**, so it cannot be lowered to flatter the arithmetic.
+Raise it if Minswap's requirement rises.
+
+### Minimum mainnet arming set
+
+Nothing below is set by this chart, in any preset. All five are the operator's:
+
+```yaml
+scheduling:
+  transactionProcessorEnabled: "true"   # the processor that builds and submits
+liquidation:
+  mode: live                            # the ceiling for every market
+  profitMarginLovelace: "-5000000"      # see the note below
+  convert:
+    enabled: true                       # default; a case exists to turn it off
+markets:                                # [] means CONVERT everywhere, not "off"
+  - unit: <the loan's PRINCIPAL asset>
+    mode: LIVE
+    action: CONVERT
+```
+
+⚠ **`-5000000` is Giovanni's current mainnet setting, recorded here as fact, not
+as a recommendation.** It preserves the behaviour his node had before the
+collapse. It authorises a 5 ADA loss per liquidation, on every candidate, and
+anyone else should decide their own number rather than inherit his.
+
+⛔ **`markets: []` is not "do nothing".** An unlisted market runs as CONVERT at
+the node's own mode. Holding a market back needs an explicit `DISABLED` entry.
+
+### The two mistakes this surface invites
+
+**`unit` is the loan's PRINCIPAL asset, not the collateral.** A collateral-keyed
+entry matches nothing, so the market it was meant to govern falls through to the
+unlisted default — CONVERT at the node's mode. No error; the opposite of the
+policy you wrote.
+
+**`cap` is a per-candidate pass/fail ceiling, not a budget.** A candidate needing
+more than the cap is **refused, never trimmed**, and it is denominated in the
+market asset's own units. ⚠ `cap: ""` is refused at render since 0.9.0 — through
+0.8.0 it passed the guard and was then dropped, handing the pod an ANTICIPATE
+market with no cap and a startup abort.
+
+### Checking the surface after any edit
+
+```bash
+./charts/ft-aquarium-node/verify-env-surface.py <your-values.yaml>
+```
+
+Asserts every kept variable has an emit site in the template and no removed
+variable is emitted. ⚠ It checks **emit sites**, not this render's output: the
+chart deliberately omits an env var whose value is empty, so absence from one
+render proves nothing. The 0.7.0 failure was that no template line existed at
+all, so the variable could never be set — that is what this catches.
+
 ## Publishing the UI
 
 The node requires no inbound access to do its job — it dials out to the relay
