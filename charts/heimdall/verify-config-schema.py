@@ -87,6 +87,7 @@ fail.n = 0
 
 
 def main(values):
+    vals = yaml.safe_load(open(values)) or {}
     out = subprocess.run(
         ["helm", "template", "t", CHART, "-f", values],
         capture_output=True, text=True)
@@ -121,6 +122,34 @@ def main(values):
         if not isinstance(v, int) or isinstance(v, bool):
             fail(f"[{s}] {k} = {v!r} is {type(v).__name__}, must be an integer "
                  f"— the daemon refuses a float here")
+
+    # ⛔ THE CONSENSUS-INPUT CHECK, and it is the one that matters more than any
+    # allowlist entry. The published chart emitted `demo_live_stake` and SILENTLY
+    # NOTHING for `demo_virtual_epoch_slots`, because the key did not exist here
+    # at all. A node built that way registers, stays reachable, answers 200,
+    # passes every `doctor` check, and IS EXCLUDED FROM EVERY CEREMONY with no
+    # error on either side.
+    #
+    # ⇒ So the danger this check exists for is not REJECTING an unknown key — it
+    # is HAPPILY PASSING a config that is missing these two.
+    #
+    # ⚠ Skipped on mainnet, where both are refused outright. That is not an
+    # exemption: it is the same rule, because there the correct value is absence.
+    net = (vals.get("cardano") or {}).get("network")
+    if net and net != "mainnet":
+        for key, vkey in ((("cardano", "demo_live_stake"), "demoLiveStake"),
+                          (("cardano", "demo_virtual_epoch_slots"), "demoVirtualEpochSlots")):
+            set_in_values = str((vals.get("cardano") or {}).get(vkey, "")) != ""
+            in_output = key in pairs
+            if set_in_values and not in_output:
+                fail(f"[{key[0]}] {key[1]} is set in values ({vkey}) but DOES NOT "
+                     f"RENDER — the exact shape that shipped: a value that reads "
+                     f"as set and emits nothing")
+            elif not set_in_values:
+                fail(f"[{key[0]}] {key[1]} IS NOT SET (values: cardano.{vkey}) on "
+                     f"network {net!r}. Absent it defaults to false / real Cardano "
+                     f"epochs, and this node will be EXCLUDED FROM EVERY CEREMONY "
+                     f"with no error on either side. Set it to the roster's value.")
 
     print(f"  {len(pairs)} (section, key) pairs; "
           f"{len(REQUIRED)} required, {len(pairs & OPTIONAL)} optional present")

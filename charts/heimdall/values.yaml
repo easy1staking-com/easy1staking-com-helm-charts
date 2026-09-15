@@ -17,6 +17,71 @@
 # margin is now compiled in and a config that still sets it fails to start. Emit
 # nothing you do not know.
 
+# ── Mode ─────────────────────────────────────────────────────────────────────
+#
+#   run       the daemon. The normal state.
+#   register  a STABLE POD TO REGISTER FROM. The daemon is not started.
+#
+# ⛔ WHY `register` EXISTS, AND THE REASON IS NOT TIDINESS. heimdall HARD-FAILS
+# STARTUP WHEN UNREGISTERED, by design — "an unregistered node is in no roster
+# and would contribute nothing". And the guide's order is DEPLOY → REGISTER →
+# START, with a human submitting an on-chain transaction in the middle.
+#
+# ⇒ So a first deployment CRASH-LOOPS until that transaction lands. And a
+# CRASH-LOOPING POD IS NEVER Ready, SO A ROLLING UPDATE WILL NOT REPLACE IT:
+# for a single-replica workload the sync succeeds, the controller reports
+# healthy, and the pod stays on the old revision until someone deletes it by
+# hand. ⇒ The crash-loop is therefore the state in which it is HARDEST to change
+# anything — and registration is exactly when you need a pod to work in.
+#
+# ⚑ `strategy: Recreate` is what makes this safe: a never-Ready register pod is
+# still replaceable, so the trap above is sidestepped rather than argued with.
+#
+# ── WHAT register MODE DOES AND DOES NOT DO ──────────────────────────────────
+#
+# ⛔ IT DOES NOT REGISTER. Registration is an on-chain transaction you submit,
+# beside a cold key that need never enter this cluster. This chart does not run
+# it, template it, or make it look automatic.
+#
+# ⇒ It runs `heimdall doctor` on a loop — read-only, spends nothing — so the log
+# is a LIVE READOUT of what is still wrong rather than a blind wait. Strictly
+# more useful than a sleep, which is why it is not a sleep.
+#
+# ⛔ AND IT SERVES NOTHING ON THE PEER PORT. Nothing binds it while the daemon is
+# not running, and the rule is: DO NOT HELPFULLY ADD A PLACEHOLDER /health. A
+# node answering 200 that will never participate advertises a working bridge node
+# that is not one. A refused connection is honest.
+#
+# ⇒ READINESS IS GATED ON `doctor`'s EXIT CODE, so the pod is Running and never
+# Ready until registration exists, and flips Ready exactly when the blocking
+# check clears. ⚠ That is the point: "green and idle" would be indistinguishable
+# from "green and working", and this is the more dangerous direction than a
+# crash-loop. Nobody should discover in a week that the bridge node was sleeping.
+#
+# ── EXPECTED doctor RESULTS BEFORE REGISTRATION ──────────────────────────────
+#
+#   [6/11]  FAIL          registration absent — the one you are here to fix
+#   [4/11]  WARN
+#   [10/11] FAIL          on a node that has never run
+#   [11/11] possibly WARN
+#
+# ⛔ EVERY OTHER CHECK MUST PASS. Anything else failing is a real problem to fix
+# BEFORE spending an on-chain transaction.
+#
+# ── SWITCHING ────────────────────────────────────────────────────────────────
+#
+# `register` → `run` is a FREE REDEPLOY. Registration writes nothing to disk —
+# its five values are printed and passed as command-line arguments, and they are
+# public signatures and public keys that go on chain anyway.
+#
+# ⛔ BUT ONE FILE MUST ALREADY EXIST BEFORE YOU REGISTER: bifrost.skey, 0600,
+# 32 random bytes, generated once, on the state volume. Its PUBLIC half is what
+# the signing step needs and what the registration binds on chain. ⇒ Which is
+# why register mode mounts THE SAME PERSISTENT VOLUME the daemon will use — a
+# register pod on an emptyDir, or on a different claim, produces work that
+# evaporates.
+mode: run
+
 image:
   repository: ghcr.io/lantr-io/heimdall
   # ⛔ REQUIRED, no default, and never `latest`.

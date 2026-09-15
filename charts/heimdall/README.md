@@ -14,6 +14,74 @@ locally.
 
 ---
 
+## `mode: register` — a stable pod to register FROM
+
+```yaml
+mode: register   # then `run`, once registration is on chain
+```
+
+**heimdall hard-fails startup when unregistered**, by design, and the guide's
+order is **deploy → register → start** with a human submitting an on-chain
+transaction in the middle. So a first deployment crash-loops until that lands.
+
+⇒ **And a crash-looping pod is never `Ready`, so a rolling update will not
+replace it.** For a single-replica workload the sync succeeds, the controller
+reports healthy, and the pod stays on the old revision until someone deletes it
+by hand. **The crash-loop is therefore the state in which it is hardest to change
+anything — and registration is exactly when you need a pod to work in.**
+
+⚑ `strategy: Recreate` is what makes this safe: a never-`Ready` register pod is
+still replaceable, so that trap is sidestepped rather than argued with.
+
+### What it does, and what it deliberately does not
+
+⛔ **It does not register.** Registration is a transaction you submit, beside a
+cold key that need never enter this cluster. This chart does not run it, template
+it, or make it look automatic.
+
+⇒ It runs **`heimdall doctor` on a loop** — read-only, spends nothing — so the
+log is a live readout of what is still wrong rather than a blind wait. That is
+why it is not a `sleep`.
+
+⛔ **It serves nothing on the peer port.** Nothing binds it while the daemon is
+stopped, and the rule is: *do not helpfully add a placeholder `/health`.* A node
+answering 200 that will never participate advertises a working bridge node that
+is not one. **A refused connection is honest.**
+
+⇒ **Readiness is gated on `doctor`'s exit code**, so the pod is `Running` and
+**never `Ready`** until registration exists, and flips `Ready` exactly when the
+blocking check clears.
+
+⚠ **That gate is the whole safety of the mode.** An idling pod reporting `Ready`
+would be indistinguishable from a working one — the inverse of the crash-loop
+problem and the *more* dangerous direction, because nothing would ever surface
+it. Nobody should discover in a week that the bridge node has been sleeping.
+
+### Expected `doctor` results before registration
+
+| | |
+|---|---|
+| `[6/11]` | **FAIL** — registration absent; the one you are here to fix |
+| `[4/11]` | WARN |
+| `[10/11]` | **FAIL** — on a node that has never run |
+| `[11/11]` | possibly WARN |
+
+⛔ **Every other check must pass.** Anything else failing is a real problem to fix
+**before** spending an on-chain transaction.
+
+### Switching modes
+
+`register` → `run` is a **free redeploy**. Registration writes nothing to disk —
+its values are printed and passed as command-line arguments, and they are public
+signatures and public keys that go on chain anyway.
+
+⛔ **But one file must already exist before you register:**
+`bifrost.skey`, `0600`, 32 random bytes, generated once, on the state volume. Its
+**public** half is what the signing step needs and what the registration binds on
+chain. ⇒ Which is why register mode mounts **the same persistent volume** the
+daemon will use — a register pod on an `emptyDir`, or on a different claim,
+produces work that evaporates.
+
 ## ⛔ CrashLoopBackOff before registration is CORRECT. Do not fix it.
 
 **Before registration completes, the daemon refuses to start.** In Kubernetes
