@@ -149,16 +149,34 @@ misspelling, from the other direction.
 
 ## ⛔⛔ Name a StorageClass with `reclaimPolicy: Retain`
 
-`persistence.storageClass` is **required with no default**, and it is the one
-value in this chart that cannot be corrected afterwards.
+`persistence.storageClass` is **required with no default**, because the wrong
+answer here fails *silently* and you find out by losing something.
 
 ```bash
 kubectl get storageclass -o custom-columns=NAME:.metadata.name,RECLAIM:.reclaimPolicy
 ```
 
-⚠ **Reclaim policy is decided when the volume is created, not when the file
-appears.** It belongs to the StorageClass and the PV, not to the claim, so it
-cannot be changed into place later for data that already exists.
+⚠ **A StorageClass's `reclaimPolicy` is fixed for every volume it creates** — it
+belongs to the class and the PV, never to the claim, so you cannot retune it
+through the PVC.
+
+✅ **But an individual PV's policy IS mutable, and this is the remedy if a volume
+ever got created under the wrong class:**
+
+```bash
+kubectl patch pv <name> -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+```
+
+⇒ That repairs the **existing volume and its data**. The only thing that cannot
+be undone is a deletion that has already happened.
+
+⛔ **So why is the value still required, if the mistake is repairable?** Because
+the patch is only ever reached by someone who already knows they need it. A
+volume sitting on a `Delete` class renders perfectly, mounts perfectly and runs
+perfectly — it is indistinguishable from a correct one until the single command
+that destroys it. Requiring the class moves that decision to creation time,
+where it is a deliberate answer, instead of to deletion time, where it is a
+discovery.
 
 ⇒ **Empty would mean "the cluster's default class", and that is precisely the
 dangerous answer** — on k3s that is `local-path` with `reclaimPolicy: Delete`,
@@ -197,6 +215,14 @@ It holds the epoch's DKG signing share and `federation-key.json`:
 `emptyDir` is not an option at any size. When replacing a container onto state
 that already exists — stage 3 of the pilot — set `persistence.existingClaim` so
 the chart adopts the claim instead of provisioning a fresh one.
+
+⚑ **And when you cannot verify the class, `existingClaim` is the safer of the two
+answers that satisfy the chart.** Both get you a render; their failure modes are
+not comparable. A class name that does not exist leaves the pod `Pending` —
+nothing written, so nothing can be lost, and you learn immediately. A class name
+that *does* exist and is `Delete` renders perfectly and costs the federation
+share on one `kubectl delete pvc`. **The success case is the catastrophe, which
+is what takes the guess off the table** rather than merely making it risky.
 
 ## Required values
 

@@ -351,9 +351,19 @@ persistence:
   # ⇒ THE CLASS YOU NAME MUST HAVE `reclaimPolicy: Retain`:
   #   kubectl get storageclass -o custom-columns=NAME:.metadata.name,RECLAIM:.reclaimPolicy
   #
-  # ⚠ AND IT IS DECIDED WHEN THE VOLUME IS CREATED, NOT WHEN THE FILE APPEARS.
-  # Reclaim policy belongs to the StorageClass and the PV, not to the claim, so
-  # it cannot be changed into place later for data that already exists.
+  # ⚠ A CLASS'S reclaimPolicy IS FIXED FOR EVERY VOLUME IT CREATES. It belongs to
+  # the class and the PV, never to the claim, so you cannot retune it via the PVC.
+  #
+  # ✅ BUT AN INDIVIDUAL PV'S POLICY IS MUTABLE — the remedy if a volume ever got
+  # created under the wrong class, and it repairs the EXISTING DATA:
+  #   kubectl patch pv <name> -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+  # Only a deletion that has already happened cannot be undone.
+  #
+  # ⛔ AND THE PATCH DOES NOT MAKE GUESSING A CLASS SAFE — it is reached only by
+  # someone who already knows they need it. A volume on a `Delete` class renders,
+  # mounts and runs identically to a correct one, right up to the single command
+  # that destroys it. Requiring this value moves the decision to creation time,
+  # where it is deliberate, instead of to deletion time, where it is a discovery.
   #
   # ⛔ WHAT LANDS ON THIS VOLUME — and only one of the three is catastrophic:
   #   bifrost.skey             ours; losing it costs re-registration
@@ -378,6 +388,13 @@ persistence:
   # Adopt an existing claim instead of provisioning. Pilot stage 3 replaces the
   # container onto the SAME volume; a chart that provisioned a fresh one there
   # would fail that stage by construction.
+  #
+  # ⚑ WHEN YOU CANNOT VERIFY THE CLASS, THIS IS THE SAFER OF THE TWO SATISFYING
+  # ANSWERS. A storageClass name that does not exist leaves the pod Pending —
+  # nothing written, nothing lost, and you learn at once. One that DOES exist and
+  # is `Delete` renders perfectly and costs the federation share on one
+  # `kubectl delete pvc`. THE SUCCESS CASE IS THE CATASTROPHE, so the guess is
+  # not available — whereas an existing claim you can inspect before adopting.
   existingClaim: ""
 
 # ── [log] ────────────────────────────────────────────────────────────────────
