@@ -17,6 +17,71 @@
 # margin is now compiled in and a config that still sets it fails to start. Emit
 # nothing you do not know.
 
+# ── Mode ─────────────────────────────────────────────────────────────────────
+#
+#   run       the daemon. The normal state.
+#   register  a STABLE POD TO REGISTER FROM. The daemon is not started.
+#
+# ⛔ WHY `register` EXISTS, AND THE REASON IS NOT TIDINESS. heimdall HARD-FAILS
+# STARTUP WHEN UNREGISTERED, by design — "an unregistered node is in no roster
+# and would contribute nothing". And the guide's order is DEPLOY → REGISTER →
+# START, with a human submitting an on-chain transaction in the middle.
+#
+# ⇒ So a first deployment CRASH-LOOPS until that transaction lands. And a
+# CRASH-LOOPING POD IS NEVER Ready, SO A ROLLING UPDATE WILL NOT REPLACE IT:
+# for a single-replica workload the sync succeeds, the controller reports
+# healthy, and the pod stays on the old revision until someone deletes it by
+# hand. ⇒ The crash-loop is therefore the state in which it is HARDEST to change
+# anything — and registration is exactly when you need a pod to work in.
+#
+# ⚑ `strategy: Recreate` is what makes this safe: a never-Ready register pod is
+# still replaceable, so the trap above is sidestepped rather than argued with.
+#
+# ── WHAT register MODE DOES AND DOES NOT DO ──────────────────────────────────
+#
+# ⛔ IT DOES NOT REGISTER. Registration is an on-chain transaction you submit,
+# beside a cold key that need never enter this cluster. This chart does not run
+# it, template it, or make it look automatic.
+#
+# ⇒ It runs `heimdall doctor` on a loop — read-only, spends nothing — so the log
+# is a LIVE READOUT of what is still wrong rather than a blind wait. Strictly
+# more useful than a sleep, which is why it is not a sleep.
+#
+# ⛔ AND IT SERVES NOTHING ON THE PEER PORT. Nothing binds it while the daemon is
+# not running, and the rule is: DO NOT HELPFULLY ADD A PLACEHOLDER /health. A
+# node answering 200 that will never participate advertises a working bridge node
+# that is not one. A refused connection is honest.
+#
+# ⇒ READINESS IS GATED ON `doctor`'s EXIT CODE, so the pod is Running and never
+# Ready until registration exists, and flips Ready exactly when the blocking
+# check clears. ⚠ That is the point: "green and idle" would be indistinguishable
+# from "green and working", and this is the more dangerous direction than a
+# crash-loop. Nobody should discover in a week that the bridge node was sleeping.
+#
+# ── EXPECTED doctor RESULTS BEFORE REGISTRATION ──────────────────────────────
+#
+#   [6/11]  FAIL          registration absent — the one you are here to fix
+#   [4/11]  WARN
+#   [10/11] FAIL          on a node that has never run
+#   [11/11] possibly WARN
+#
+# ⛔ EVERY OTHER CHECK MUST PASS. Anything else failing is a real problem to fix
+# BEFORE spending an on-chain transaction.
+#
+# ── SWITCHING ────────────────────────────────────────────────────────────────
+#
+# `register` → `run` is a FREE REDEPLOY. Registration writes nothing to disk —
+# its five values are printed and passed as command-line arguments, and they are
+# public signatures and public keys that go on chain anyway.
+#
+# ⛔ BUT ONE FILE MUST ALREADY EXIST BEFORE YOU REGISTER: bifrost.skey, 0600,
+# 32 random bytes, generated once, on the state volume. Its PUBLIC half is what
+# the signing step needs and what the registration binds on chain. ⇒ Which is
+# why register mode mounts THE SAME PERSISTENT VOLUME the daemon will use — a
+# register pod on an emptyDir, or on a different claim, produces work that
+# evaporates.
+mode: run
+
 image:
   repository: ghcr.io/lantr-io/heimdall
   # ⛔ REQUIRED, no default, and never `latest`.
@@ -136,9 +201,37 @@ cardano:
   # Compared across the roster BY NAME. The binary's own default, kept.
   stakeSource: blockfrost
 
-  # ⛔ A BOOLEAN, no default, roster-wide, and REFUSED OUTRIGHT ON MAINNET.
-  # Emitted only when explicitly set. This pilot roster runs `true`.
+  # ── CONSENSUS INPUTS — NOT PREFERENCES ────────────────────────────────────
+  #
+  # ⛔ EVERY NODE OF THE ROSTER MUST CARRY THE SAME VALUES, or the peers exclude
+  # each other at the PRE-CEREMONY HANDSHAKE.
+  #
+  # ⇒ AND THE FAILURE IS SILENT ON BOTH SIDES. Absent, these default to `false`
+  # and to real Cardano epochs — so the node registers, stays reachable, answers
+  # /health 200, passes every `doctor` check, AND IS NEVER TALKED TO. There is no
+  # error anywhere to find.
+  #
+  # ⚠ So "not set" is not a neutral state here. It is a different roster.
+  #
+  # ⛔ Refused outright on mainnet, which is why neither can be defaulted: a value
+  # mandatory on preview and rejected on mainnet has no safe default, only a
+  # correct one per network.
+
+  # Boolean. This pilot roster runs `true`.
   demoLiveStake: ""
+
+  # Integer, slots. This pilot roster runs 86400 — a 24h virtual epoch.
+  # ⚠ Absent, the node uses REAL Cardano epochs — a different consensus input
+  # from every peer running a virtual one. That is the exclusion case above, and
+  # it is the one this chart could not express at all until now.
+  demoVirtualEpochSlots: ""
+
+  # ⚠ `demo_exclude_unstaked` is ALSO compared and is still NOT settable here,
+  # deliberately: its section and type are unconfirmed, and inventing a values
+  # key that renders nothing would read as set while doing nothing — the same
+  # failure as a misspelling, from the other direction.
+
+  # ── end consensus inputs ──────────────────────────────────────────────────
 
   # ⚠ `demo_exclude_unstaked` IS ALSO COMPARED ACROSS THE ROSTER, AND THIS CHART
   # CANNOT SET IT YET — deliberately, not by oversight.
@@ -251,10 +344,57 @@ health:
 persistence:
   mountPath: /var/lib/heimdall
   size: 1Gi
+  # ⛔⛔ REQUIRED, AND THE REASON IS UNRECOVERABLE LOSS OF OTHER PEOPLE'S FUNDS.
+  # This is the one value in this chart where a wrong answer cannot be corrected
+  # afterwards.
+  #
+  # ⇒ THE CLASS YOU NAME MUST HAVE `reclaimPolicy: Retain`:
+  #   kubectl get storageclass -o custom-columns=NAME:.metadata.name,RECLAIM:.reclaimPolicy
+  #
+  # ⚠ A CLASS'S reclaimPolicy IS FIXED FOR EVERY VOLUME IT CREATES. It belongs to
+  # the class and the PV, never to the claim, so you cannot retune it via the PVC.
+  #
+  # ✅ BUT AN INDIVIDUAL PV'S POLICY IS MUTABLE — the remedy if a volume ever got
+  # created under the wrong class, and it repairs the EXISTING DATA:
+  #   kubectl patch pv <name> -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+  # Only a deletion that has already happened cannot be undone.
+  #
+  # ⛔ AND THE PATCH DOES NOT MAKE GUESSING A CLASS SAFE — it is reached only by
+  # someone who already knows they need it. A volume on a `Delete` class renders,
+  # mounts and runs identically to a correct one, right up to the single command
+  # that destroys it. Requiring this value moves the decision to creation time,
+  # where it is deliberate, instead of to deletion time, where it is a discovery.
+  #
+  # ⛔ WHAT LANDS ON THIS VOLUME — and only one of the three is catastrophic:
+  #   bifrost.skey             ours; losing it costs re-registration
+  #   the per-cycle DKG share  losing it costs the current cycle
+  #   federation-key.json      ⛔ THE ONLY COPY OF YOUR SHARE. Upstream: "a re-run
+  #                            produces a different key, hence a different
+  #                            treasury address, which the existing funds are not
+  #                            in. Below the threshold in surviving shares, THE
+  #                            RECOVERY PATH IS GONE FOR GOOD."
+  #   *-trie.json              recomputable — the ones that do not matter
+  #
+  # ⇒ WHY REQUIRED RATHER THAN DEFAULTED: empty means "the cluster's default
+  # class", and that is precisely the dangerous answer — on k3s it is
+  # `local-path` with `reclaimPolicy: Delete`, making `kubectl delete pvc` a
+  # one-command path to losing a federation share. An unnamed class is an UNKNOWN
+  # reclaim policy under a key that cannot be regenerated.
+  #
+  # ⚠ A refusal that is a FACT, not caution: the chart cannot read your cluster
+  # and cannot verify the policy, so the least it can do is refuse to guess which
+  # class holds it.
   storageClass: ""
   # Adopt an existing claim instead of provisioning. Pilot stage 3 replaces the
   # container onto the SAME volume; a chart that provisioned a fresh one there
   # would fail that stage by construction.
+  #
+  # ⚑ WHEN YOU CANNOT VERIFY THE CLASS, THIS IS THE SAFER OF THE TWO SATISFYING
+  # ANSWERS. A storageClass name that does not exist leaves the pod Pending —
+  # nothing written, nothing lost, and you learn at once. One that DOES exist and
+  # is `Delete` renders perfectly and costs the federation share on one
+  # `kubectl delete pvc`. THE SUCCESS CASE IS THE CATASTROPHE, so the guess is
+  # not available — whereas an existing claim you can inspect before adopting.
   existingClaim: ""
 
 # ── [log] ────────────────────────────────────────────────────────────────────

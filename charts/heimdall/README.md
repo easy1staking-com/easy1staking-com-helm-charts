@@ -14,6 +14,74 @@ locally.
 
 ---
 
+## `mode: register` — a stable pod to register FROM
+
+```yaml
+mode: register   # then `run`, once registration is on chain
+```
+
+**heimdall hard-fails startup when unregistered**, by design, and the guide's
+order is **deploy → register → start** with a human submitting an on-chain
+transaction in the middle. So a first deployment crash-loops until that lands.
+
+⇒ **And a crash-looping pod is never `Ready`, so a rolling update will not
+replace it.** For a single-replica workload the sync succeeds, the controller
+reports healthy, and the pod stays on the old revision until someone deletes it
+by hand. **The crash-loop is therefore the state in which it is hardest to change
+anything — and registration is exactly when you need a pod to work in.**
+
+⚑ `strategy: Recreate` is what makes this safe: a never-`Ready` register pod is
+still replaceable, so that trap is sidestepped rather than argued with.
+
+### What it does, and what it deliberately does not
+
+⛔ **It does not register.** Registration is a transaction you submit, beside a
+cold key that need never enter this cluster. This chart does not run it, template
+it, or make it look automatic.
+
+⇒ It runs **`heimdall doctor` on a loop** — read-only, spends nothing — so the
+log is a live readout of what is still wrong rather than a blind wait. That is
+why it is not a `sleep`.
+
+⛔ **It serves nothing on the peer port.** Nothing binds it while the daemon is
+stopped, and the rule is: *do not helpfully add a placeholder `/health`.* A node
+answering 200 that will never participate advertises a working bridge node that
+is not one. **A refused connection is honest.**
+
+⇒ **Readiness is gated on `doctor`'s exit code**, so the pod is `Running` and
+**never `Ready`** until registration exists, and flips `Ready` exactly when the
+blocking check clears.
+
+⚠ **That gate is the whole safety of the mode.** An idling pod reporting `Ready`
+would be indistinguishable from a working one — the inverse of the crash-loop
+problem and the *more* dangerous direction, because nothing would ever surface
+it. Nobody should discover in a week that the bridge node has been sleeping.
+
+### Expected `doctor` results before registration
+
+| | |
+|---|---|
+| `[6/11]` | **FAIL** — registration absent; the one you are here to fix |
+| `[4/11]` | WARN |
+| `[10/11]` | **FAIL** — on a node that has never run |
+| `[11/11]` | possibly WARN |
+
+⛔ **Every other check must pass.** Anything else failing is a real problem to fix
+**before** spending an on-chain transaction.
+
+### Switching modes
+
+`register` → `run` is a **free redeploy**. Registration writes nothing to disk —
+its values are printed and passed as command-line arguments, and they are public
+signatures and public keys that go on chain anyway.
+
+⛔ **But one file must already exist before you register:**
+`bifrost.skey`, `0600`, 32 random bytes, generated once, on the state volume. Its
+**public** half is what the signing step needs and what the registration binds on
+chain. ⇒ Which is why register mode mounts **the same persistent volume** the
+daemon will use — a register pod on an `emptyDir`, or on a different claim,
+produces work that evaporates.
+
 ## ⛔ CrashLoopBackOff before registration is CORRECT. Do not fix it.
 
 **Before registration completes, the daemon refuses to start.** In Kubernetes
@@ -48,6 +116,91 @@ The generous startup budget lives in `startupProbe`, never in
 There is also **no `ServiceMonitor`**: upstream has no operator metrics surface
 yet (WI-058). A dashboard cannot be built from an endpoint that does not exist.
 
+## ⛔⛔ The consensus inputs — absent means EXCLUDED, with no error anywhere
+
+```yaml
+cardano:
+  demoLiveStake: true            # boolean
+  demoVirtualEpochSlots: 86400   # integer, slots — a 24h virtual epoch
+```
+
+**These are not preferences.** Every node of the roster must carry the **same**
+values or the peers exclude each other at the pre-ceremony handshake.
+
+⇒ **Absent, they default to `false` and to real Cardano epochs** — so the node
+registers, stays reachable, answers `/health` 200, passes every `doctor` check,
+**and is never talked to.** There is no error on either side to find.
+
+⚠ **So "not set" is not a neutral state here. It is a different roster.** And
+both are refused outright on mainnet, which is why neither can be defaulted: a
+value that is mandatory on preview and rejected on mainnet has no safe default,
+only a correct one per network.
+
+⚑ `demoVirtualEpochSlots` was added on 2026-09-15. Before that **this chart could
+not express it at all** — upstream had promoted it out of a test appendix into
+the main config under a *consensus inputs* heading, and the published
+`0.1.0-alpha.1` predates that. A node built from that chart would have been
+exactly the silent-exclusion case above.
+
+⚠ `demo_exclude_unstaked` is also compared and is **still not settable here**,
+deliberately: its section and type are unconfirmed, and a values key that renders
+nothing would read as set while doing nothing — the same failure as a
+misspelling, from the other direction.
+
+## ⛔⛔ Name a StorageClass with `reclaimPolicy: Retain`
+
+`persistence.storageClass` is **required with no default**, because the wrong
+answer here fails *silently* and you find out by losing something.
+
+```bash
+kubectl get storageclass -o custom-columns=NAME:.metadata.name,RECLAIM:.reclaimPolicy
+```
+
+⚠ **A StorageClass's `reclaimPolicy` is fixed for every volume it creates** — it
+belongs to the class and the PV, never to the claim, so you cannot retune it
+through the PVC.
+
+✅ **But an individual PV's policy IS mutable, and this is the remedy if a volume
+ever got created under the wrong class:**
+
+```bash
+kubectl patch pv <name> -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+```
+
+⇒ That repairs the **existing volume and its data**. The only thing that cannot
+be undone is a deletion that has already happened.
+
+⛔ **So why is the value still required, if the mistake is repairable?** Because
+the patch is only ever reached by someone who already knows they need it. A
+volume sitting on a `Delete` class renders perfectly, mounts perfectly and runs
+perfectly — it is indistinguishable from a correct one until the single command
+that destroys it. Requiring the class moves that decision to creation time,
+where it is a deliberate answer, instead of to deletion time, where it is a
+discovery.
+
+⇒ **Empty would mean "the cluster's default class", and that is precisely the
+dangerous answer** — on k3s that is `local-path` with `reclaimPolicy: Delete`,
+making `kubectl delete pvc` a one-command path to losing a federation share. An
+unnamed class is an *unknown* reclaim policy under a key that cannot be
+regenerated, so the chart refuses to guess.
+
+Three things land on this volume and only one is catastrophic:
+
+| | |
+|---|---|
+| `bifrost.skey` | ours — losing it costs re-registration |
+| the per-cycle DKG share | losing it costs the current cycle |
+| `federation-key.json` | ⛔ **the only copy of your share.** A re-run produces a different key, a different treasury address, and funds that are not in it. Below the threshold in surviving shares, **the recovery path is gone for good** |
+| `*-trie.json` | recomputable — the ones that do not matter |
+
+## ⚑ The advertised URL is portless because it has to be
+
+The chart already refuses an advertised URL whose explicit port disagrees with
+`listenPort`. ⚑ And on a cluster fronted by **Cloudflare with the record
+proxied**, a non-standard port is **not served at all** — so a portless
+`https://host` was never merely the more flexible shape, it was the only workable
+one. Do not add a port to make it look more explicit.
+
 ## ⛔ The state volume is the thing that loses money
 
 `/var/lib/heimdall`, `ReadWriteOnce`, annotated `helm.sh/resource-policy: keep`
@@ -62,6 +215,14 @@ It holds the epoch's DKG signing share and `federation-key.json`:
 `emptyDir` is not an option at any size. When replacing a container onto state
 that already exists — stage 3 of the pilot — set `persistence.existingClaim` so
 the chart adopts the claim instead of provisioning a fresh one.
+
+⚑ **And when you cannot verify the class, `existingClaim` is the safer of the two
+answers that satisfy the chart.** Both get you a render; their failure modes are
+not comparable. A class name that does not exist leaves the pod `Pending` —
+nothing written, so nothing can be lost, and you learn immediately. A class name
+that *does* exist and is `Delete` renders perfectly and costs the federation
+share on one `kubectl delete pvc`. **The success case is the catastrophe, which
+is what takes the guess off the table** rather than merely making it risky.
 
 ## Required values
 

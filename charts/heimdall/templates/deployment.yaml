@@ -7,6 +7,12 @@
   either is rejected. Same reason ft-aquarium-node in this repo exposes no
   replicaCount — do not normalise either toward the other charts.
 */ -}}
+{{- if and (not .Values.persistence.existingClaim) (not .Values.persistence.storageClass) -}}
+{{- fail "heimdall: persistence.storageClass is REQUIRED and has no default. Empty means the cluster's DEFAULT class; on k3s that is `local-path` with reclaimPolicy: Delete, so `kubectl delete pvc` would destroy the volume holding bifrost.skey and, if it ever exists, federation-key.json — the only copy of your federation share, whose loss is permanent and takes other people's funds with it. Name a class with reclaimPolicy: Retain. Check: kubectl get storageclass -o custom-columns=NAME:.metadata.name,RECLAIM:.reclaimPolicy — or set persistence.existingClaim instead, which is the safer answer when you cannot verify the class: a name that does not exist leaves the pod Pending with nothing written, whereas a name that DOES exist and is Delete renders perfectly and loses the share on one delete. (If a volume already got created under the wrong class, it is repairable and the data survives: kubectl patch pv <name> -p '{\"spec\":{\"persistentVolumeReclaimPolicy\":\"Retain\"}}'. That fixes a mistake; it does not make guessing safe, because nothing tells you to run it.)" -}}
+{{- end -}}
+{{- if not (has .Values.mode (list "run" "register")) -}}
+{{- fail (printf "heimdall: mode must be `run` or `register`, got %q. `register` gives you a stable pod to register FROM — the daemon hard-fails startup when unregistered, and a crash-looping pod is never Ready, so a rolling update will not replace it." .Values.mode) -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:
@@ -129,6 +135,32 @@ spec:
         - name: heimdall
           image: {{ include "heimdall.image" . | quote }}
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- if eq .Values.mode "register" }}
+          {{- /*
+            ⛔ REGISTER MODE. The daemon is NOT started, and this container serves
+            NOTHING on the peer port — nothing binds it, and a placeholder
+            /health would advertise a working bridge node that is not one. A
+            refused connection is honest.
+
+            `doctor` on a loop rather than a sleep: read-only, spends nothing, and
+            turns a blind wait into a live readout of what is still wrong.
+          */}}
+          command:
+            - sh
+            - -c
+            - |
+              echo "heimdall: REGISTER MODE — the daemon is NOT running."
+              echo "heimdall: this pod exists so there is somewhere stable to"
+              echo "heimdall: register FROM. It will never report Ready until"
+              echo "heimdall: registration exists on chain. Expected until then:"
+              echo "heimdall:   [6/11] FAIL  [4/11] WARN  [10/11] FAIL"
+              echo "heimdall: ANY OTHER failure is a real problem — fix it before"
+              echo "heimdall: spending an on-chain transaction."
+              while true; do
+                heimdall doctor || true
+                sleep 60
+              done
+          {{- else }}
           ports:
             - name: peer
               containerPort: {{ include "heimdall.listenPort" . }}
@@ -143,6 +175,7 @@ spec:
               containerPort: {{ include "heimdall.num" (.Values.health.port | float64) }}
               protocol: TCP
             {{- end }}
+          {{- end }}
           env:
             {{- /*
               ⚠ ENV VAR, NOT A FILE, AND THAT IS A DIVERGENCE FROM THIS REPO'S
@@ -182,6 +215,29 @@ spec:
             The generous budget goes in startupProbe, never in
             livenessProbe.initialDelaySeconds.
           */}}
+          {{- if eq .Values.mode "register" }}
+          {{- /*
+            ⭐ Running but NEVER Ready. `doctor` exits non-zero while its
+            registration check fails, so readiness is false until registration
+            exists on chain and flips true exactly when the blocking state clears.
+
+            ⇒ That is the whole safety of this mode. An idling pod that reported
+            Ready would be indistinguishable from a working one — the inverse of
+            the crash-loop problem and the MORE dangerous direction, because
+            nothing would ever surface it.
+
+            ⛔ No httpGet here: the daemon is not running and nothing binds the
+            port. A probe against it would fail for the wrong reason, and a
+            placeholder endpoint to make it pass would be a lie.
+          */}}
+          readinessProbe:
+            exec:
+              command: ["heimdall", "doctor"]
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 15
+            failureThreshold: 1
+          {{- else }}
           startupProbe:
             httpGet:
               path: /health
@@ -195,6 +251,7 @@ spec:
             periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
             failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          {{- end }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
       volumes:

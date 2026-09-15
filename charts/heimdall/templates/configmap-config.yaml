@@ -80,9 +80,21 @@ data:
       Roster-wide and refused on mainnet — emitted ONLY when explicitly set. A
       default would split the roster rather than merely misconfigure a node.
     */}}
+    {{- /*
+      ⛔ CONSENSUS INPUTS, under [cardano] — the section matters, because a key
+      under the wrong header is SILENTLY IGNORED by this binary and the node then
+      runs a compiled default nobody chose. Absent, these default to false and to
+      real Cardano epochs, and the node is excluded from every ceremony with no
+      error on either side.
+    */}}
     {{- if not (kindIs "invalid" .Values.cardano.demoLiveStake) }}
     {{- if ne (toString .Values.cardano.demoLiveStake) "" }}
     demo_live_stake = {{ .Values.cardano.demoLiveStake }}
+    {{- end }}
+    {{- end }}
+    {{- if not (kindIs "invalid" .Values.cardano.demoVirtualEpochSlots) }}
+    {{- if ne (toString .Values.cardano.demoVirtualEpochSlots) "" }}
+    demo_virtual_epoch_slots = {{ include "heimdall.num" .Values.cardano.demoVirtualEpochSlots }}
     {{- end }}
     {{- end }}
 
