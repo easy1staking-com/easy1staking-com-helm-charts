@@ -1,0 +1,26 @@
+# Preview preset. The network Giovanni runs today, and the chart's default.
+#
+# ⚠ Values files are OVERLAYS — applied on top of values.yaml — so a key removed
+# from the defaults silently disappears from every preset that does not restate
+# it. `network` is restated here deliberately.
+network: preview
+
+config:
+  # The ConfigMap YOU create, holding upstream's config/preview.json (and
+  # preview-v4.json for v4) VERBATIM. Not preset: a name is deployment state.
+  existingConfigMap: ""
+  files: []
+
+# preview's node-to-node address is PUBLIC and upstream's own config uses it, so
+# indexing needs no node of your own:
+#   acropolis.module.peer-network-interface.node-addresses:
+#     ["preview-node.play.dev.cardano.org:3001"]
+# That address lives in upstream's config file, not here.
+
+mempool:
+  # v4 execution needs a node IPC socket. Off until you have one.
+  enabled: false
+  networkMagic: 2
+
+# ⛔ Deliberately NOT preset here, on any network: secret.name, image.tag, and
+# anything that arms or funds. See values.yaml.

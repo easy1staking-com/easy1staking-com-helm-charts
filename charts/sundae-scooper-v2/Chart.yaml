@@ -1,0 +1,30 @@
+apiVersion: v2
+name: sundae-scooper-v2
+description: SundaeSwap scooper v2 — produces the scoops that execute v4 DEX swaps
+
+type: application
+
+# Chart version — this chart's own semver. Bump on every chart change.
+# NOTE: bumping this in a commit to `main` publishes the chart immediately via
+# chart-releaser. That bump is the release gate and belongs to Giovanni.
+#
+# ⚠ ALPHA — NOT YET RUN AGAINST A LIVE SCOOPER. The SemVer pre-release suffix is
+# load-bearing: `helm search` and `helm install` will not select this without
+# `--devel` or an explicit version. It comes off when a scooper has actually run
+# from it. Same convention as the `heimdall` chart in this repo.
+version: 0.1.0-alpha.1
+
+# Upstream image tag. Published by SundaeSwap, not by us.
+#
+# ⛔ NOT a default — see values.yaml `image.tag`, which is REQUIRED. This records
+# what was VERIFIED IN THE REGISTRY on 2026-09-15, and recording is not
+# instructing.
+#
+# ⚠ THE CONTAINER TAG HAS NO `v`. GHCR carries `0.7.1`; the git RELEASE is
+# `v0.7.1`, and `v0.7.1` as an image tag is a 404 — checked. Upstream's own
+# README example says `scooper-v2:v0.6.0`, which does not exist either, so
+# copying their docs gives ImagePullBackOff.
+#
+#   verified newest: 0.7.1
+#   digest         : sha256:c74b697fc14bc53e979d0fa72b80dbb92dff0574794747bc87c716df484b18b4
+appVersion: "0.7.1"

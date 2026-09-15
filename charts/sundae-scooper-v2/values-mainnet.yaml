@@ -1,0 +1,27 @@
+# Mainnet preset.
+#
+# ⛔ THERE IS NO MAINNET GUARD IN THIS CHART, AND THAT IS DELIBERATE — Giovanni's
+# ruling, 2026-09-15. Mainnet is reachable by configuration like any other
+# network: no refusal, no warning flag, no confirmation. A softer guard would be
+# the same guard.
+#
+# What this preset does NOT do is fill anything in for you. Every value that
+# decides identity, funds or arming is absent here exactly as it is on preview —
+# that is a property of the DEFAULTS, not a property of mainnet.
+#
+# ⚠ Two things that differ in kind rather than degree on mainnet, stated as
+# facts rather than as obstacles:
+#   - the scooper's key hash must be in mainnet's OWN authorized_scoopers list.
+#     Preview and mainnet have separate settings UTxOs, so a key registered on
+#     preview is not registered here.
+#   - a real scoop spends real fees. `deploy/alerts.yml` upstream includes a
+#     low-wallet-balance alert for that reason.
+network: mainnet
+
+config:
+  existingConfigMap: ""
+  files: []
+
+mempool:
+  enabled: false
+  networkMagic: 764824073

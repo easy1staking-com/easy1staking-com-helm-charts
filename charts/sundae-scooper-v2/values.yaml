@@ -1,0 +1,629 @@
+# sundae-scooper-v2 — the SundaeSwap scooper that executes v4 DEX swaps.
+#
+# ⛔ EVERY NETWORK IS EQUAL HERE. There is no mainnet guard, no confirmation
+# flag, no "are you sure" — Giovanni's ruling, 2026-09-15, and a softer guard
+# would be the same guard. Set `network: mainnet` and it runs on mainnet.
+#
+# ⚠ WHAT IS DIFFERENT IS THE DEFAULT, NOT WHAT IS POSSIBLE. This chart is public
+# and installable by a stranger, so it ships `preview` and no key, and the
+# values that decide identity or money are empty and FAIL THE RENDER. Expose
+# everything, document it, default safely.
+#
+# ── HOW THIS CHART HANDLES CONFIG, AND WHY IT DOES NOT TEMPLATE ALL OF IT ────
+#
+# The scooper takes ONE OR MORE `--config` JSON files, applied in order, each
+# overriding the last. Upstream's own v4 config is ~40 coordinates deep — nine
+# module scripts with a hash and a reference UTxO each, a 350-element Plutus V3
+# cost model, slot config, script hashes, a starting point. Every one of those
+# must match on-chain state, and upstream changes them when the DEX redeploys.
+#
+# ⇒ So this chart does NOT retype them. You supply upstream's config files
+# VERBATIM in a ConfigMap you own, and the chart layers a small overlay on top
+# carrying only what Kubernetes itself decides: paths, listen addresses, and the
+# secret key file. Two `--config` arguments, upstream's then ours.
+#
+# ⛔ NO CONFIG SHIPS IN THE IMAGE. Upstream's Dockerfile says so in as many
+# words: "No network config ships in the image; bind-mount one at
+# /app/config.json." There is no built-in fallback to inherit.
+#
+# ⛔ AND AN UNKNOWN CONFIG KEY IS SILENTLY IGNORED. Measured, not assumed: the
+# binary loads config through the `config` crate with serde and there is not a
+# single `deny_unknown_fields` in the repository. A misspelled key does not
+# fail — it is simply never applied, and the scooper runs a compiled default
+# nobody chose. `verify-config-schema.py` in this chart directory is the guard
+# that catches it; run it after any edit.
+
+# ── Network ──────────────────────────────────────────────────────────────────
+#
+# ⛔ REQUIRED. Sets `acropolis.global.startup.network-name` and decides which
+# upstream config you must supply. Known values: preview, preprod, mainnet.
+# Upstream also ships devnet configs.
+#
+# The per-network presets in this directory set it: values-preview.yaml,
+# values-preprod.yaml, values-mainnet.yaml. Preview is the documented default in
+# the README and the only network Giovanni runs today.
+network: preview
+
+image:
+  repository: ghcr.io/sundaeswap-finance/scooper-v2
+  # ⛔ REQUIRED, no default.
+  #
+  # ⚠ NO `v` PREFIX. GHCR carries `0.7.1`; `v0.7.1` is the git release tag and a
+  # 404 as an image tag — and upstream's own README example (`:v0.6.0`) has the
+  # same mistake, so following their docs gives ImagePullBackOff.
+  #
+  #   tag: "0.7.1"   # verified newest in the registry, 2026-09-15
+  #                  # sha256:c74b697fc14bc53e979d0fa72b80dbb92dff0574794747bc87c716df484b18b4
+  #
+  # ⛔ AND 0.7.0 IS THE FLOOR IF YOUR KEY IS A cardano-cli ENVELOPE.
+  # `normalize_secret_key_hex` — the function that accepts an envelope at all —
+  # DOES NOT EXIST at 0.6.0 or 0.6.1. It arrived in 0.7.0 with "mainnet
+  # readiness: address network, staked pool addresses, bip32 key files". So on
+  # 0.6.x an envelope key is not merely undocumented, it is unparsed.
+  #
+  # `latest` and `main` both move; pin the version, or pin the digest below.
+  tag: ""
+
+  # ⚑ OPTIONAL DIGEST PIN, and it is the stronger one — a tag can be moved under
+  # you, a digest cannot.
+  #
+  # Set together with `tag` and the reference becomes
+  # `repository:tag@sha256:…`, which Kubernetes resolves by DIGEST while the tag
+  # stays human-readable. ⚠ Do not achieve this by appending `@sha256:…` to
+  # `repository` instead: it renders valid YAML and poisons
+  # `app.kubernetes.io/version`, because the version label is taken from `tag`.
+  #
+  #   digest: "sha256:c74b697fc14bc53e979d0fa72b80dbb92dff0574794747bc87c716df484b18b4"   # 0.7.1
+  digest: ""
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+nameOverride: ""
+fullnameOverride: ""
+
+# ── The upstream config you supply ───────────────────────────────────────────
+config:
+  # ⛔ REQUIRED. The name of a ConfigMap YOU create, holding upstream's config
+  # JSON verbatim. Copy it from the scooper-v2 repo's `config/` directory —
+  # `preview.json` plus `preview-v4.json` if you run v4 — and do not edit the
+  # coordinates. They are upstream's, they change when the DEX redeploys, and a
+  # transcription error in a script hash is a scooper that indexes nothing.
+  #
+  # The chart mounts every key in it at /app/config/ and passes each as a
+  # `--config` argument in `config.files` order, BEFORE the chart's own overlay.
+  #
+  # ⛔ AND THE CHART WILL NOT TEMPLATE THIS FILE FROM VALUES. That was a real
+  # choice, and the reason is not tidiness:
+  #
+  #   1. Upstream's v4 config CAN CONTAIN A BLOCKFROST PROJECT ID — theirs does.
+  #      This repository is public and Argo pulls it anonymously, so a config
+  #      blob in values would put a credential in public git. That alone settles
+  #      it.
+  #   2. "Verbatim" has to survive. A JSON blob routed through Helm's parser is
+  #      re-serialised: key order moves, large integers can become floats, escapes
+  #      normalise. The 350-element cost model and the starting-point strings are
+  #      exactly the content that must arrive byte-identical, and a config that
+  #      is subtly different does not fail — unknown keys are IGNORED.
+  #   3. Upstream reissues these files when the DEX redeploys. `--from-file` from
+  #      a checkout keeps the provenance visible and the update trivial; a values
+  #      blob invites hand-editing the very coordinates that must not be edited.
+  #
+  # ⇒ Create it from upstream's own files:
+  #
+  #     git clone https://github.com/SundaeSwap-finance/scooper-v2
+  #     kubectl -n <ns> create configmap sundae-scooper-v2-config \
+  #       --from-file=scooper-v2/config/preview.json \
+  #       --from-file=scooper-v2/config/preview-v4.json
+  #
+  # ⚠ If the v4 file carries a project id, that ConfigMap holds a credential —
+  # which is an argument for a Secret instead, and the chart mounts either since
+  # it only needs the files to appear at /app/config/. Create a Secret with the
+  # same --from-file flags and name it here; nothing else changes.
+  existingConfigMap: ""
+
+  # ⛔ SET TRUE IF ANY FILE IN `files` CARRIES A `protocol.v4` BLOCK — i.e. any
+  # `*-v4.json`. The chart cannot tell from a filename and will not guess.
+  #
+  # ⛔ WHY IT MATTERS, AND IT IS THE WHOLE POINT OF THIS KEY: "not setting a key"
+  # IS NOT "SETTING IT OFF". Config files are layered last-wins, so where this
+  # chart stays silent, UPSTREAM'S FILE SPEAKS — and upstream's `preview-v4.json`
+  # speaks with THEIR credential, THEIR filesystem and THEIR dummy key:
+  #
+  #   protocol.bootstrap                    their Blockfrost project id, used on
+  #                                         EVERY startup to hydrate state
+  #   protocol.v4.execution.submit-url      their Blockfrost /tx/submit URL
+  #   protocol.v4.execution.scooper-secret-key
+  #                                         a DUMMY key (0202…), which is what
+  #                                         signs if ours is not written
+  #   protocol.v4.mempool.socket-path       /home/ec2-user/cardano-node/ipc/socket
+  #                                         — retried every 5s, forever
+  #   server.public_address                 0.0.0.0:9998 — the PUBLIC listener,
+  #                                         opened by inheritance
+  #   acropolis…node-addresses              preview-sundae-scooper:3002, an
+  #                                         upstream-internal name that will not
+  #                                         resolve in your cluster
+  #
+  # ⇒ With this true, the chart writes EXPLICIT NULLS for the things you turned
+  # off, instead of leaving them to upstream. With it false it cannot: emitting a
+  # `protocol.v4` object where upstream has none would create a PARTIAL v4 block,
+  # which the binary rejects outright.
+  upstreamHasV4: false
+
+  # ⛔ REQUIRED. Which keys of that ConfigMap to pass, IN ORDER. Order is
+  # meaningful: later files override earlier ones.
+  #
+  #   files: [preview.json]                    v3 only
+  #   files: [preview.json, preview-v4.json]   v3 + v4 execution
+  files: []
+
+  # ⚠ THE CHART'S OVERLAY, applied LAST so it wins. These are the settings
+  # Kubernetes decides and a copied upstream file gets wrong: upstream's
+  # examples point sqlite and the node socket at an EC2 home directory.
+  overlay:
+    # Where the SQLite index lives. Must be under the data volume — it is the
+    # only writable path in the image.
+    #
+    # ⚠ Leaving upstream's relative `scooper-v2.db` would put it in the working
+    # directory, which is not writable, so this is not cosmetic.
+    #
+    # ⚑ WITHOUT A FILENAME AT ALL the whole index lives in memory and is rebuilt
+    # from chain on EVERY start. That works and it is slow; upstream's own words
+    # are "you should probably provide a filename".
+    sqliteFilename: /app/data/scooper-v2.db
+
+    # The private listener: /dashboard, /status, /health, /metrics, /failures,
+    # /events, /pause, and the per-protocol pool and order listings.
+    # ⛔ THIS IS UNAUTHENTICATED AND INCLUDES /pause. Do not route it publicly.
+    address: 0.0.0.0:9999
+
+    # The PUBLIC listener, carrying only the strategy-intent endpoints and
+    # /health. Empty leaves it off entirely.
+    #
+    # ⚠ Setting it is what opens the second listener — it is not a hint to the
+    # Service. Leave empty unless you are meant to receive strategy intents.
+    publicAddress: ""
+
+# ── Chain data source: which node(s) to follow ───────────────────────────────
+#
+# → acropolis.module.peer-network-interface.node-addresses
+#
+# ⛔ A LIST OF SEED PEERS, `host:port` — not a single address, and NOT a
+# primary-with-fallback. The module connects to ALL of them and then does P2P
+# peer sharing on top: `peer-sharing-enabled` defaults true,
+# `target-peer-count` 15, `min-hot-peers` 3. Upstream's own docs use three
+# mainnet backbones as the example.
+#
+# ⇒ So pointing at a local node does NOT make this a one-peer client. It seeds
+# from what you list and discovers the rest. A cluster-internal address is fine —
+# `allow-non-public-peer-addrs` defaults true.
+#
+# ⚠ BUT IF YOUR NODE IS THE ONLY SEED AND IT IS DOWN AT STARTUP there is nothing
+# to bootstrap from. List a public relay after it.
+#
+# ⚠ AND THIS REPLACES UPSTREAM'S LIST WHOLESALE. Config merging replaces arrays
+# rather than appending, so anything you want kept must appear in YOUR list.
+#
+# Empty = use whatever upstream's config file says, which keeps the chart working
+# for anyone without a local node.
+#
+#   nodeAddresses:
+#     - <your-node-svc>.<namespace>.svc.cluster.local:3000       # yours, first
+#     - preview-node.play.dev.cardano.org:3001                   # fallback seed
+#
+# ⚠ The placeholders are deliberate. A real service name and namespace are
+# CLUSTER-SPECIFIC STATE and this chart repository is PUBLIC, so actual addresses
+# are handed over out of band and never written here — the same rule that keeps
+# ingress hosts and the preview relay out of these files. Only the public
+# upstream relay, which is documentation, appears literally.
+#
+# ⛔ MIND THE PORT. On a cardano-node deployment the n2n peer protocol (what this
+# wants) and a socat bridge to the node's IPC socket are DIFFERENT PORTS.
+# Pointing this at the socat port gives you a socket where a peer is expected.
+#
+# ⚠ AND IT WILL NOT MAKE THE INITIAL SYNC FAST — see README, "What actually makes
+# the initial sync fast". A local node removes per-block network latency, which
+# is real and small. The intended fast path is the MITHRIL SNAPSHOT, a different
+# module with a different setting.
+nodeAddresses: []
+
+# ── v4 execution — THE GATE, and read this before turning it on ─────────────
+#
+# ⛔ THE BINARY TOLERATES `protocol.v4.execution` BEING ABSENT AND REJECTS IT
+# BEING PARTIAL. `protocol.v4` is an Option, so v4 is switched on by the mere
+# PRESENCE of the key; once present, its required fields are demanded and serde
+# reports them ONE AT A TIME. Chart versions before this one emitted a v4
+# execution object containing only a key-file path, which is exactly the fatal
+# partial case — `missing configuration field "protocol.v4.execution.submit-url"`.
+#
+# ⇒ So the chart now gates the WHOLE object, never its individual members.
+#
+# ⛔ AND WHAT `enabled: false` ACTUALLY MEANS, stated plainly because it is not
+# what it sounds like: THE SCOOPER INDEXES AND DOES NOT SCOOP.
+#
+#   `SundaeV3Protocol` has NO execution field — only indexing coordinates. Every
+#   build-and-submit path in the binary runs through `v4_execution`
+#   (`match &self.v4_execution` in the scooper loop), and `sundaev3/builder.rs`
+#   contains no signing code at all. So a v3-only scooper is an OBSERVER: it
+#   syncs, serves /dashboard, /metrics and the pool and order listings, and
+#   produces no scoops and earns no fees.
+#
+#   That is a legitimate first deploy — it proves the image, the config, the key
+#   mount and the sync without touching funds — but it is not a working scooper,
+#   and there is no "v3 signing key" to configure because v3 has no execution
+#   block to put one in.
+v4:
+  # Turn on when `config.files` includes a `*-v4.json`. Upstream's v4 file
+  # already carries a COMPLETE execution block; this chart's overlay only
+  # overrides the parts Kubernetes decides, merging on top of it.
+  enabled: false
+
+# ── The signing key — BY REFERENCE, NEVER BY VALUE ───────────────────────────
+#
+# ⛔ THERE IS NO KEY VALUE IN THIS CHART AND THERE MUST NEVER BE ONE. This
+# repository is public. The chart REFERENCES a Secret you created out of band
+# and never creates, templates or echoes it.
+#
+# ⚠ Upstream also accepts an INLINE key (`protocol.v4.execution.scooper-secret-key`)
+# and its own example config ships a dummy one. This chart deliberately offers
+# no path to that, and upstream's README agrees: "prefer this over the inline
+# key".
+#
+# ── WHAT TO PUT IN THE SECRET ────────────────────────────────────────────────
+#
+# THE RAW HEX of the ed25519 secret key: 32 bytes (64 hex chars), or 64 bytes
+# (128 hex chars) if extended. No `0x` prefix. A trailing newline is fine.
+#
+# A cardano-cli JSON envelope also works — `{"type":…,"cborHex":…}` with a CBOR
+# bytestring of 32 (5820), 64 (5840) or 128 (5880) bytes.
+#
+# ⛔ BECH32 (`ed25519_sk…`) IS NOT ACCEPTED. There is no bech32 decoding in the
+# key normaliser at all; convert to hex first.
+#
+# ⛔ AND THE RAW-HEX PATH VALIDATES NOTHING. Upstream's `normalize_secret_key_hex`
+# returns any non-`{` input verbatim — no length check, no hex check. So a wrong
+# length, a `0x` prefix or a bech32 string all load CLEANLY and fail later and
+# deeper. ⇒ "The scooper started" is not evidence the key is well formed.
+#
+# ⇒ Check it before deploying, without showing it to anyone: upstream ships
+# `cargo run --example keyhash -- <hex>`, which prints the blake2b-224 hash of
+# the PUBLIC key and panics on a bad length. Compare that hash with what
+# SundaeSwap has registered for your scooper.
+secret:
+  # ⛔ REQUIRED WHEN `v4.enabled` — and only then, because v3 has no execution
+  # block and therefore no key to read. With v4 off this may be set anyway (it is
+  # mounted harmlessly, which is convenient if v4 is coming) or left empty.
+  #
+  # ⚠ It used to be unconditionally required, and that is what made a v3-only
+  # deploy inexpressible: a required Secret forced a key-file path, which forced
+  # a partial v4 block, which the binary rejects.
+  name: sundae-scooper-v2-preview
+  # The key within it. Mounted read-only and passed as
+  # `protocol.v4.execution.scooper-secret-key-file`.
+  key: scooper.skey
+
+# ⚠ OPTIONAL BUT READ THIS IF YOUR KEY CAME FROM AN HD WALLET.
+# A 28-byte hex stake key hash, attached as the delegation part of the scooper's
+# address. Unset, the scooper derives an ENTERPRISE (payment-only) address.
+#
+# ⛔ Upstream's own warning: CIP-1852 wallets use base addresses, and "funds sent
+# to those addresses are unreachable from an enterprise address". So if this key
+# came out of a normal wallet, leaving this empty can strand funds. Fresh
+# testnet keys with no staking are fine without it.
+stakeKeyhash: ""
+
+# ── Bootstrap source (v4) ────────────────────────────────────────────────────
+#
+# v4 bootstraps protocol state from Blockfrost. The project id is a CREDENTIAL,
+# so it is referenced, never valued.
+#
+# ⚠ Upstream's example config contains THEIR project id. Do not copy it into a
+# values file — it is someone else's credential and this repo is public.
+bootstrap:
+  # Empty disables the overlay's bootstrap block entirely, leaving whatever your
+  # upstream config file says.
+  enabled: false
+
+  # ⚑ TWO SOURCES, AND KUPO IS A REAL ALTERNATIVE — not a leftover.
+  # `protocol.bootstrap` is a tagged enum in the binary:
+  #   blockfrost   needs url + project-id (a credential)
+  #   kupo         needs url only, and no credential
+  # The v1 scooper ran its own Kupo; if you still have one, `kupo` avoids
+  # introducing a Blockfrost dependency at all.
+  source: blockfrost
+
+  url: ""
+
+  # blockfrost only. A CREDENTIAL — referenced, never valued.
+  projectId:
+    # A Secret you created. Injected as an env var, never rendered into config.
+    secretName: ""
+    secretKey: project-id
+
+# ── Transaction submission (v4) ──────────────────────────────────────────────
+#
+# ⛔ REQUIRED WHEN `v4.enabled`, AND THE REASON IS NOT TIDINESS.
+# Upstream's own `*-v4.json` ALREADY CONTAINS A submit-url, and it is a
+# Blockfrost URL carrying UPSTREAM'S PROJECT ID in the query string. Config files
+# are applied in order and later ones override earlier ones, so this value is
+# what displaces theirs.
+#
+# ⇒ Leave it empty with v4 on and the scooper would submit through SundaeSwap's
+# Blockfrost account. It would probably work, which is the problem: not our
+# credential to spend, and nothing would look wrong.
+#
+# ── THE BACKEND IS CHOSEN BY THE SHAPE OF THIS URL, NOT BY A SETTING ─────────
+#
+#   host contains `blockfrost.io`   -> Blockfrost POST /tx/submit
+#   URL contains `/api/submit/tx`   -> cardano-submit-api, raw CBOR POST
+#   anything else                   -> OGMIOS JSON-RPC  ← the FALLBACK branch
+#
+# ⚠ THERE IS NO VALIDATION OF THE SHAPE. Ogmios is what you get by matching
+# neither pattern, so a malformed URL is not rejected — it is POSTed to as if it
+# were Ogmios, and the error mentions neither Ogmios nor the real problem.
+#
+# ── OGMIOS: THE LITERAL STRING ───────────────────────────────────────────────
+#
+# The branch does an HTTP POST with a JSON-RPC body
+# (`{"jsonrpc":"2.0","method":"submitTransaction",…}`), so:
+#
+#   ⛔ `http://`, NOT `ws://`. It is a POST, not a websocket upgrade.
+#   ⛔ No path. Ogmios serves JSON-RPC at the root.
+#
+#   submitUrl: "http://<your-ogmios-svc>.<namespace>.svc.cluster.local:1337"
+#
+# ⚠ An Ogmios that answers HTTP with NO NODE BEHIND IT will accept this config
+# and fail at submission. Check `GET :1337/health` before believing it:
+# `connectionStatus` must be "connected" and `networkSynchronization` near 1.0.
+#
+# ⛔ A BLOCKFROST URL IS REFUSED HERE, deliberately. Its project id lives in the
+# query string, so putting one in a values file would commit a credential to a
+# public repository. If you must use Blockfrost, set it at runtime instead —
+# `SCOOPER_V2_PROTOCOL__V4__EXECUTION__SUBMIT_URL` from a Secret — and leave
+# this empty.
+submitUrl: ""
+
+# ── The node mempool socket (v4) ─────────────────────────────────────────────
+#
+# ⛔ v4 EXECUTION NEEDS A CARDANO NODE IPC SOCKET to read the mempool, and
+# upstream's example points at an EC2 home directory. In Kubernetes you must
+# bring it yourself, and this chart does NOT provision a node.
+#
+# ⚠ THIS IS THE LIKELIEST REASON A v4 SCOOPER DOES NOT WORK IN A CLUSTER.
+# Three shapes, all the operator's to choose:
+#   - a hostPath to a node socket on the same machine (simplest, ties the pod
+#     to that node — set nodeSelector to match, or it schedules elsewhere and
+#     the socket is silently absent)
+#   - a shared volume with a cardano-node running in the same pod
+#   - a socat sidecar bridging a TCP relay back to a unix socket, which is what
+#     the v1 scooper chart did
+mempool:
+  enabled: false
+
+  # ⛔ WHERE THE SOCKET COMES FROM — an explicit choice, REQUIRED when enabled.
+  # One enum rather than several booleans, so the guard cannot be satisfied by
+  # accident and cannot be ambiguous about which route you meant.
+  #
+  #   socat          a sidecar in THIS pod bridges TCP back to a unix socket.
+  #                  The route that works on a cluster where the node keeps its
+  #                  socket inside its own PVC — which is the normal case, and
+  #                  what the v1 scooper chart did.
+  #   hostPath       a node socket on the same machine. ⚠ Ties the pod to that
+  #                  node: set nodeSelector, or it schedules elsewhere and the
+  #                  socket is SILENTLY absent — the scooper indexes fine and
+  #                  never reads a mempool.
+  #   existingClaim  a claim that already carries the socket.
+  #                  ⛔ Do NOT point this at a live node's own RWO database
+  #                  claim to get at its socket. That hands the scooper WRITE
+  #                  access to the node's database directory, and a socket is
+  #                  not worth that.
+  #   external       you are wiring it yourself via extraContainers /
+  #                  extraVolumes / extraVolumeMounts. The guard steps aside and
+  #                  the wiring is entirely yours.
+  source: ""
+
+  # Path INSIDE the container, written into the overlay as
+  # `protocol.v4.mempool.socket-path`. Its DIRECTORY is what gets mounted.
+  socketPath: /ipc/node.socket
+
+  # ⛔ REQUIRED when enabled. `protocol.v4.mempool.network-magic`.
+  # preview 2 · preprod 1 · mainnet 764824073
+  #
+  # The binary requires exactly TWO mempool fields — socket-path and
+  # network-magic — enumerated from source rather than discovered one pod
+  # restart at a time.
+  networkMagic: ""
+
+  # ⛔ A BEHAVIOUR CHANGE, NOT A CONNECTION SETTING — and it is written
+  # EXPLICITLY rather than omitted, because upstream's file sets it TRUE.
+  #
+  # From the binary's own comment: "When true, mempool-seen orders become
+  # dispatch candidates (CHAINED EXECUTION) and provisional-parent scoops submit
+  # through the LOCAL NODE. False = observe only."
+  #
+  # ⇒ false: the scooper watches the mempool and still scoops one CONFIRMED
+  #          batch at a time. Nothing about its economics changes.
+  # ⇒ true:  it chains scoops onto UNCONFIRMED orders. Faster and more
+  #          competitive, and it means a scoop can have an unconfirmed parent —
+  #          if that parent is dropped, the child is invalid and must be rebuilt.
+  #          The cost of a dropped chain is the rebuild, not a lost fee, because
+  #          an invalid child never reaches the chain.
+  #
+  # ⚠ AND IT ADDS A SECOND SUBMISSION PATH. With `true`, provisional-parent
+  # scoops go out through the node's IPC socket — NOT through `submitUrl`. So
+  # Ogmios stops being the only way transactions leave, and a node-side
+  # submission failure looks nothing like an Ogmios one.
+  execute: false
+
+  # source: socat
+  #
+  # The node side already listens on TCP in most deployments —
+  # `socat TCP-LISTEN:${PORT},fork UNIX-CONNECT:/data/db/node.socket` beside the
+  # node. This is the INVERSE, inside the scooper pod: it presents a unix socket
+  # at `socketPath` and forwards to that TCP endpoint.
+  #
+  # ⚑ The socket lives in an emptyDir shared by the sidecar and the scooper, so
+  # nothing is written to the node's volume and the scooper needs no access to it.
+  socat:
+    # ⛔ REQUIRED with source: socat. The node's socat Service and port.
+    host: ""
+    port: 3002
+    image:
+      repository: alpine/socat
+      # ⛔ REQUIRED with source: socat. No `latest` — a sidecar that changes
+      # under you is a debugging session nobody scheduled.
+      tag: ""
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        memory: 64Mi
+
+  # source: hostPath
+  hostPath: ""
+  # source: existingClaim
+  existingClaim: ""
+
+# ── State ────────────────────────────────────────────────────────────────────
+#
+# /app/data is the ONLY writable path in the image and is declared a VOLUME
+# upstream. It holds the SQLite index.
+#
+# ⚠ Losing it costs a full resync from chain, not money — the index is
+# reconstructible. That is why this is a plain volumeClaimTemplate and not the
+# keep-on-uninstall treatment a key or a signing share would get.
+persistence:
+  enabled: true
+  size: 20Gi
+  storageClass: ""
+  mountPath: /app/data
+
+# ── Exposure ─────────────────────────────────────────────────────────────────
+service:
+  type: ClusterIP
+  # The private listener. Dashboard, metrics, /failures — and /pause.
+  port: 9999
+  # The public listener. Only created when config.overlay.publicAddress is set.
+  publicPort: 9998
+
+# ⛔ THE INGRESS REACHES THE PUBLIC PORT ONLY, and only when you have set
+# config.overlay.publicAddress. The private port carries /pause and
+# unauthenticated pool state; this chart will not route it.
+ingress:
+  enabled: false
+  host: ""
+  className: ""
+  annotations: {}
+  path: /
+  pathType: Prefix
+  tls:
+    enabled: false
+    secretName: ""
+
+# Metrics are at :9999/metrics — upstream ships a Grafana dashboard and
+# Prometheus alerts in its deploy/ directory, calibrated for preview.
+metrics:
+  serviceMonitor:
+    enabled: false
+    interval: 30s
+
+    # ⛔ THE LABEL A SELECTOR-BASED PROMETHEUS MATCHES ON, AND WITHOUT IT THIS
+    # OBJECT IS CREATED, HEALTHY, AND SCRAPED BY NOBODY.
+    #
+    # kube-prometheus-stack ships
+    # `serviceMonitorSelector: {release: <its own release name>}`, so a
+    # ServiceMonitor without a matching `release` label is simply never selected.
+    # ⚠ Nothing reports that: the object exists, `enabled: true` is true, and the
+    # result is ZERO SERIES — which looks exactly like "the scooper has nothing
+    # to report".
+    #
+    # Measured on this chart's own first deploy: the ServiceMonitor was created
+    # and collected nothing. The other five monitoring charts in this repository
+    # all default this to `kube-prometheus-stack`; this chart did not, which was
+    # an undocumented divergence rather than a decision, and this is the fix.
+    #
+    # `kube-prometheus-stack` is that chart's OWN default release name, so it is
+    # the common case rather than a cluster-specific guess — and it is
+    # overridable because the release name is a local choice.
+    #
+    # Read the real selector off the cluster rather than guessing:
+    #   kubectl get prometheus -A \
+    #     -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.spec.serviceMonitorSelector}{"\n"}{end}'
+    releaseName: kube-prometheus-stack
+
+    # Anything else to add. Merged after the standard labels and after
+    # `release`, so it can override either.
+    labels: {}
+
+# ── Logging ──────────────────────────────────────────────────────────────────
+log:
+  level: info
+  # compact | json — json for a cluster log pipeline.
+  format: json
+
+# ── Sizing ───────────────────────────────────────────────────────────────────
+#
+# ⚠ UNMEASURED. "Nobody has measured it", not "tuned low". A Rust binary
+# indexing the chain into SQLite; upstream publishes no figures and this chart
+# has never been run. Expect to revise after the first sync.
+# ⇒ 1Gi, AND THE REASONING CHANGED BECAUSE THE EVIDENCE DID.
+#
+# MEASURED 2026-09-15: 82Mi RSS while indexing hard — not idle, mid-sync, pulling
+# ~8.3 MB per 30s. One data point, on PREVIEW, on the v3 observer build.
+#
+# ⚠ Treat that as one number and not a profile. It is mid-sync so the peak may
+# still be ahead; a mainnet scooper, or a larger index, may look nothing like it.
+# 1Gi is ~12x the observed figure, which is headroom for one measurement rather
+# than a tuned value.
+#
+# ⛔ AND THE EARLIER 4Gi WAS NOT WRONG WHEN IT WAS SET — the asymmetry flipped.
+# With nothing measured, too low meant a silent restart loop and too high cost
+# nothing until something else wanted the memory. Something else then wanted it:
+# a 4Gi limit took one real cluster from 84% to 98% of allocatable memory limits
+# on its own. Once the cost is real, "costs nothing" stops being an argument.
+#
+# ⚑ THE FAILURE MODE THIS STILL GUARDS AGAINST, because it is why the number is
+# not 128Mi: exceed the LIMIT during the first cold sync and the container is
+# OOM-killed, restarted, and the index rebuilds from scratch. It presents as a
+# CRASH-LOOP and nothing in the logs says "limit" — see README, "Two failures
+# that look identical from outside".
+#
+# ⇒ Kubernetes schedules on REQUESTS, not limits, so the request is what decides
+# whether the pod starts at all; the limit is what decides whether it survives a
+# peak. They are answering different questions and want different numbers.
+#
+# ⇒ WATCH THE FIRST SYNC AND SET THE LIMIT FROM THE OBSERVED PEAK. That remains
+# the instruction: one measurement mid-sync is a starting point, not an answer.
+resources:
+  requests:
+    cpu: 200m
+    memory: 512Mi
+  limits:
+    memory: 1Gi
+
+# /health on the private listener. ⚠ It reports process liveness; treat a 200 as
+# "the process is up", not "the scooper is in sync and scooping".
+probes:
+  liveness:
+    periodSeconds: 20
+    timeoutSeconds: 5
+    failureThreshold: 3
+  startup:
+    periodSeconds: 10
+    # 10s x 180 = 30 minutes. A cold index rebuilds from chain.
+    failureThreshold: 180
+
+extraArgs: []
+
+# ⚑ Sidecars. `mempool.source: socat` builds one for you; this is for anything
+# else — another bridge shape, a log shipper, a proxy. With
+# `mempool.source: external` this plus extraVolumes is how you supply the socket
+# yourself, and the chart's guard steps aside rather than mounting nothing.
+extraContainers: []
+
+extraVolumes: []
+extraVolumeMounts: []
+podAnnotations: {}
+nodeSelector: {}
+tolerations: []
+affinity: {}

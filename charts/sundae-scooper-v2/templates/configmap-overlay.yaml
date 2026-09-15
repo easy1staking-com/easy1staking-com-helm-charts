@@ -1,0 +1,152 @@
+{{- /*
+  THE CHART'S CONFIG OVERLAY — applied LAST, so it wins.
+
+  It carries only what Kubernetes decides and a copied upstream file gets wrong.
+  Upstream's own example points sqlite at `scooper-v2.db` (relative, and the
+  working directory is not writable in the image) and the mempool socket at
+  `/home/ec2-user/cardano-node/ipc/socket`. Both are right for their EC2 host
+  and wrong here.
+
+  ⛔ EVERY KEY NAME HERE IS LOAD-BEARING AND A TYPO IS SILENT. Measured on the
+  binary: config loads through the `config` crate with serde and the repository
+  contains no `deny_unknown_fields`, so an unrecognised key is IGNORED and the
+  scooper runs a compiled default nobody chose. `helm template` cannot see it and
+  neither can a rendered diff. ../verify-config-schema.py asserts the exact key
+  set — run it after any edit here.
+
+  ⛔ NO CREDENTIAL IS RENDERED INTO THIS FILE. The signing key is a mounted
+  Secret referenced by PATH; the Blockfrost project id is an env var.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sundae-scooper-v2.fullname" . }}-overlay
+  labels:
+    {{- include "sundae-scooper-v2.labels" . | nindent 4 }}
+data:
+  zz-chart-overlay.json: |
+    {
+      "log": {
+        "level": {{ .Values.log.level | quote }},
+        "format": {{ .Values.log.format | quote }}
+      },
+      "server": {
+        "address": {{ .Values.config.overlay.address | quote }}
+        {{- /*
+          ⛔ AN EXPLICIT null, NOT AN OMISSION. Upstream's preview-v4.json sets
+          `server.public_address: "0.0.0.0:9998"`, so staying silent OPENS THE
+          PUBLIC LISTENER BY INHERITANCE. "Off" has to be written to mean off.
+        */}}
+        {{- /*
+          ⚠ OMITTED WHEN EMPTY, NOT NULLED. Upstream's field is a plain `String`,
+          and `null` on a plain field is a TYPE ERROR that refuses the whole
+          config at startup — measured. So this cannot be turned off from here,
+          and upstream's preview-v4.json value (0.0.0.0:9998) is INHERITED.
+          See README, "Inheritances we cannot yet write off".
+        */}}
+        {{- with .Values.config.overlay.publicAddress }},
+        "public_address": {{ . | quote }}
+        {{- end }}
+      },
+      "persistence": {
+        "sqlite": {
+          "filename": {{ .Values.config.overlay.sqliteFilename | quote }}
+        }
+      },
+      "acropolis": {
+        "global": {
+          "startup": {
+            "network-name": {{ include "sundae-scooper-v2.network" . | quote }}
+          }
+        }
+        {{- with .Values.nodeAddresses }},
+        {{- /*
+          Seed peers. ⚠ REPLACES upstream's list wholesale — config merging does
+          not append to arrays — so this list is the whole set of seeds, and P2P
+          peer sharing discovers the rest from there.
+        */}}
+        "module": {
+          "peer-network-interface": {
+            "node-addresses": [
+              {{- range $i, $a := . }}
+              {{- if $i }},{{ end }}
+              {{ $a | quote }}
+              {{- end }}
+            ]
+          }
+        }
+        {{- end }}
+      }
+      {{- /*
+        ⛔ THE WHOLE `protocol` OBJECT IS GATED, AND `protocol.v4` WITH IT.
+        The binary tolerates protocol.v4.execution being ABSENT and rejects it
+        being PARTIAL — `protocol.v4` is an Option, so mere presence switches v4
+        on and then demands its required fields one at a time. An earlier version
+        of this file emitted an execution object containing only the key-file
+        path, which is precisely that fatal partial case.
+        ⇒ Gate the object, never its members.
+      */}}
+      {{- /*
+        ⛔ `protocol` IS NOW ALWAYS EMITTED, and the reason is the whole lesson of
+        this file: in a layered last-wins config, NOT WRITING A KEY IS NOT
+        TURNING IT OFF — the lower layer speaks instead, and upstream's layer
+        speaks with their credential and their filesystem. So anything this chart
+        claims to disable is written as an EXPLICIT null.
+
+        ⚠ Safe unconditionally because `protocol.bootstrap`, `protocol.v3` and
+        `protocol.v4` are all Option-typed: a `protocol` object carrying only
+        nulls merges onto upstream's without creating a partial anything.
+      */}}
+      ,
+      "protocol": {
+        {{- $parts := list }}
+        {{- if .Values.bootstrap.enabled }}{{ $parts = append $parts "b" }}{{ end }}
+        {{- if .Values.v4.enabled }}{{ $parts = append $parts "v" }}{{ end }}
+        {{- if .Values.bootstrap.enabled }}
+        "bootstrap": {
+          "source": {{ .Values.bootstrap.source | quote }},
+          "url": {{ required "sundae-scooper-v2: bootstrap.enabled is true but bootstrap.url is empty. blockfrost needs the API base URL; kupo needs its own URL." .Values.bootstrap.url | quote }}
+        }{{ if has "v" $parts }},{{ end }}
+        {{- end }}
+        {{- if .Values.v4.enabled }}
+        "v4": {
+          {{- if .Values.mempool.enabled }}
+          "mempool": {
+            "socket-path": {{ .Values.mempool.socketPath | quote }}
+            {{- if not (kindIs "invalid" .Values.mempool.networkMagic) }}
+            {{- if ne (toString .Values.mempool.networkMagic) "" }},
+            "network-magic": {{ include "sundae-scooper-v2.num" .Values.mempool.networkMagic }}
+            {{- end }}
+            {{- end }},
+            {{- /*
+              ⛔ WRITTEN EXPLICITLY, never omitted. The binary's own default is
+              false, but UPSTREAM'S FILE SETS IT TRUE — so silence here would
+              turn on chained execution by inheritance, which is a behaviour
+              change nobody asked for. Same class as bootstrap and the inline key.
+            */}}
+            "execute": {{ .Values.mempool.execute }}
+          },
+          {{- end }}
+          "execution": {
+            {{- /*
+              ⛔ THE INLINE KEY IS NOT NULLED HERE AND MUST NOT BE. Upstream's
+              `scooper-secret-key` is a plain `String`, and `null` on a plain
+              field is a TYPE ERROR that refuses the entire config at startup —
+              measured, on a live pod:
+                invalid type: unit value, expected a string for key
+                `protocol.v4.execution.scooper-secret-key`
+              Whether the file form takes precedence over the inline one is an
+              open question; see README.
+            */}}
+            "scooper-secret-key-file": "/app/secret/{{ .Values.secret.key }}"
+            {{- with .Values.stakeKeyhash }},
+            "scooper-stake-keyhash": {{ . | quote }}
+            {{- end }}
+            {{- with .Values.submitUrl }},
+            "submit-url": {{ . | quote }}
+            {{- end }}
+          }
+        }
+        {{- end }}
+      }
+    }
