@@ -46,6 +46,7 @@ OPTIONAL = {
     "server.public_address",
     "protocol.bootstrap.source", "protocol.bootstrap.url",
     "protocol.v4.mempool.socket-path", "protocol.v4.mempool.network-magic",
+    "protocol.v4.mempool.execute",
     "protocol.v4.execution.scooper-stake-keyhash",
     "protocol.v4.execution.submit-url",
 }
@@ -83,58 +84,87 @@ def main(values):
         print("  FAIL  no overlay ConfigMap rendered"); sys.exit(1)
 
     got = set(paths(overlay))
+
+    def val(path):
+        c = overlay
+        for part in path.split("."):
+            if not isinstance(c, dict) or part not in c:
+                return KeyError
+            c = c[part]
+        return c
+
     bad = 0
-    for k in sorted(got & FORBIDDEN.keys()):
-        print(f"  FAIL  FORBIDDEN: {k} — {FORBIDDEN[k]}"); bad += 1
-    for k in sorted(got - REQUIRED - OPTIONAL - V4_GROUP - set(FORBIDDEN)):
-        print(f"  FAIL  NOT IN THE ALLOWLIST: {k} — a key with no upstream source, "
-              f"or the right key on the wrong path (both load SILENTLY)"); bad += 1
-    for k in sorted(REQUIRED - got):
-        print(f"  FAIL  REQUIRED KEY MISSING: {k}"); bad += 1
-    # ⛔ VALUES vs OUTPUT, not the group's internal completeness.
+
+    # ⛔ THE EXPLICIT-NULL INVARIANT, and it is the most load-bearing check here.
     #
-    # An earlier version of this check tested whether the v4 group was complete,
-    # and it did NOT catch the original defect — because the defect was a group
-    # that was complete by that definition (one key-file path) emitted when the
-    # operator had not asked for v4 at all. Completeness was the wrong question.
-    # The right one is whether the output AGREES WITH THE VALUES.
+    # In a layered last-wins config, NOT WRITING A KEY IS NOT TURNING IT OFF —
+    # the lower layer speaks instead, and upstream's layer speaks with THEIR
+    # Blockfrost credential, THEIR EC2 filesystem path, THEIR dummy signing key
+    # and a PUBLIC listener. Measured live: a deployment nobody had configured
+    # for Blockfrost held an open connection to cardano-preview.blockfrost.io.
+    #
+    # ⇒ So anything this chart claims to disable must appear as an EXPLICIT null.
+    # If a future tidy-up deletes one, the inheritance returns silently — which is
+    # precisely why this is a test and not a comment.
+    must_be_null_when_off = [
+        ("server.public_address", not (vals.get("config", {}).get("overlay", {}) or {}).get("publicAddress"),
+         "upstream sets server.public_address: 0.0.0.0:9998 — silence OPENS the public listener"),
+        ("protocol.bootstrap", not (vals.get("bootstrap") or {}).get("enabled"),
+         "upstream's bootstrap block carries THEIR Blockfrost project id, used every startup"),
+    ]
+    if (vals.get("v4") or {}).get("enabled"):
+        must_be_null_when_off += [
+            ("protocol.v4.execution.scooper-secret-key", True,
+             "upstream's file carries a DUMMY inline key (0202…) which would sign instead"),
+            ("protocol.v4.mempool", not (vals.get("mempool") or {}).get("enabled"),
+             "upstream's mempool points at /home/ec2-user/… and retries it every 5s"),
+        ]
+    for path, applies, why in must_be_null_when_off:
+        if not applies:
+            continue
+        v = val(path)
+        if v is KeyError:
+            print(f"  FAIL  NOT EXPLICITLY DISABLED: {path} is absent, so upstream's "
+                  f"value stands — {why}"); bad += 1
+        elif v is not None:
+            print(f"  FAIL  {path} should be an explicit null here, got {v!r}"); bad += 1
+
+    # ⚑ FORBIDDEN means "carries a REAL VALUE". An explicit null is the FIX, not
+    # the fault — which is why this checks the value and not the key's presence.
+    for path, why in FORBIDDEN.items():
+        v = val(path)
+        if v is not KeyError and v is not None:
+            print(f"  FAIL  FORBIDDEN VALUE PRESENT: {path} — {why}"); bad += 1
+
+    allowed = REQUIRED | OPTIONAL | V4_GROUP | set(FORBIDDEN) | {
+        "server.public_address", "protocol.bootstrap", "protocol.v4.mempool",
+        "protocol.v4.execution.scooper-secret-key",
+    }
+    for p_ in sorted(got - allowed):
+        print(f"  FAIL  NOT IN THE ALLOWLIST: {p_} — a key with no upstream source, "
+              f"or the right key on the wrong path (both load SILENTLY)"); bad += 1
+    for p_ in sorted(REQUIRED - got):
+        print(f"  FAIL  REQUIRED KEY MISSING: {p_}"); bad += 1
+
     want_v4 = bool((vals.get("v4") or {}).get("enabled"))
     v4_keys = {k for k in got if k.startswith("protocol.v4.")}
-    if v4_keys and not want_v4:
-        print(f"  FAIL  protocol.v4 EMITTED WITH v4.enabled FALSE: {sorted(v4_keys)}. "
-              f"protocol.v4 is an Option in the binary — its mere PRESENCE switches "
-              f"v4 on and then its required fields are demanded one at a time. This "
-              f"is the exact defect that failed the first deploy."); bad += 1
-    if want_v4 and not (V4_GROUP <= got):
-        print(f"  FAIL  v4.enabled but the group is incomplete — missing "
-              f"{sorted(V4_GROUP - got)}"); bad += 1
-    # ⛔ THE OVERRIDE MUST ACTUALLY BE IN THE OUTPUT, AND MUST BE OURS.
-    # "v4 keys present" was not enough last time and it is not enough here: if
-    # submit-url is absent from the overlay, upstream's Blockfrost URL — with
-    # THEIR project id — survives as the effective value, and the scooper submits
-    # through someone else's account. That failure works, which is why only an
-    # equality check catches it.
+    if v4_keys and not want_v4 and not (vals.get("config", {}) or {}).get("upstreamHasV4"):
+        print(f"  FAIL  protocol.v4 emitted with v4.enabled false and no upstream v4 "
+              f"to disable: {sorted(v4_keys)}"); bad += 1
     want_url = vals.get("submitUrl")
-    got_url = (((overlay.get("protocol") or {}).get("v4") or {})
-               .get("execution") or {}).get("submit-url")
+    got_url = val("protocol.v4.execution.submit-url")
     if want_v4:
-        if not got_url:
-            print("  FAIL  v4.enabled but the overlay emits NO submit-url. "
-                  "Upstream's *-v4.json Blockfrost URL would remain in force, "
-                  "spending THEIR project id."); bad += 1
+        if got_url is KeyError or not got_url:
+            print("  FAIL  v4.enabled but the overlay emits NO submit-url. Upstream's "
+                  "Blockfrost URL would remain in force, spending THEIR project id."); bad += 1
         elif got_url != want_url:
-            print(f"  FAIL  submit-url in the overlay does not match values: "
-                  f"overlay {got_url!r} vs submitUrl {want_url!r}"); bad += 1
+            print(f"  FAIL  submit-url mismatch: overlay {got_url!r} vs submitUrl {want_url!r}"); bad += 1
         elif "blockfrost.io" in got_url:
-            print(f"  FAIL  submit-url points at blockfrost.io — its project id "
-                  f"is in the query string, so this is a credential in config"); bad += 1
+            print("  FAIL  submit-url points at blockfrost.io — a credential in config"); bad += 1
     for k in sorted(got & MUST_BE_INT):
-        v = overlay
-        for part in k.split("."):
-            v = v[part]
+        v = val(k)
         if not isinstance(v, int) or isinstance(v, bool):
-            print(f"  FAIL  {k} = {v!r} is {type(v).__name__}, must be an integer "
-                  f"— a values-file number renders as a float without the helper"); bad += 1
+            print(f"  FAIL  {k} = {v!r} is {type(v).__name__}, must be an integer"); bad += 1
 
     print(f"  {len(got)} overlay keys; {len(REQUIRED)} required present; "
           f"{len(got & OPTIONAL)} optional present")

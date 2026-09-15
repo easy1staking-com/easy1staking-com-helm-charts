@@ -31,9 +31,16 @@ data:
         "format": {{ .Values.log.format | quote }}
       },
       "server": {
-        "address": {{ .Values.config.overlay.address | quote }}
-        {{- with .Values.config.overlay.publicAddress }},
-        "public_address": {{ . | quote }}
+        "address": {{ .Values.config.overlay.address | quote }},
+        {{- /*
+          ⛔ AN EXPLICIT null, NOT AN OMISSION. Upstream's preview-v4.json sets
+          `server.public_address: "0.0.0.0:9998"`, so staying silent OPENS THE
+          PUBLIC LISTENER BY INHERITANCE. "Off" has to be written to mean off.
+        */}}
+        {{- if .Values.config.overlay.publicAddress }}
+        "public_address": {{ .Values.config.overlay.publicAddress | quote }}
+        {{- else }}
+        "public_address": null
         {{- end }}
       },
       "persistence": {
@@ -74,31 +81,37 @@ data:
         path, which is precisely that fatal partial case.
         ⇒ Gate the object, never its members.
       */}}
-      {{- $emitProtocol := or .Values.bootstrap.enabled .Values.v4.enabled }}
-      {{- if $emitProtocol }},
+      {{- /*
+        ⛔ `protocol` IS NOW ALWAYS EMITTED, and the reason is the whole lesson of
+        this file: in a layered last-wins config, NOT WRITING A KEY IS NOT
+        TURNING IT OFF — the lower layer speaks instead, and upstream's layer
+        speaks with their credential and their filesystem. So anything this chart
+        claims to disable is written as an EXPLICIT null.
+
+        ⚠ Safe unconditionally because `protocol.bootstrap`, `protocol.v3` and
+        `protocol.v4` are all Option-typed: a `protocol` object carrying only
+        nulls merges onto upstream's without creating a partial anything.
+      */}}
+      ,
       "protocol": {
-        {{- $parts := list }}
-        {{- if .Values.bootstrap.enabled }}
-        {{- $parts = append $parts "bootstrap" }}
-        {{- end }}
-        {{- if .Values.v4.enabled }}
-        {{- $parts = append $parts "v4" }}
-        {{- end }}
         {{- if .Values.bootstrap.enabled }}
         "bootstrap": {
           "source": {{ .Values.bootstrap.source | quote }},
           "url": {{ required "sundae-scooper-v2: bootstrap.enabled is true but bootstrap.url is empty. blockfrost needs the API base URL; kupo needs its own URL." .Values.bootstrap.url | quote }}
-        }{{ if has "v4" $parts }},{{ end }}
-        {{- end }}
-        {{- if .Values.v4.enabled }}
+        }
+        {{- else }}
         {{- /*
-          Merged ON TOP of the complete execution block in upstream's own
-          *-v4.json. This overlay contributes only what Kubernetes decides; it
-          must never be the sole source of protocol.v4.
+          ⛔ EXPLICIT null. Upstream's preview-v4.json carries a bootstrap block
+          with THEIR Blockfrost project id, used on every startup to hydrate
+          pools, orders, settings and reference scripts. Omitting ours left
+          theirs in force — measured live, an established connection to
+          cardano-preview.blockfrost.io on a deployment nobody had configured
+          for Blockfrost at all.
         */}}
+        "bootstrap": null
+        {{- end }}
+        {{- if .Values.v4.enabled }},
         "v4": {
-          {{- $v4 := list }}
-          {{- if .Values.mempool.enabled }}{{ $v4 = append $v4 "mempool" }}{{ end }}
           {{- if .Values.mempool.enabled }}
           "mempool": {
             "socket-path": {{ .Values.mempool.socketPath | quote }}
@@ -106,12 +119,32 @@ data:
             {{- if ne (toString .Values.mempool.networkMagic) "" }},
             "network-magic": {{ include "sundae-scooper-v2.num" .Values.mempool.networkMagic }}
             {{- end }}
-            {{- end }}
+            {{- end }},
+            {{- /*
+              ⛔ WRITTEN EXPLICITLY, never omitted. The binary's own default is
+              false, but UPSTREAM'S FILE SETS IT TRUE — so silence here would
+              turn on chained execution by inheritance, which is a behaviour
+              change nobody asked for. Same class as bootstrap and the inline key.
+            */}}
+            "execute": {{ .Values.mempool.execute }}
           },
+          {{- else }}
+          {{- /*
+            ⛔ EXPLICIT null. Upstream's mempool block points at
+            /home/ec2-user/cardano-node/ipc/socket — their EC2 home directory —
+            with execute: true, and retries it every 5 seconds forever. Harmless
+            and permanently noisy, and entirely because we said nothing.
+          */}}
+          "mempool": null,
           {{- end }}
           "execution": {
-            {{- /* Upstream: "prefer this over the inline key". */}}
-            "scooper-secret-key-file": "/app/secret/{{ .Values.secret.key }}"
+            "scooper-secret-key-file": "/app/secret/{{ .Values.secret.key }}",
+            {{- /*
+              ⛔ EXPLICIT null ON THE INLINE KEY. Upstream's file carries
+              `scooper-secret-key: "0202…"` — a dummy. If ours were ever absent
+              while theirs stood, THAT is what would sign.
+            */}}
+            "scooper-secret-key": null
             {{- with .Values.stakeKeyhash }},
             "scooper-stake-keyhash": {{ . | quote }}
             {{- end }}
@@ -120,7 +153,18 @@ data:
             {{- end }}
           }
         }
+        {{- else if .Values.config.upstreamHasV4 }},
+        {{- /*
+          ⛔ v4 IS OFF AND UPSTREAM HAS A v4 BLOCK, so "off" must be WRITTEN.
+          Nulling only `execution` and `mempool` leaves upstream's v4 INDEXING
+          coordinates intact — the scooper indexes v4 and can never execute,
+          which is a coherent state. Nulling all of `protocol.v4` would disable
+          v4 indexing too; that is a different choice and not this flag's job.
+        */}}
+        "v4": {
+          "execution": null,
+          "mempool": null
+        }
         {{- end }}
       }
-      {{- end }}
     }

@@ -1,3 +1,6 @@
+{{- if and .Values.mempool.enabled (eq (toString .Values.mempool.networkMagic) "") -}}
+{{- fail "sundae-scooper-v2: mempool.enabled is true so mempool.networkMagic is REQUIRED. The binary needs exactly two mempool fields — socket-path and network-magic — and omitting this one leaves upstream's file to supply it. preview 2 · preprod 1 · mainnet 764824073." -}}
+{{- end -}}
 {{- if .Values.mempool.enabled -}}
 {{- if not (has .Values.mempool.source (list "socat" "hostPath" "existingClaim" "external")) -}}
 {{- fail (printf "sundae-scooper-v2: mempool.enabled is true so mempool.source is REQUIRED — got %q. v4 execution needs a cardano-node IPC socket and this chart does not provision a node. Choose: `socat` (a sidecar in this pod bridges TCP back to a unix socket — the route that works when the node keeps its socket inside its own PVC, and what the v1 chart did), `hostPath` (same-machine socket; set nodeSelector or it schedules away and the socket is SILENTLY absent), `existingClaim` (a claim already carrying the socket — never the node's own live database claim), or `external` (you wire it via extraContainers/extraVolumes and this guard steps aside)." .Values.mempool.source) -}}

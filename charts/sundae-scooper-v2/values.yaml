@@ -121,6 +121,34 @@ config:
   # same --from-file flags and name it here; nothing else changes.
   existingConfigMap: ""
 
+  # ⛔ SET TRUE IF ANY FILE IN `files` CARRIES A `protocol.v4` BLOCK — i.e. any
+  # `*-v4.json`. The chart cannot tell from a filename and will not guess.
+  #
+  # ⛔ WHY IT MATTERS, AND IT IS THE WHOLE POINT OF THIS KEY: "not setting a key"
+  # IS NOT "SETTING IT OFF". Config files are layered last-wins, so where this
+  # chart stays silent, UPSTREAM'S FILE SPEAKS — and upstream's `preview-v4.json`
+  # speaks with THEIR credential, THEIR filesystem and THEIR dummy key:
+  #
+  #   protocol.bootstrap                    their Blockfrost project id, used on
+  #                                         EVERY startup to hydrate state
+  #   protocol.v4.execution.submit-url      their Blockfrost /tx/submit URL
+  #   protocol.v4.execution.scooper-secret-key
+  #                                         a DUMMY key (0202…), which is what
+  #                                         signs if ours is not written
+  #   protocol.v4.mempool.socket-path       /home/ec2-user/cardano-node/ipc/socket
+  #                                         — retried every 5s, forever
+  #   server.public_address                 0.0.0.0:9998 — the PUBLIC listener,
+  #                                         opened by inheritance
+  #   acropolis…node-addresses              preview-sundae-scooper:3002, an
+  #                                         upstream-internal name that will not
+  #                                         resolve in your cluster
+  #
+  # ⇒ With this true, the chart writes EXPLICIT NULLS for the things you turned
+  # off, instead of leaving them to upstream. With it false it cannot: emitting a
+  # `protocol.v4` object where upstream has none would create a PARTIAL v4 block,
+  # which the binary rejects outright.
+  upstreamHasV4: false
+
   # ⛔ REQUIRED. Which keys of that ConfigMap to pass, IN ORDER. Order is
   # meaningful: later files override earlier ones.
   #
@@ -397,9 +425,34 @@ mempool:
   # `protocol.v4.mempool.socket-path`. Its DIRECTORY is what gets mounted.
   socketPath: /ipc/node.socket
 
-  # `protocol.v4.mempool.network-magic`.
+  # ⛔ REQUIRED when enabled. `protocol.v4.mempool.network-magic`.
   # preview 2 · preprod 1 · mainnet 764824073
+  #
+  # The binary requires exactly TWO mempool fields — socket-path and
+  # network-magic — enumerated from source rather than discovered one pod
+  # restart at a time.
   networkMagic: ""
+
+  # ⛔ A BEHAVIOUR CHANGE, NOT A CONNECTION SETTING — and it is written
+  # EXPLICITLY rather than omitted, because upstream's file sets it TRUE.
+  #
+  # From the binary's own comment: "When true, mempool-seen orders become
+  # dispatch candidates (CHAINED EXECUTION) and provisional-parent scoops submit
+  # through the LOCAL NODE. False = observe only."
+  #
+  # ⇒ false: the scooper watches the mempool and still scoops one CONFIRMED
+  #          batch at a time. Nothing about its economics changes.
+  # ⇒ true:  it chains scoops onto UNCONFIRMED orders. Faster and more
+  #          competitive, and it means a scoop can have an unconfirmed parent —
+  #          if that parent is dropped, the child is invalid and must be rebuilt.
+  #          The cost of a dropped chain is the rebuild, not a lost fee, because
+  #          an invalid child never reaches the chain.
+  #
+  # ⚠ AND IT ADDS A SECOND SUBMISSION PATH. With `true`, provisional-parent
+  # scoops go out through the node's IPC socket — NOT through `submitUrl`. So
+  # Ogmios stops being the only way transactions leave, and a node-side
+  # submission failure looks nothing like an Ogmios one.
+  execute: false
 
   # source: socat
   #
