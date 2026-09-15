@@ -263,7 +263,37 @@ v4 properly rather than reaching for Blockfrost to make `submit-url` go away —
 Blockfrost would drag a credential into a public repo, which this chart already
 refuses for config files.
 
-## ⛔ Scoopers are permissioned, and the allow-list is per network
+## ⚑ The scooper will not scoop until it reaches tip — it self-gates
+
+**You do not need to wait for a sync to finish before enabling v4.** `Scooper::run`
+opens with a wait loop, not with batch processing:
+
+```
+scooper waiting for indexer to reach chain tip          ← on start, however far behind
+…
+scooper synced with chain tip, batch processing enabled  ← the moment it may scoop
+```
+
+It drains events meanwhile (so the broadcast channel does not overflow) and
+breaks out only when `tip_slot + SYNC_TOLERANCE_SLOTS >= network_tip`, with the
+tolerance compiled in at **10 slots**.
+
+⇒ **So a scooper enabled 74 million slots behind tip does not attempt scoops on
+orders consumed long ago.** It waits, and it says so on every pass. Those two log
+lines are the transition, and the second one is the first moment submission can
+be exercised at all.
+
+⚠ **Two ways the wait never ends, both failing in the safe direction:** the check
+reads v4 state, so with v4 off it returns "unknown" and the loop never releases
+(there is nothing to release *to* — v3 has no execution path); and if the network
+tip itself is unknown it also returns "unknown" and waits. Neither scoops.
+
+⚠ **And `sync_lag` is an ALERT, not a gate.** Upstream's `alerts.yml` warns at
+`scooper_v4_sync_lag_slots > 600` with the reasoning *"we'll lose races on new
+orders"* — a competitiveness concern about a scooper that has fallen behind after
+catching up, which is a different thing from the initial sync.
+
+## ⛔ Scoopers are permissioned, and the allow-list is per network## ⛔ Scoopers are permissioned, and the allow-list is per network
 
 `SettingsDatum.authorized_scoopers` is an **on-chain** list in the global
 settings UTxO, and the transaction redeemer pins the scooper's **index** in that
