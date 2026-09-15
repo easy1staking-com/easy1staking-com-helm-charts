@@ -12,7 +12,7 @@ type: application
 # The SemVer pre-release suffix is doing real work: `helm search` and
 # `helm install` will NOT select this without `--devel` or an explicit version,
 # which is the point. It comes off when a node has actually run against it.
-version: 0.1.0-alpha.1
+version: 0.1.0-alpha.2
 
 # ⛔ THERE IS DELIBERATELY NO `appVersion`, and that is a divergence from every
 # other chart in this repository. Do not "fix" it by adding one.
@@ -28,3 +28,10 @@ version: 0.1.0-alpha.1
 # The image tag is therefore a REQUIRED VALUE with no default (see values.yaml),
 # and `app.kubernetes.io/version` is labelled from that tag rather than from
 # here, so the label states what is actually running.
+#
+# ⚠ SEEN IN THE REGISTRY 2026-09-15: 0.1-M5, 0.1-M5.2 … 0.1-M5.5, and `latest`.
+# ⛔ THE IMAGE TAGS CARRY NO `v`; the GIT RELEASE tags DO (`v0.1-M5.5`). So any
+# document quoting a release shows the `v` form and pulling it 404s — the same
+# trap that cost an hour on another chart in this repo, in the same direction.
+# ⛔ And `latest` exists: do not use it. Which build we run is a value other
+# operators compare.
