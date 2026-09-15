@@ -1,0 +1,45 @@
+{{- if .Values.ingress.enabled -}}
+{{- if not .Values.config.overlay.publicAddress }}
+{{- fail "sundae-scooper-v2: ingress.enabled is true but config.overlay.publicAddress is empty, so the public listener does not exist and there is nothing to route. This chart will NOT route the private port — it carries /pause and unauthenticated pool state. Set config.overlay.publicAddress (e.g. 0.0.0.0:9998) if you are meant to receive strategy intents." }}
+{{- end }}
+{{- if not .Values.ingress.host }}
+{{- fail "sundae-scooper-v2: ingress.enabled is true but ingress.host is empty. An Ingress rule with no host is a CATCH-ALL — it matches every hostname reaching the controller that no other Ingress claims. Set a host, or disable the ingress." }}
+{{- end }}
+{{- /*
+  ⛔ THE PUBLIC PORT ONLY. The private port is never referenced in this file and
+  must not be added to it.
+*/ -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "sundae-scooper-v2.fullname" . }}
+  labels:
+    {{- include "sundae-scooper-v2.labels" . | nindent 4 }}
+  {{- with .Values.ingress.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with .Values.ingress.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- if .Values.ingress.tls.enabled }}
+  tls:
+    - hosts:
+        - {{ .Values.ingress.host | quote }}
+      {{- with .Values.ingress.tls.secretName }}
+      secretName: {{ . | quote }}
+      {{- end }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          - path: {{ .Values.ingress.path | quote }}
+            pathType: {{ .Values.ingress.pathType }}
+            backend:
+              service:
+                name: {{ include "sundae-scooper-v2.fullname" . }}
+                port:
+                  number: {{ .Values.service.publicPort }}
+{{- end }}

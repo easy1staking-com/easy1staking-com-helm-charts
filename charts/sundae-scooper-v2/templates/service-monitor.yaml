@@ -1,0 +1,29 @@
+{{- if .Values.metrics.serviceMonitor.enabled -}}
+{{- /*
+  Metrics are on the PRIVATE port at /metrics. Upstream ships a Grafana
+  dashboard and Prometheus alert rules in its deploy/ directory — alerts cover
+  sync lag, crash loops, stuck pending orders, submit/build error rates and low
+  wallet balance, and upstream says the thresholds are calibrated for PREVIEW
+  and need tuning for production.
+
+  ⚠ Requires the kube-prometheus-stack CRDs. Off by default because this chart
+  cannot know they are installed, and a missing CRD fails the apply.
+*/ -}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "sundae-scooper-v2.fullname" . }}
+  labels:
+    {{- include "sundae-scooper-v2.labels" . | nindent 4 }}
+    {{- with .Values.metrics.serviceMonitor.labels }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  selector:
+    matchLabels:
+      {{- include "sundae-scooper-v2.selectorLabels" . | nindent 6 }}
+  endpoints:
+    - port: private
+      path: /metrics
+      interval: {{ .Values.metrics.serviceMonitor.interval }}
+{{- end }}

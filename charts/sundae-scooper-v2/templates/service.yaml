@@ -1,0 +1,48 @@
+{{- /*
+  TWO listeners, and the difference between them is a security boundary.
+
+    private  9999 — /dashboard, /status, /health, /metrics, /failures, /events,
+                    the pool and order listings, AND /pause. Unauthenticated.
+    public   9998 — strategy-intent endpoints and /health only. Created only
+                    when config.overlay.publicAddress is set, because setting
+                    that value is what opens the listener in the binary.
+
+  ⛔ /pause is on the private port. Do not route it outside the cluster.
+*/ -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sundae-scooper-v2.fullname" . }}
+  labels:
+    {{- include "sundae-scooper-v2.labels" . | nindent 4 }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: private
+      protocol: TCP
+      name: private
+    {{- if .Values.config.overlay.publicAddress }}
+    - port: {{ .Values.service.publicPort }}
+      targetPort: public
+      protocol: TCP
+      name: public
+    {{- end }}
+  selector:
+    {{- include "sundae-scooper-v2.selectorLabels" . | nindent 4 }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "sundae-scooper-v2.fullname" . }}-headless
+  labels:
+    {{- include "sundae-scooper-v2.labels" . | nindent 4 }}
+spec:
+  clusterIP: None
+  ports:
+    - port: {{ .Values.service.port }}
+      targetPort: private
+      protocol: TCP
+      name: private
+  selector:
+    {{- include "sundae-scooper-v2.selectorLabels" . | nindent 4 }}

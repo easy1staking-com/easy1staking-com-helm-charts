@@ -1,0 +1,85 @@
+{{- /*
+  THE CHART'S CONFIG OVERLAY — applied LAST, so it wins.
+
+  It carries only what Kubernetes decides and a copied upstream file gets wrong.
+  Upstream's own example points sqlite at `scooper-v2.db` (relative, and the
+  working directory is not writable in the image) and the mempool socket at
+  `/home/ec2-user/cardano-node/ipc/socket`. Both are right for their EC2 host
+  and wrong here.
+
+  ⛔ EVERY KEY NAME HERE IS LOAD-BEARING AND A TYPO IS SILENT. Measured on the
+  binary: config loads through the `config` crate with serde and the repository
+  contains no `deny_unknown_fields`, so an unrecognised key is IGNORED and the
+  scooper runs a compiled default nobody chose. `helm template` cannot see it and
+  neither can a rendered diff. ../verify-config-schema.py asserts the exact key
+  set — run it after any edit here.
+
+  ⛔ NO CREDENTIAL IS RENDERED INTO THIS FILE. The signing key is a mounted
+  Secret referenced by PATH; the Blockfrost project id is an env var.
+*/ -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "sundae-scooper-v2.fullname" . }}-overlay
+  labels:
+    {{- include "sundae-scooper-v2.labels" . | nindent 4 }}
+data:
+  zz-chart-overlay.json: |
+    {
+      "log": {
+        "level": {{ .Values.log.level | quote }},
+        "format": {{ .Values.log.format | quote }}
+      },
+      "server": {
+        "address": {{ .Values.config.overlay.address | quote }}
+        {{- with .Values.config.overlay.publicAddress }},
+        "public_address": {{ . | quote }}
+        {{- end }}
+      },
+      "persistence": {
+        "sqlite": {
+          "filename": {{ .Values.config.overlay.sqliteFilename | quote }}
+        }
+      },
+      "acropolis": {
+        "global": {
+          "startup": {
+            "network-name": {{ include "sundae-scooper-v2.network" . | quote }}
+          }
+        }
+      }
+      ,
+      "protocol": {
+        {{- if .Values.bootstrap.enabled }}
+        "bootstrap": {
+          "source": {{ .Values.bootstrap.source | quote }},
+          "url": {{ required "sundae-scooper-v2: bootstrap.enabled is true but bootstrap.url is empty. blockfrost needs the API base URL; kupo needs its own URL." .Values.bootstrap.url | quote }}
+        },
+        {{- end }}
+        "v4": {
+          {{- if .Values.mempool.enabled }}
+          "mempool": {
+            "socket-path": {{ .Values.mempool.socketPath | quote }}
+            {{- if not (kindIs "invalid" .Values.mempool.networkMagic) }}
+            {{- if ne (toString .Values.mempool.networkMagic) "" }},
+            "network-magic": {{ include "sundae-scooper-v2.num" .Values.mempool.networkMagic }}
+            {{- end }}
+            {{- end }}
+          },
+          {{- end }}
+          "execution": {
+            {{- /*
+              THE KEY, BY PATH. Upstream: "prefer this over the inline key".
+              The chart offers no inline path at all.
+            */}}
+            "scooper-secret-key-file": "/app/secret/{{ .Values.secret.key }}"
+            {{- with .Values.stakeKeyhash }},
+            "scooper-stake-keyhash": {{ . | quote }}
+            {{- end }}
+            {{- with .Values.submitUrl }},
+            "submit-url": {{ . | quote }}
+            {{- end }}
+          }
+        }
+      }
+    }

@@ -1,0 +1,189 @@
+{{- if not .Values.config.existingConfigMap -}}
+{{- fail "sundae-scooper-v2: config.existingConfigMap is REQUIRED. No network config ships in the upstream image — its own Dockerfile says so — so there is nothing to inherit. Create a ConfigMap holding upstream's config JSON verbatim (copy config/<network>.json, plus <network>-v4.json for v4, from the scooper-v2 repo) and name it here." -}}
+{{- end -}}
+{{- if not .Values.config.files -}}
+{{- fail "sundae-scooper-v2: config.files is REQUIRED and must list, IN ORDER, which keys of config.existingConfigMap to pass as --config. Order decides precedence: later files override earlier ones. e.g. [preview.json] for v3 only, or [preview.json, preview-v4.json] for v4 execution." -}}
+{{- end -}}
+{{- /*
+  ⛔ replicas: 1, HARDCODED, with no replicaCount value.
+
+  A scooper SIGNS from one key. Two replicas would race the same SQLite index
+  and build competing scoops from the same pool state — and a scoop that loses
+  the race is a wasted transaction fee, not a no-op. Same reasoning as
+  ft-aquarium-node and heimdall in this repo; do not normalise it toward the
+  others.
+*/ -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "sundae-scooper-v2.fullname" . }}
+  labels:
+    {{- include "sundae-scooper-v2.labels" . | nindent 4 }}
+spec:
+  replicas: 1
+  serviceName: {{ include "sundae-scooper-v2.fullname" . }}-headless
+  {{- /*
+    OrderedReady + one replica means an upgrade terminates the old pod before
+    the new one starts. That is deliberate: the SQLite index is RWO and two
+    scoopers must not overlap. ⚠ The trade is that no upgrade fails safely —
+    there is no old pod to fall back to if the new image is wrong.
+  */}}
+  podManagementPolicy: OrderedReady
+  selector:
+    matchLabels:
+      {{- include "sundae-scooper-v2.selectorLabels" . | nindent 6 }}
+  template:
+    metadata:
+      annotations:
+        checksum/overlay: {{ include (print $.Template.BasePath "/configmap-overlay.yaml") . | sha256sum }}
+        {{- with .Values.podAnnotations }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      labels:
+        {{- include "sundae-scooper-v2.selectorLabels" . | nindent 8 }}
+    spec:
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      securityContext:
+        {{- /* Upstream's image creates and runs as uid/gid 10001. */}}
+        fsGroup: 10001
+      containers:
+        - name: scooper
+          image: {{ include "sundae-scooper-v2.image" . | quote }}
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- /*
+            `--config` is repeatable and applied IN ORDER. Upstream's files
+            first, the chart's overlay LAST so it wins. The image's own CMD
+            passes a single /app/config.json, which we replace entirely.
+          */}}
+          args:
+            {{- range .Values.config.files }}
+            - --config
+            - /app/config/{{ . }}
+            {{- end }}
+            - --config
+            - /app/config-overlay/zz-chart-overlay.json
+            {{- with .Values.extraArgs }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          ports:
+            - name: private
+              containerPort: {{ .Values.service.port }}
+              protocol: TCP
+            {{- if .Values.config.overlay.publicAddress }}
+            - name: public
+              containerPort: {{ .Values.service.publicPort }}
+              protocol: TCP
+            {{- end }}
+          env:
+            {{- with .Values.bootstrap.projectId.secretName }}
+            {{- /*
+              The Blockfrost project id, by reference. Upstream's env override
+              form is SCOOPER_V2_<PATH> with `__` for nesting.
+            */}}
+            - name: SCOOPER_V2_PROTOCOL__BOOTSTRAP__PROJECT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: {{ . }}
+                  key: {{ $.Values.bootstrap.projectId.secretKey | quote }}
+            {{- end }}
+          volumeMounts:
+            - name: config
+              mountPath: /app/config
+              readOnly: true
+            - name: config-overlay
+              mountPath: /app/config-overlay
+              readOnly: true
+            - name: secret
+              mountPath: /app/secret
+              readOnly: true
+            - name: data
+              mountPath: {{ .Values.persistence.mountPath }}
+            {{- if .Values.mempool.enabled }}
+            - name: node-ipc
+              mountPath: {{ dir .Values.mempool.socketPath }}
+            {{- end }}
+            {{- with .Values.extraVolumeMounts }}
+            {{- toYaml . | nindent 12 }}
+            {{- end }}
+          {{- /*
+            ⚠ /health reports that the PROCESS is up. It does not report that the
+            scooper is synced, in the roster, or scooping — treat a 200 as
+            liveness only. The generous budget goes in startupProbe, never in
+            livenessProbe.initialDelaySeconds: a cold index rebuilds from chain.
+          */}}
+          startupProbe:
+            httpGet:
+              path: /health
+              port: private
+            periodSeconds: {{ .Values.probes.startup.periodSeconds }}
+            failureThreshold: {{ .Values.probes.startup.failureThreshold }}
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: private
+            periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
+            timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
+            failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+      volumes:
+        - name: config
+          configMap:
+            name: {{ .Values.config.existingConfigMap }}
+        - name: config-overlay
+          configMap:
+            name: {{ include "sundae-scooper-v2.fullname" . }}-overlay
+        - name: secret
+          secret:
+            secretName: {{ required "sundae-scooper-v2: secret.name is REQUIRED. The chart references a Secret you created out of band and never creates one." .Values.secret.name }}
+            defaultMode: 0400
+        {{- if .Values.mempool.enabled }}
+        - name: node-ipc
+          {{- if .Values.mempool.hostPath }}
+          {{- /*
+            ⚠ A hostPath TIES THIS POD TO ONE NODE. Set nodeSelector to match, or
+            the pod schedules elsewhere and the socket is silently absent — the
+            scooper then indexes fine and never reads a mempool.
+          */}}
+          hostPath:
+            path: {{ .Values.mempool.hostPath }}
+            type: Directory
+          {{- else if .Values.mempool.existingClaim }}
+          persistentVolumeClaim:
+            claimName: {{ .Values.mempool.existingClaim }}
+          {{- else }}
+          {{- fail "sundae-scooper-v2: mempool.enabled is true but neither mempool.hostPath nor mempool.existingClaim is set. v4 execution needs a cardano-node IPC socket and this chart does not provision a node — supply one, or mount it yourself via extraVolumes and set neither." }}
+          {{- end }}
+        {{- end }}
+        {{- with .Values.extraVolumes }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
+      {{- with .Values.nodeSelector }}
+      nodeSelector:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.tolerations }}
+      tolerations:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+      {{- with .Values.affinity }}
+      affinity:
+        {{- toYaml . | nindent 8 }}
+      {{- end }}
+  {{- if .Values.persistence.enabled }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes:
+          - ReadWriteOnce
+        {{- with .Values.persistence.storageClass }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ .Values.persistence.size | quote }}
+  {{- end }}
