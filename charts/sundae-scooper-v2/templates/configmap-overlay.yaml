@@ -31,16 +31,21 @@ data:
         "format": {{ .Values.log.format | quote }}
       },
       "server": {
-        "address": {{ .Values.config.overlay.address | quote }},
+        "address": {{ .Values.config.overlay.address | quote }}
         {{- /*
           ⛔ AN EXPLICIT null, NOT AN OMISSION. Upstream's preview-v4.json sets
           `server.public_address: "0.0.0.0:9998"`, so staying silent OPENS THE
           PUBLIC LISTENER BY INHERITANCE. "Off" has to be written to mean off.
         */}}
-        {{- if .Values.config.overlay.publicAddress }}
-        "public_address": {{ .Values.config.overlay.publicAddress | quote }}
-        {{- else }}
-        "public_address": null
+        {{- /*
+          ⚠ OMITTED WHEN EMPTY, NOT NULLED. Upstream's field is a plain `String`,
+          and `null` on a plain field is a TYPE ERROR that refuses the whole
+          config at startup — measured. So this cannot be turned off from here,
+          and upstream's preview-v4.json value (0.0.0.0:9998) is INHERITED.
+          See README, "Inheritances we cannot yet write off".
+        */}}
+        {{- with .Values.config.overlay.publicAddress }},
+        "public_address": {{ . | quote }}
         {{- end }}
       },
       "persistence": {
@@ -94,23 +99,16 @@ data:
       */}}
       ,
       "protocol": {
+        {{- $parts := list }}
+        {{- if .Values.bootstrap.enabled }}{{ $parts = append $parts "b" }}{{ end }}
+        {{- if .Values.v4.enabled }}{{ $parts = append $parts "v" }}{{ end }}
         {{- if .Values.bootstrap.enabled }}
         "bootstrap": {
           "source": {{ .Values.bootstrap.source | quote }},
           "url": {{ required "sundae-scooper-v2: bootstrap.enabled is true but bootstrap.url is empty. blockfrost needs the API base URL; kupo needs its own URL." .Values.bootstrap.url | quote }}
-        }
-        {{- else }}
-        {{- /*
-          ⛔ EXPLICIT null. Upstream's preview-v4.json carries a bootstrap block
-          with THEIR Blockfrost project id, used on every startup to hydrate
-          pools, orders, settings and reference scripts. Omitting ours left
-          theirs in force — measured live, an established connection to
-          cardano-preview.blockfrost.io on a deployment nobody had configured
-          for Blockfrost at all.
-        */}}
-        "bootstrap": null
+        }{{ if has "v" $parts }},{{ end }}
         {{- end }}
-        {{- if .Values.v4.enabled }},
+        {{- if .Values.v4.enabled }}
         "v4": {
           {{- if .Values.mempool.enabled }}
           "mempool": {
@@ -128,23 +126,19 @@ data:
             */}}
             "execute": {{ .Values.mempool.execute }}
           },
-          {{- else }}
-          {{- /*
-            ⛔ EXPLICIT null. Upstream's mempool block points at
-            /home/ec2-user/cardano-node/ipc/socket — their EC2 home directory —
-            with execute: true, and retries it every 5 seconds forever. Harmless
-            and permanently noisy, and entirely because we said nothing.
-          */}}
-          "mempool": null,
           {{- end }}
           "execution": {
-            "scooper-secret-key-file": "/app/secret/{{ .Values.secret.key }}",
             {{- /*
-              ⛔ EXPLICIT null ON THE INLINE KEY. Upstream's file carries
-              `scooper-secret-key: "0202…"` — a dummy. If ours were ever absent
-              while theirs stood, THAT is what would sign.
+              ⛔ THE INLINE KEY IS NOT NULLED HERE AND MUST NOT BE. Upstream's
+              `scooper-secret-key` is a plain `String`, and `null` on a plain
+              field is a TYPE ERROR that refuses the entire config at startup —
+              measured, on a live pod:
+                invalid type: unit value, expected a string for key
+                `protocol.v4.execution.scooper-secret-key`
+              Whether the file form takes precedence over the inline one is an
+              open question; see README.
             */}}
-            "scooper-secret-key": null
+            "scooper-secret-key-file": "/app/secret/{{ .Values.secret.key }}"
             {{- with .Values.stakeKeyhash }},
             "scooper-stake-keyhash": {{ . | quote }}
             {{- end }}
@@ -152,18 +146,6 @@ data:
             "submit-url": {{ . | quote }}
             {{- end }}
           }
-        }
-        {{- else if .Values.config.upstreamHasV4 }},
-        {{- /*
-          ⛔ v4 IS OFF AND UPSTREAM HAS A v4 BLOCK, so "off" must be WRITTEN.
-          Nulling only `execution` and `mempool` leaves upstream's v4 INDEXING
-          coordinates intact — the scooper indexes v4 and can never execute,
-          which is a coherent state. Nulling all of `protocol.v4` would disable
-          v4 indexing too; that is a different choice and not this flag's job.
-        */}}
-        "v4": {
-          "execution": null,
-          "mempool": null
         }
         {{- end }}
       }

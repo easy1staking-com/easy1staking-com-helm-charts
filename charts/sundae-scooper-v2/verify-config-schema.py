@@ -43,6 +43,13 @@ REQUIRED = {
 V4_GROUP = {"protocol.v4.execution.scooper-secret-key-file"}
 # Emitted only when the corresponding value is set.
 OPTIONAL = {
+    # ⚠ Added after a THIRD session hit "NOT IN THE ALLOWLIST" on it against a
+    # different deployment. The overlay has emitted this since nodeAddresses was
+    # added; the allowlist was last touched two commits later and did not catch
+    # up. A hand-maintained allowlist beside moving templates drifts — and the
+    # author never trips it, because the author only runs it on the case they
+    # built. See README for the standing task to derive it instead.
+    "acropolis.module.peer-network-interface.node-addresses",
     "server.public_address",
     "protocol.bootstrap.source", "protocol.bootstrap.url",
     "protocol.v4.mempool.socket-path", "protocol.v4.mempool.network-magic",
@@ -95,39 +102,18 @@ def main(values):
 
     bad = 0
 
-    # ⛔ THE EXPLICIT-NULL INVARIANT, and it is the most load-bearing check here.
+    # ⚠ THE EXPLICIT-NULL INVARIANT THAT WAS HERE IS REMOVED, AND THAT IS THE
+    # POINT RATHER THAN A RETREAT. It asserted that every disabled key appear as
+    # a literal `null` — and `null` is only legal where upstream's field is
+    # `Option<T>`. On a plain `T` it is a TYPE ERROR that refuses the whole
+    # config at startup (measured: "invalid type: unit value, expected a string
+    # for key protocol.v4.execution.scooper-secret-key").
     #
-    # In a layered last-wins config, NOT WRITING A KEY IS NOT TURNING IT OFF —
-    # the lower layer speaks instead, and upstream's layer speaks with THEIR
-    # Blockfrost credential, THEIR EC2 filesystem path, THEIR dummy signing key
-    # and a PUBLIC listener. Measured live: a deployment nobody had configured
-    # for Blockfrost held an open connection to cardano-preview.blockfrost.io.
-    #
-    # ⇒ So anything this chart claims to disable must appear as an EXPLICIT null.
-    # If a future tidy-up deletes one, the inheritance returns silently — which is
-    # precisely why this is a test and not a comment.
-    must_be_null_when_off = [
-        ("server.public_address", not (vals.get("config", {}).get("overlay", {}) or {}).get("publicAddress"),
-         "upstream sets server.public_address: 0.0.0.0:9998 — silence OPENS the public listener"),
-        ("protocol.bootstrap", not (vals.get("bootstrap") or {}).get("enabled"),
-         "upstream's bootstrap block carries THEIR Blockfrost project id, used every startup"),
-    ]
-    if (vals.get("v4") or {}).get("enabled"):
-        must_be_null_when_off += [
-            ("protocol.v4.execution.scooper-secret-key", True,
-             "upstream's file carries a DUMMY inline key (0202…) which would sign instead"),
-            ("protocol.v4.mempool", not (vals.get("mempool") or {}).get("enabled"),
-             "upstream's mempool points at /home/ec2-user/… and retries it every 5s"),
-        ]
-    for path, applies, why in must_be_null_when_off:
-        if not applies:
-            continue
-        v = val(path)
-        if v is KeyError:
-            print(f"  FAIL  NOT EXPLICITLY DISABLED: {path} is absent, so upstream's "
-                  f"value stands — {why}"); bad += 1
-        elif v is not None:
-            print(f"  FAIL  {path} should be an explicit null here, got {v!r}"); bad += 1
+    # ⇒ So the check would have REFUSED the correct configuration and PASSED the
+    # crashing one — a test enforcing a broken pattern, which is worse than no
+    # test. It comes back type-aware, per key, once each field's Rust type is
+    # read from source. The inheritances it was defending against are all still
+    # real; see README.
 
     # ⚑ FORBIDDEN means "carries a REAL VALUE". An explicit null is the FIX, not
     # the fault — which is why this checks the value and not the key's presence.
