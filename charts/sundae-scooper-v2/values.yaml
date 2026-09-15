@@ -270,25 +270,45 @@ bootstrap:
 
 # ── Transaction submission (v4) ──────────────────────────────────────────────
 #
-# ⛔ THE BACKEND IS CHOSEN BY THE SHAPE OF THIS URL, NOT BY A SETTING, and that
-# is worth knowing before you mistype it. From upstream's own dispatch:
+# ⛔ REQUIRED WHEN `v4.enabled`, AND THE REASON IS NOT TIDINESS.
+# Upstream's own `*-v4.json` ALREADY CONTAINS A submit-url, and it is a
+# Blockfrost URL carrying UPSTREAM'S PROJECT ID in the query string. Config files
+# are applied in order and later ones override earlier ones, so this value is
+# what displaces theirs.
 #
-#   host contains `blockfrost.io`    -> Blockfrost POST /tx/submit, project_id
-#                                       taken from the URL's query parameter and
-#                                       resent as a header
-#   URL contains `/api/submit/tx`    -> cardano-submit-api, raw CBOR POST
-#   anything else                    -> OGMIOS JSON-RPC
+# ⇒ Leave it empty with v4 on and the scooper would submit through SundaeSwap's
+# Blockfrost account. It would probably work, which is the problem: not our
+# credential to spend, and nothing would look wrong.
 #
-# ⇒ So Ogmios is the FALLBACK BRANCH, and a URL that matches neither pattern is
-# not rejected — it is attempted as Ogmios. A typo in a Blockfrost hostname
-# becomes an Ogmios call against Blockfrost, which fails in a way that does not
-# mention either.
+# ── THE BACKEND IS CHOSEN BY THE SHAPE OF THIS URL, NOT BY A SETTING ─────────
 #
-# ⚠ A Blockfrost submit URL carries the project id IN THE QUERY STRING, so it is
-# a CREDENTIAL. Leave this empty and set it through the config ConfigMap or an
-# env override you keep private; do not put it in a values file in this repo.
+#   host contains `blockfrost.io`   -> Blockfrost POST /tx/submit
+#   URL contains `/api/submit/tx`   -> cardano-submit-api, raw CBOR POST
+#   anything else                   -> OGMIOS JSON-RPC  ← the FALLBACK branch
 #
-# Empty leaves whatever your upstream config file says.
+# ⚠ THERE IS NO VALIDATION OF THE SHAPE. Ogmios is what you get by matching
+# neither pattern, so a malformed URL is not rejected — it is POSTed to as if it
+# were Ogmios, and the error mentions neither Ogmios nor the real problem.
+#
+# ── OGMIOS: THE LITERAL STRING ───────────────────────────────────────────────
+#
+# The branch does an HTTP POST with a JSON-RPC body
+# (`{"jsonrpc":"2.0","method":"submitTransaction",…}`), so:
+#
+#   ⛔ `http://`, NOT `ws://`. It is a POST, not a websocket upgrade.
+#   ⛔ No path. Ogmios serves JSON-RPC at the root.
+#
+#   submitUrl: "http://ogmios-cardano-pv-ogmios.cardano-pv.svc.cluster.local:1337"
+#
+# ⚠ An Ogmios that answers HTTP with NO NODE BEHIND IT will accept this config
+# and fail at submission. Check `GET :1337/health` before believing it:
+# `connectionStatus` must be "connected" and `networkSynchronization` near 1.0.
+#
+# ⛔ A BLOCKFROST URL IS REFUSED HERE, deliberately. Its project id lives in the
+# query string, so putting one in a values file would commit a credential to a
+# public repository. If you must use Blockfrost, set it at runtime instead —
+# `SCOOPER_V2_PROTOCOL__V4__EXECUTION__SUBMIT_URL` from a Secret — and leave
+# this empty.
 submitUrl: ""
 
 # ── The node mempool socket (v4) ─────────────────────────────────────────────

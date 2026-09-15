@@ -170,6 +170,83 @@ only the key-file path on top.
 the query string.** That is a credential, it is not ours, and it must not be
 copied into this public repo. See the v4 plan below.
 
+## Turning v4 on
+
+```yaml
+config:
+  existingConfigMap: sundae-scooper-v2-config
+  files: [preview.json, preview-v4.json]     # BOTH — see below
+v4:
+  enabled: true
+secret:
+  name: sundae-scooper-keys                  # required once v4 is on
+  key: scooper.skey
+submitUrl: "http://ogmios-cardano-pv-ogmios.cardano-pv.svc.cluster.local:1337"
+```
+
+**Both files, and the second supplements rather than replaces.** `preview.json`
+carries `protocol.v3` and the acropolis block (the node address, the Mithril
+aggregator); `preview-v4.json` carries `protocol.v4`, `persistence` and
+`protocol.bootstrap` and **no acropolis section at all**. Load only the v4 file
+and the scooper has no node to connect to.
+
+```bash
+kubectl -n <ns> create configmap sundae-scooper-v2-config \
+  --from-file=scooper-v2/config/preview.json \
+  --from-file=scooper-v2/config/preview-v4.json
+```
+
+⚠ **That second file contains upstream's own Blockfrost project id**, in
+`protocol.v4.execution.submit-url`. It is public and theirs, so this is not a
+leak — but once `submitUrl` overrides it, a credential-shaped string sits unused
+in your ConfigMap, and it is better to know that than to find it.
+
+### ⛔ Why `submitUrl` is required the moment v4 is on
+
+Config files are applied **in order, later overriding earlier** — upstream
+documents this. So `submitUrl` is what *displaces* their Blockfrost URL. Leave it
+empty and the scooper submits through **SundaeSwap's Blockfrost account**. It
+would probably work, which is exactly the problem: not your credential to spend,
+and nothing looks wrong.
+
+The chart therefore refuses to render without it, refuses a `blockfrost.io` URL
+(its project id lives in the query string, and this repo is public), and refuses
+`ws://`. `verify-config-schema.py` additionally asserts the overlay's
+`submit-url` **equals** your `submitUrl` — because "v4 keys present" would pass
+while upstream's URL remained in force.
+
+### The Ogmios URL, exactly
+
+The Ogmios branch does an **HTTP POST with a JSON-RPC body**
+(`{"jsonrpc":"2.0","method":"submitTransaction",…}`), so: **`http://`, not
+`ws://`, and no path** — Ogmios serves JSON-RPC at the root.
+
+⛔ **And Ogmios is the fallback branch**: the scooper reaches it by the URL
+matching *neither* `blockfrost.io` *nor* `/api/submit/tx`. **There is no
+validation of the shape at all.** A malformed URL is not rejected — it is POSTed
+to as though it were Ogmios, and the failure names neither Ogmios nor the real
+cause. The only proof that submission works is a submitted transaction.
+
+### ⚠ Check Ogmios has a node behind it first
+
+An Ogmios that answers HTTP with no node attached will accept this config and
+fail at submission — tonight's failure shape, one layer out.
+
+```bash
+curl -s http://<ogmios>:1337/health
+```
+
+Healthy looks like `"connectionStatus": "connected"` with
+`"networkSynchronization"` at or near `1.0` and a plausible `currentEra` and
+`lastKnownTip`. `"disconnected"` means the node wiring is wrong, not the scooper.
+
+⚑ `charts/ogmios` in this repo already solves that wiring the same way this chart
+does for the mempool: a `socat-socket-server` sidecar bridging
+`socat.host`/`socat.port` (TCP) to a unix socket at `nodeSocketPath` in a shared
+volume, because Ogmios wants `--node-socket` and a node in Kubernetes publishes
+over TCP. **If `socat.host` was left empty there, Ogmios is running and connected
+to nothing.**
+
 ## The v4 plan, recorded so it is not rediscovered
 
 Nothing on the target cluster speaks HTTP transaction submission — the preview

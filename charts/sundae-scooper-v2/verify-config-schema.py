@@ -108,9 +108,26 @@ def main(values):
     if want_v4 and not (V4_GROUP <= got):
         print(f"  FAIL  v4.enabled but the group is incomplete — missing "
               f"{sorted(V4_GROUP - got)}"); bad += 1
-    if want_v4 and not vals.get("submitUrl") and not v4_keys:
-        print("  WARN  v4.enabled and no submitUrl: upstream's *-v4.json must "
-              "supply protocol.v4.execution.submit-url, or startup fails")
+    # ⛔ THE OVERRIDE MUST ACTUALLY BE IN THE OUTPUT, AND MUST BE OURS.
+    # "v4 keys present" was not enough last time and it is not enough here: if
+    # submit-url is absent from the overlay, upstream's Blockfrost URL — with
+    # THEIR project id — survives as the effective value, and the scooper submits
+    # through someone else's account. That failure works, which is why only an
+    # equality check catches it.
+    want_url = vals.get("submitUrl")
+    got_url = (((overlay.get("protocol") or {}).get("v4") or {})
+               .get("execution") or {}).get("submit-url")
+    if want_v4:
+        if not got_url:
+            print("  FAIL  v4.enabled but the overlay emits NO submit-url. "
+                  "Upstream's *-v4.json Blockfrost URL would remain in force, "
+                  "spending THEIR project id."); bad += 1
+        elif got_url != want_url:
+            print(f"  FAIL  submit-url in the overlay does not match values: "
+                  f"overlay {got_url!r} vs submitUrl {want_url!r}"); bad += 1
+        elif "blockfrost.io" in got_url:
+            print(f"  FAIL  submit-url points at blockfrost.io — its project id "
+                  f"is in the query string, so this is a credential in config"); bad += 1
     for k in sorted(got & MUST_BE_INT):
         v = overlay
         for part in k.split("."):

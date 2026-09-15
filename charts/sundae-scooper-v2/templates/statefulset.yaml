@@ -3,6 +3,17 @@
 {{- fail (printf "sundae-scooper-v2: mempool.enabled is true so mempool.source is REQUIRED — got %q. v4 execution needs a cardano-node IPC socket and this chart does not provision a node. Choose: `socat` (a sidecar in this pod bridges TCP back to a unix socket — the route that works when the node keeps its socket inside its own PVC, and what the v1 chart did), `hostPath` (same-machine socket; set nodeSelector or it schedules away and the socket is SILENTLY absent), `existingClaim` (a claim already carrying the socket — never the node's own live database claim), or `external` (you wire it via extraContainers/extraVolumes and this guard steps aside)." .Values.mempool.source) -}}
 {{- end -}}
 {{- end -}}
+{{- if .Values.v4.enabled -}}
+{{- if not .Values.submitUrl -}}
+{{- fail "sundae-scooper-v2: v4.enabled is true, so submitUrl is REQUIRED. Upstream's *-v4.json already carries a submit-url and it is a Blockfrost URL with UPSTREAM'S project id in the query string; config files are applied in order, so this value is what displaces theirs. Leaving it empty would submit through SundaeSwap's Blockfrost account — which would probably work, which is exactly the problem. For an in-cluster Ogmios: http://<service>.<ns>.svc.cluster.local:1337 (http, not ws; no path)." -}}
+{{- end -}}
+{{- if contains "blockfrost.io" .Values.submitUrl -}}
+{{- fail "sundae-scooper-v2: submitUrl points at blockfrost.io. A Blockfrost submit URL carries its project id IN THE QUERY STRING, so this would put a credential in a values file — and this chart repository is public. Use an in-cluster Ogmios or cardano-submit-api instead, or set SCOOPER_V2_PROTOCOL__V4__EXECUTION__SUBMIT_URL at runtime from a Secret and leave submitUrl empty." -}}
+{{- end -}}
+{{- if hasPrefix "ws://" .Values.submitUrl -}}
+{{- fail "sundae-scooper-v2: submitUrl uses ws://. The Ogmios branch does an HTTP POST with a JSON-RPC body, not a websocket upgrade — use http:// with no path. And note Ogmios is the FALLBACK branch, so a wrong shape is not rejected, it is POSTed to as if it were Ogmios." -}}
+{{- end -}}
+{{- end -}}
 {{- if and .Values.v4.enabled (not .Values.secret.name) -}}
 {{- fail "sundae-scooper-v2: v4.enabled is true, so secret.name is REQUIRED — v4 execution is the only path that signs, and it reads the key from a file. With v4 off the key is unused and this may be empty (v3 has no execution block, so a v3-only scooper indexes and does not scoop)." -}}
 {{- end -}}
