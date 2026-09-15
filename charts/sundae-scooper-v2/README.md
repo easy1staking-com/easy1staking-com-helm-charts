@@ -437,8 +437,31 @@ entirely — measured **1.09×** (279.0 → 303.7 KiB/s). That bounds the whole
 delivery component at roughly 9%. The cost is block processing and SQLite index
 writes, and Mithril does not touch either.
 
+**And there is no snapshot-import path anywhere in the pipeline** — checked
+rather than assumed, because a wrong "yes" here costs a wipe and a day:
+
+- The scooper enables exactly five Acropolis modules:
+  `genesis-bootstrapper`, `peer-network-interface`, `mithril-snapshot-fetcher`,
+  `block-unpacker`, `custom-indexer`. ⇒ **That is a block pipeline**: a source
+  (peer *or* Mithril) feeding an unpacker feeding an indexer.
+- ⛔ **`snapshot-bootstrapper` — the one Acropolis module that "downloads and
+  parses a new epoch state snapshot for fast bootstrap" — is NOT enabled.** The
+  only import-shaped module in the framework is absent from the scooper's list.
+- The scooper's own `Persistence` trait exposes `connect`, an `IndexerDao`, a
+  `StrategyIntentDao` and a cursor DAO — and **no bulk-load, restore or import
+  surface at all.** Data enters one block at a time through the indexer or not
+  at all.
+
 ⇒ **So a first sync is a first sync.** At a measured ~1,532 slots/s, ~74 million
 slots is about **13 hours**, and no configuration in this chart shortens it.
+
+⚠ **One thing that is easy to misread as evidence about Mithril and is not:** a
+log line saying `Block flow mode: Direct (auto-fetch)`. `BlockFlowMode` is
+`Direct` vs `Consensus` — whether the peer interface manages chain selection
+itself or delegates it to a consensus module. **It says nothing about whether
+Mithril ran.** The Mithril fetcher's own lines are the ones to read:
+`Using Mithril snapshot …`, `Using old Mithril snapshot …`, or
+`SKIP DOWNLOAD: …`.
 
 ### `download-max-age: "never"` — what it actually does
 
