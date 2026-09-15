@@ -737,6 +737,16 @@ entries:
     version: 0.1.0
   heimdall:
   - apiVersion: v2
+    created: "2026-09-15T22:35:42.44145843Z"
+    description: Easy1Staking's node in the Bifrost BTC<->Cardano bridge (preprod
+      pilot)
+    digest: 464f2a931abf857d38dba00413f25d33ecd86085f45dfe7cd6629df7bd40a8f8
+    name: heimdall
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/heimdall-0.1.0-alpha.2/heimdall-0.1.0-alpha.2.tgz
+    version: 0.1.0-alpha.2
+  - apiVersion: v2
     created: "2026-09-08T21:32:35.331688165Z"
     description: Easy1Staking's node in the Bifrost BTC<->Cardano bridge (preprod
       pilot)
@@ -1249,4 +1259,15 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ogmios-0.0.1-alpha2/ogmios-0.0.1-alpha2.tgz
     version: 0.0.1-alpha2
-generated: "2026-09-09T20:43:46.744681977Z"
+  sundae-scooper-v2:
+  - apiVersion: v2
+    appVersion: 0.7.1
+    created: "2026-09-15T22:35:42.740524761Z"
+    description: SundaeSwap scooper v2 — produces the scoops that execute v4 DEX swaps
+    digest: 5bbb9c4751f8de3c23f24f17748aeb3ec83a4e77f0de98df3815f1bd9f823ee0
+    name: sundae-scooper-v2
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/sundae-scooper-v2-0.1.0-alpha.1/sundae-scooper-v2-0.1.0-alpha.1.tgz
+    version: 0.1.0-alpha.1
+generated: "2026-09-15T22:35:42.740821289Z"
