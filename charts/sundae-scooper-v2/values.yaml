@@ -65,6 +65,34 @@ config:
   #
   # The chart mounts every key in it at /app/config/ and passes each as a
   # `--config` argument in `config.files` order, BEFORE the chart's own overlay.
+  #
+  # ⛔ AND THE CHART WILL NOT TEMPLATE THIS FILE FROM VALUES. That was a real
+  # choice, and the reason is not tidiness:
+  #
+  #   1. Upstream's v4 config CAN CONTAIN A BLOCKFROST PROJECT ID — theirs does.
+  #      This repository is public and Argo pulls it anonymously, so a config
+  #      blob in values would put a credential in public git. That alone settles
+  #      it.
+  #   2. "Verbatim" has to survive. A JSON blob routed through Helm's parser is
+  #      re-serialised: key order moves, large integers can become floats, escapes
+  #      normalise. The 350-element cost model and the starting-point strings are
+  #      exactly the content that must arrive byte-identical, and a config that
+  #      is subtly different does not fail — unknown keys are IGNORED.
+  #   3. Upstream reissues these files when the DEX redeploys. `--from-file` from
+  #      a checkout keeps the provenance visible and the update trivial; a values
+  #      blob invites hand-editing the very coordinates that must not be edited.
+  #
+  # ⇒ Create it from upstream's own files:
+  #
+  #     git clone https://github.com/SundaeSwap-finance/scooper-v2
+  #     kubectl -n <ns> create configmap sundae-scooper-v2-config \
+  #       --from-file=scooper-v2/config/preview.json \
+  #       --from-file=scooper-v2/config/preview-v4.json
+  #
+  # ⚠ If the v4 file carries a project id, that ConfigMap holds a credential —
+  # which is an argument for a Secret instead, and the chart mounts either since
+  # it only needs the files to appear at /app/config/. Create a Secret with the
+  # same --from-file flags and name it here; nothing else changes.
   existingConfigMap: ""
 
   # ⛔ REQUIRED. Which keys of that ConfigMap to pass, IN ORDER. Order is
@@ -216,15 +244,65 @@ submitUrl: ""
 #     the v1 scooper chart did
 mempool:
   enabled: false
+
+  # ⛔ WHERE THE SOCKET COMES FROM — an explicit choice, REQUIRED when enabled.
+  # One enum rather than several booleans, so the guard cannot be satisfied by
+  # accident and cannot be ambiguous about which route you meant.
+  #
+  #   socat          a sidecar in THIS pod bridges TCP back to a unix socket.
+  #                  The route that works on a cluster where the node keeps its
+  #                  socket inside its own PVC — which is the normal case, and
+  #                  what the v1 scooper chart did.
+  #   hostPath       a node socket on the same machine. ⚠ Ties the pod to that
+  #                  node: set nodeSelector, or it schedules elsewhere and the
+  #                  socket is SILENTLY absent — the scooper indexes fine and
+  #                  never reads a mempool.
+  #   existingClaim  a claim that already carries the socket.
+  #                  ⛔ Do NOT point this at a live node's own RWO database
+  #                  claim to get at its socket. That hands the scooper WRITE
+  #                  access to the node's database directory, and a socket is
+  #                  not worth that.
+  #   external       you are wiring it yourself via extraContainers /
+  #                  extraVolumes / extraVolumeMounts. The guard steps aside and
+  #                  the wiring is entirely yours.
+  source: ""
+
   # Path INSIDE the container, written into the overlay as
-  # `protocol.v4.mempool.socket-path`.
+  # `protocol.v4.mempool.socket-path`. Its DIRECTORY is what gets mounted.
   socketPath: /ipc/node.socket
-  # The network magic for `protocol.v4.mempool.network-magic`.
+
+  # `protocol.v4.mempool.network-magic`.
   # preview 2 · preprod 1 · mainnet 764824073
   networkMagic: ""
-  # How the socket gets into the pod. `hostPath` or `existingClaim`; empty means
-  # you are mounting it yourself via extraVolumes.
+
+  # source: socat
+  #
+  # The node side already listens on TCP in most deployments —
+  # `socat TCP-LISTEN:${PORT},fork UNIX-CONNECT:/data/db/node.socket` beside the
+  # node. This is the INVERSE, inside the scooper pod: it presents a unix socket
+  # at `socketPath` and forwards to that TCP endpoint.
+  #
+  # ⚑ The socket lives in an emptyDir shared by the sidecar and the scooper, so
+  # nothing is written to the node's volume and the scooper needs no access to it.
+  socat:
+    # ⛔ REQUIRED with source: socat. The node's socat Service and port.
+    host: ""
+    port: 3002
+    image:
+      repository: alpine/socat
+      # ⛔ REQUIRED with source: socat. No `latest` — a sidecar that changes
+      # under you is a debugging session nobody scheduled.
+      tag: ""
+    resources:
+      requests:
+        cpu: 10m
+        memory: 16Mi
+      limits:
+        memory: 64Mi
+
+  # source: hostPath
   hostPath: ""
+  # source: existingClaim
   existingClaim: ""
 
 # ── State ────────────────────────────────────────────────────────────────────
@@ -282,12 +360,28 @@ log:
 # ⚠ UNMEASURED. "Nobody has measured it", not "tuned low". A Rust binary
 # indexing the chain into SQLite; upstream publishes no figures and this chart
 # has never been run. Expect to revise after the first sync.
+# ⛔ THE RISK IS THE LIMIT, NOT THE REQUEST, and it fails as a LOOP.
+# A 512Mi request is a small share of a typical node's allocatable, so this will
+# not sit Pending for want of headroom. What bites is the LIMIT during the FIRST
+# COLD SYNC: exceed it and the kernel OOM-kills the container, Kubernetes
+# restarts it, and the index rebuilds from scratch — with a 30-minute startup
+# budget making each cycle slow. ⚠ IT PRESENTS AS A CRASH-LOOP AND IT IS A
+# SIZING PROBLEM, and nothing in the logs says "limit".
+#
+# ⇒ So the limit is set generously rather than tightly, and the asymmetry is the
+# reason: too low costs a silent restart loop on first run, too high costs
+# nothing until something else on the node actually needs the memory. 4Gi is
+# still a GUESS — it is not a measurement and must not be quoted as one.
+#
+# ⇒ WATCH THE FIRST SYNC AND SET THIS FROM THE OBSERVED PEAK. Raise the LIMIT,
+# not the request. A chain indexer's initial-sync peak and its steady state are
+# different numbers, and only the first is at issue here.
 resources:
   requests:
     cpu: 200m
     memory: 512Mi
   limits:
-    memory: 2Gi
+    memory: 4Gi
 
 # /health on the private listener. ⚠ It reports process liveness; treat a 200 as
 # "the process is up", not "the scooper is in sync and scooping".
@@ -302,6 +396,13 @@ probes:
     failureThreshold: 180
 
 extraArgs: []
+
+# ⚑ Sidecars. `mempool.source: socat` builds one for you; this is for anything
+# else — another bridge shape, a log shipper, a proxy. With
+# `mempool.source: external` this plus extraVolumes is how you supply the socket
+# yourself, and the chart's guard steps aside rather than mounting nothing.
+extraContainers: []
+
 extraVolumes: []
 extraVolumeMounts: []
 podAnnotations: {}

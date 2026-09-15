@@ -1,3 +1,8 @@
+{{- if .Values.mempool.enabled -}}
+{{- if not (has .Values.mempool.source (list "socat" "hostPath" "existingClaim" "external")) -}}
+{{- fail (printf "sundae-scooper-v2: mempool.enabled is true so mempool.source is REQUIRED — got %q. v4 execution needs a cardano-node IPC socket and this chart does not provision a node. Choose: `socat` (a sidecar in this pod bridges TCP back to a unix socket — the route that works when the node keeps its socket inside its own PVC, and what the v1 chart did), `hostPath` (same-machine socket; set nodeSelector or it schedules away and the socket is SILENTLY absent), `existingClaim` (a claim already carrying the socket — never the node's own live database claim), or `external` (you wire it via extraContainers/extraVolumes and this guard steps aside)." .Values.mempool.source) -}}
+{{- end -}}
+{{- end -}}
 {{- if not .Values.config.existingConfigMap -}}
 {{- fail "sundae-scooper-v2: config.existingConfigMap is REQUIRED. No network config ships in the upstream image — its own Dockerfile says so — so there is nothing to inherit. Create a ConfigMap holding upstream's config JSON verbatim (copy config/<network>.json, plus <network>-v4.json for v4, from the scooper-v2 repo) and name it here." -}}
 {{- end -}}
@@ -101,7 +106,16 @@ spec:
               readOnly: true
             - name: data
               mountPath: {{ .Values.persistence.mountPath }}
-            {{- if .Values.mempool.enabled }}
+            {{- /*
+              ⛔ GATED IDENTICALLY TO THE VOLUME BELOW, and it must stay that
+              way. With source: external the chart renders NO node-ipc volume —
+              the operator supplies it — so mounting one here would reference a
+              volume that does not exist and the pod would fail to schedule with
+              a message about a missing volume rather than about the mempool.
+              Measured while adding `external`: the two were gated differently
+              and that is exactly how it broke.
+            */}}
+            {{- if and .Values.mempool.enabled (ne .Values.mempool.source "external") }}
             - name: node-ipc
               mountPath: {{ dir .Values.mempool.socketPath }}
             {{- end }}
@@ -129,6 +143,28 @@ spec:
             failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+        {{- if and .Values.mempool.enabled (eq .Values.mempool.source "socat") }}
+        {{- /*
+          The inverse of the socat the node already runs. The node side is
+          `socat TCP-LISTEN:<port>,fork UNIX-CONNECT:/data/db/node.socket`; this
+          presents a unix socket in the shared emptyDir and forwards to it, so
+          the scooper never touches the node's volume.
+        */}}
+        - name: socat-node-ipc
+          image: "{{ .Values.mempool.socat.image.repository }}:{{ required "sundae-scooper-v2: mempool.source is socat, so mempool.socat.image.tag is REQUIRED. A sidecar that changes under you is a debugging session nobody scheduled." .Values.mempool.socat.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          args:
+            - UNIX-LISTEN:{{ .Values.mempool.socketPath }},fork,unlink-early,mode=660
+            - TCP:{{ required "sundae-scooper-v2: mempool.source is socat, so mempool.socat.host is REQUIRED — the Service of the node-side socat." .Values.mempool.socat.host }}:{{ include "sundae-scooper-v2.num" .Values.mempool.socat.port }}
+          volumeMounts:
+            - name: node-ipc
+              mountPath: {{ dir .Values.mempool.socketPath }}
+          resources:
+            {{- toYaml .Values.mempool.socat.resources | nindent 12 }}
+        {{- end }}
+        {{- with .Values.extraContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
       volumes:
         - name: config
           configMap:
@@ -140,22 +176,27 @@ spec:
           secret:
             secretName: {{ required "sundae-scooper-v2: secret.name is REQUIRED. The chart references a Secret you created out of band and never creates one." .Values.secret.name }}
             defaultMode: 0400
-        {{- if .Values.mempool.enabled }}
+        {{- if and .Values.mempool.enabled (ne .Values.mempool.source "external") }}
         - name: node-ipc
-          {{- if .Values.mempool.hostPath }}
+          {{- if eq .Values.mempool.source "socat" }}
+          {{- /*
+            An emptyDir shared by the socat sidecar and the scooper. The socket
+            is created HERE, so nothing touches the node's own volume and the
+            scooper gets no access to the node's database directory.
+          */}}
+          emptyDir: {}
+          {{- else if eq .Values.mempool.source "hostPath" }}
           {{- /*
             ⚠ A hostPath TIES THIS POD TO ONE NODE. Set nodeSelector to match, or
             the pod schedules elsewhere and the socket is silently absent — the
             scooper then indexes fine and never reads a mempool.
           */}}
           hostPath:
-            path: {{ .Values.mempool.hostPath }}
+            path: {{ required "sundae-scooper-v2: mempool.source is hostPath but mempool.hostPath is empty." .Values.mempool.hostPath }}
             type: Directory
-          {{- else if .Values.mempool.existingClaim }}
-          persistentVolumeClaim:
-            claimName: {{ .Values.mempool.existingClaim }}
           {{- else }}
-          {{- fail "sundae-scooper-v2: mempool.enabled is true but neither mempool.hostPath nor mempool.existingClaim is set. v4 execution needs a cardano-node IPC socket and this chart does not provision a node — supply one, or mount it yourself via extraVolumes and set neither." }}
+          persistentVolumeClaim:
+            claimName: {{ required "sundae-scooper-v2: mempool.source is existingClaim but mempool.existingClaim is empty." .Values.mempool.existingClaim }}
           {{- end }}
         {{- end }}
         {{- with .Values.extraVolumes }}

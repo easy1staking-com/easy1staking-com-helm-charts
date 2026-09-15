@@ -163,6 +163,56 @@ choose: a `hostPath` to a node socket (ties the pod to that node — set
 shared volume with a node in the same pod, or a socat sidecar bridging a TCP
 relay, which is what v1 did.
 
+## v4 on a cluster where the node keeps its socket in a PVC
+
+⛔ **`mempool.source: hostPath` has nothing to point at** when the node writes
+its socket inside its own volume — which is the normal arrangement. And you must
+**not** mount the node's own RWO database claim to reach it: that hands the
+scooper write access to a live node's database directory, and a socket is not
+worth that.
+
+⇒ **Use the `socat` source.** The node side usually already runs
+`socat TCP-LISTEN:<port>,fork UNIX-CONNECT:/data/db/node.socket`; the chart adds
+the inverse as a sidecar, presenting a unix socket in an `emptyDir` shared with
+the scooper. Nothing is written to the node's volume and the scooper needs no
+access to it. This is the shape the v1 chart used, so it is a return rather than
+an invention.
+
+```yaml
+mempool:
+  enabled: true
+  source: socat
+  networkMagic: 2
+  socat:
+    host: cardano-node-preview-socat   # the node-side socat Service
+    port: 3002
+    image: {tag: "1.8.0.0"}            # pinned; no `latest` sidecars
+```
+
+`source` is a required enum when `mempool.enabled` — `socat`, `hostPath`,
+`existingClaim` or `external` — so the guard cannot be satisfied by accident.
+`external` steps aside for `extraContainers`/`extraVolumes` wiring of your own.
+
+## What this cluster does not have
+
+⚠ Reported from the target cluster so this documentation is honest rather than
+optimistic:
+
+- **No cardano-submit-api and no Ogmios on preview.** Combined with the
+  URL-shape dispatch above, a `submitUrl` matching neither Blockfrost nor
+  `/api/submit/tx` is attempted as **Ogmios** against something that is not
+  Ogmios, and the error mentions neither.
+- **No Kupo** — only an orphaned v1 volume with no pod.
+
+⇒ **`charts/kupo` in this same repository is the cheaper bootstrap route**, and
+it is worth considering before introducing a Blockfrost dependency:
+`protocol.bootstrap.source: kupo` needs only a **url** and **no credential**,
+where blockfrost needs a project id that is a credential this repo must never
+carry. The trade is that Kupo is another workload to sync and store — v1's Kupo
+volume was 20Gi — and it must be indexing the same network. Upstream's own
+comment notes the Kupo provider relies on wildcard matching, which is standard
+Kupo behaviour.
+
 ## Sizing — read the provenance
 
 ```yaml
@@ -171,12 +221,26 @@ resources:
   limits:   {memory: 2Gi}
 ```
 
+```yaml
+resources:
+  requests: {cpu: 200m, memory: 512Mi}
+  limits:   {memory: 4Gi}
+```
+
 ⚠ **Unmeasured.** Upstream publishes no figures and this chart has never run.
-These are chosen to fit the target cluster's headroom, not derived from a
-profile — that cluster is at **~84% of its memory limits with ~5.7 GiB free**,
-and it **schedules by requests**, so a request above the headroom leaves the pod
-`Pending` however much memory is actually free. Revise after the first sync; a
-chain indexer's steady state and its initial-sync peak are different numbers.
+
+⛔ **The risk is the LIMIT, not the request, and it fails as a loop.** A 512Mi
+request is a small share of allocatable and will not sit `Pending`. What bites is
+the limit during the **first cold sync**: exceed it and the container is
+OOM-killed, restarted, and the index rebuilds from scratch — with a 30-minute
+startup budget making each cycle slow. **It presents as a crash-loop and it is a
+sizing problem**, and nothing in the logs says "limit".
+
+⇒ The limit is therefore set generously on an asymmetry, not on a measurement:
+too low costs a silent restart loop on first run, too high costs nothing until
+something else on the node needs the memory. **4Gi is still a guess.** Watch the
+first sync and set it from the observed peak — raise the **limit**, not the
+request.
 
 ## Single replica
 
