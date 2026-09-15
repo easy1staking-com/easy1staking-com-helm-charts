@@ -181,7 +181,7 @@ v4:
 secret:
   name: sundae-scooper-keys                  # required once v4 is on
   key: scooper.skey
-submitUrl: "http://ogmios-cardano-pv-ogmios.cardano-pv.svc.cluster.local:1337"
+submitUrl: "http://<your-ogmios-svc>.<namespace>.svc.cluster.local:1337"
 ```
 
 **Both files, and the second supplements rather than replaces.** `preview.json`
@@ -408,6 +408,15 @@ with no cache present is not stated anywhere I could find.
 all"**, and the Mithril settings are where to look — not the peer list. This
 chart does not touch them; they come from upstream's config file.
 
+### ⚠ If you change `nodeAddresses` and the memory limit together
+
+They are independent and need the same restart, so landing them in one change is
+reasonable — but **the sync-rate comparison then has two variables in it.** The
+rate change is attributable to the node address; the limit does not affect
+throughput unless it was causing OOM restarts. Say which you changed in your own
+values, or the next person reads a rate improvement as evidence about the wrong
+knob.
+
 ### Peer discovery is not displaced
 
 `node-addresses` are **seeds**, not the peer set. Peer sharing is on by default
@@ -430,10 +439,23 @@ resources:
 ```yaml
 resources:
   requests: {cpu: 200m, memory: 512Mi}
-  limits:   {memory: 4Gi}
+  limits:   {memory: 1Gi}
 ```
 
-⚠ **Unmeasured.** Upstream publishes no figures and this chart has never run.
+⚑ **One measurement exists now: 82Mi RSS while indexing hard** — mid-sync,
+pulling ~8.3 MB per 30s, on preview, on the v3 observer build (2026-09-15).
+
+⚠ **That is one number, not a profile.** It is mid-sync, so the peak may still be
+ahead, and a mainnet scooper or a larger index may look nothing like it. `1Gi` is
+roughly 12× the observed figure — headroom for a single data point rather than a
+tuned value.
+
+⇒ **The default was 4Gi and dropping it was the right call, not a correction of a
+mistake.** With nothing measured, the asymmetry favoured generosity: too low is a
+silent restart loop, too high costs nothing until something else wants the
+memory. Then something did — that 4Gi limit took one real cluster from 84% to
+98% of allocatable memory limits by itself. **Once the cost is real, "costs
+nothing" stops being an argument.**
 
 ⛔ **The risk is the LIMIT, not the request, and it fails as a loop.** A 512Mi
 request is a small share of allocatable and will not sit `Pending`. What bites is

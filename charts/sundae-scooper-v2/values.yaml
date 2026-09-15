@@ -179,8 +179,14 @@ config:
 # for anyone without a local node.
 #
 #   nodeAddresses:
-#     - cardano-node-preview.cardano-pv.svc.cluster.local:3000   # yours, first
+#     - <your-node-svc>.<namespace>.svc.cluster.local:3000       # yours, first
 #     - preview-node.play.dev.cardano.org:3001                   # fallback seed
+#
+# ⚠ The placeholders are deliberate. A real service name and namespace are
+# CLUSTER-SPECIFIC STATE and this chart repository is PUBLIC, so actual addresses
+# are handed over out of band and never written here — the same rule that keeps
+# ingress hosts and the preview relay out of these files. Only the public
+# upstream relay, which is documentation, appears literally.
 #
 # ⛔ MIND THE PORT. On a cardano-node deployment the n2n peer protocol (what this
 # wants) and a socat bridge to the node's IPC socket are DIFFERENT PORTS.
@@ -335,7 +341,7 @@ bootstrap:
 #   ⛔ `http://`, NOT `ws://`. It is a POST, not a websocket upgrade.
 #   ⛔ No path. Ogmios serves JSON-RPC at the root.
 #
-#   submitUrl: "http://ogmios-cardano-pv-ogmios.cardano-pv.svc.cluster.local:1337"
+#   submitUrl: "http://<your-ogmios-svc>.<namespace>.svc.cluster.local:1337"
 #
 # ⚠ An Ogmios that answers HTTP with NO NODE BEHIND IT will accept this config
 # and fail at submission. Check `GET :1337/health` before believing it:
@@ -507,28 +513,40 @@ log:
 # ⚠ UNMEASURED. "Nobody has measured it", not "tuned low". A Rust binary
 # indexing the chain into SQLite; upstream publishes no figures and this chart
 # has never been run. Expect to revise after the first sync.
-# ⛔ THE RISK IS THE LIMIT, NOT THE REQUEST, and it fails as a LOOP.
-# A 512Mi request is a small share of a typical node's allocatable, so this will
-# not sit Pending for want of headroom. What bites is the LIMIT during the FIRST
-# COLD SYNC: exceed it and the kernel OOM-kills the container, Kubernetes
-# restarts it, and the index rebuilds from scratch — with a 30-minute startup
-# budget making each cycle slow. ⚠ IT PRESENTS AS A CRASH-LOOP AND IT IS A
-# SIZING PROBLEM, and nothing in the logs says "limit".
+# ⇒ 1Gi, AND THE REASONING CHANGED BECAUSE THE EVIDENCE DID.
 #
-# ⇒ So the limit is set generously rather than tightly, and the asymmetry is the
-# reason: too low costs a silent restart loop on first run, too high costs
-# nothing until something else on the node actually needs the memory. 4Gi is
-# still a GUESS — it is not a measurement and must not be quoted as one.
+# MEASURED 2026-09-15: 82Mi RSS while indexing hard — not idle, mid-sync, pulling
+# ~8.3 MB per 30s. One data point, on PREVIEW, on the v3 observer build.
 #
-# ⇒ WATCH THE FIRST SYNC AND SET THIS FROM THE OBSERVED PEAK. Raise the LIMIT,
-# not the request. A chain indexer's initial-sync peak and its steady state are
-# different numbers, and only the first is at issue here.
+# ⚠ Treat that as one number and not a profile. It is mid-sync so the peak may
+# still be ahead; a mainnet scooper, or a larger index, may look nothing like it.
+# 1Gi is ~12x the observed figure, which is headroom for one measurement rather
+# than a tuned value.
+#
+# ⛔ AND THE EARLIER 4Gi WAS NOT WRONG WHEN IT WAS SET — the asymmetry flipped.
+# With nothing measured, too low meant a silent restart loop and too high cost
+# nothing until something else wanted the memory. Something else then wanted it:
+# a 4Gi limit took one real cluster from 84% to 98% of allocatable memory limits
+# on its own. Once the cost is real, "costs nothing" stops being an argument.
+#
+# ⚑ THE FAILURE MODE THIS STILL GUARDS AGAINST, because it is why the number is
+# not 128Mi: exceed the LIMIT during the first cold sync and the container is
+# OOM-killed, restarted, and the index rebuilds from scratch. It presents as a
+# CRASH-LOOP and nothing in the logs says "limit" — see README, "Two failures
+# that look identical from outside".
+#
+# ⇒ Kubernetes schedules on REQUESTS, not limits, so the request is what decides
+# whether the pod starts at all; the limit is what decides whether it survives a
+# peak. They are answering different questions and want different numbers.
+#
+# ⇒ WATCH THE FIRST SYNC AND SET THE LIMIT FROM THE OBSERVED PEAK. That remains
+# the instruction: one measurement mid-sync is a starting point, not an answer.
 resources:
   requests:
     cpu: 200m
     memory: 512Mi
   limits:
-    memory: 4Gi
+    memory: 1Gi
 
 # /health on the private listener. ⚠ It reports process liveness; treat a 200 as
 # "the process is up", not "the scooper is in sync and scooping".
