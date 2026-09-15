@@ -15,6 +15,16 @@ metadata:
   name: {{ include "sundae-scooper-v2.fullname" . }}
   labels:
     {{- include "sundae-scooper-v2.labels" . | nindent 4 }}
+    {{- /*
+      ⛔ LOAD-BEARING. kube-prometheus-stack selects ServiceMonitors by
+      `serviceMonitorSelector: {release: <name>}`; without a matching label this
+      object is created, reports healthy, and is scraped by NOBODY — zero series,
+      which reads as "nothing to report" rather than as a fault. Measured on this
+      chart's first deploy. Do not remove it to "clean up" the labels.
+    */}}
+    {{- with .Values.metrics.serviceMonitor.releaseName }}
+    release: {{ . | quote }}
+    {{- end }}
     {{- with .Values.metrics.serviceMonitor.labels }}
     {{- toYaml . | nindent 4 }}
     {{- end }}

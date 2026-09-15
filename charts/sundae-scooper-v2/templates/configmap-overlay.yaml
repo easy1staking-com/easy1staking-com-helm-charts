@@ -47,6 +47,23 @@ data:
             "network-name": {{ include "sundae-scooper-v2.network" . | quote }}
           }
         }
+        {{- with .Values.nodeAddresses }},
+        {{- /*
+          Seed peers. ⚠ REPLACES upstream's list wholesale — config merging does
+          not append to arrays — so this list is the whole set of seeds, and P2P
+          peer sharing discovers the rest from there.
+        */}}
+        "module": {
+          "peer-network-interface": {
+            "node-addresses": [
+              {{- range $i, $a := . }}
+              {{- if $i }},{{ end }}
+              {{ $a | quote }}
+              {{- end }}
+            ]
+          }
+        }
+        {{- end }}
       }
       {{- /*
         ⛔ THE WHOLE `protocol` OBJECT IS GATED, AND `protocol.v4` WITH IT.

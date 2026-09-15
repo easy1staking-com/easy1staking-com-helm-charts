@@ -374,7 +374,52 @@ volume was 20Gi — and it must be indexing the same network. Upstream's own
 comment notes the Kupo provider relies on wildcard matching, which is standard
 Kupo behaviour.
 
-## Sizing — read the provenance
+## What actually makes the initial sync fast
+
+⚠ **Pointing the scooper at a local node is worth doing and is probably not the
+thing you are hoping for.** Said plainly rather than agreed with:
+
+`nodeAddresses` sets `acropolis.module.peer-network-interface.node-addresses` —
+a **list of seed peers**. It removes per-block network latency, which is real,
+and it keeps chain traffic inside the cluster. Across **~74 million slots** the
+bottleneck is far more likely to be **block processing and SQLite index writes**
+than peer bandwidth. Expect "faster", not "super fast".
+
+⇒ **The intended fast path is the Mithril snapshot, and it is a different
+module.** Acropolis's own docs say `sync-point: "dynamic"` — which upstream's
+`default.json` sets — is *"for snapshot or Mithril modes"*. So
+`acropolis.module.mithril-snapshot-fetcher` (`aggregator-url`, `genesis-key`)
+matters far more to first-sync time than which peer you follow.
+
+⛔ **And there is something odd in upstream's own defaults worth knowing before
+you chase sync speed.** `default.json` sets:
+
+```json
+"mithril-snapshot-fetcher": { "download-max-age": "never" }
+```
+
+Acropolis documents `download-max-age` as an **integer, in hours** — *"if unset
+or invalid, cached downloads are reused when present."* `"never"` is a string,
+so it is an **invalid value**, not a documented "off" switch. What that produces
+with no cache present is not stated anywhere I could find.
+
+⇒ So if a scooper sits alive, peered, and not advancing from its starting point,
+**that is consistent with both "bootstrapping via Mithril" and "not syncing at
+all"**, and the Mithril settings are where to look — not the peer list. This
+chart does not touch them; they come from upstream's config file.
+
+### Peer discovery is not displaced
+
+`node-addresses` are **seeds**, not the peer set. Peer sharing is on by default
+(`peer-sharing-enabled` true, `target-peer-count` 15, `min-hot-peers` 3), so a
+single local seed still fans out to a normal peer population — an observed
+`hot_count 3, cold_count 40` is exactly those defaults at work.
+
+⚠ The real risk of a lone local seed is **startup**: if that node is down when
+the scooper starts, there is no other seed to bootstrap from. List a public relay
+after yours.
+
+## Sizing — read the provenance## Sizing — read the provenance
 
 ```yaml
 resources:
@@ -402,6 +447,39 @@ too low costs a silent restart loop on first run, too high costs nothing until
 something else on the node needs the memory. **4Gi is still a guess.** Watch the
 first sync and set it from the observed peak — raise the **limit**, not the
 request.
+
+## ⛔ Symptom: "ServiceMonitor exists, `enabled: true`, no series"
+
+If Prometheus shows **zero scooper series and an empty `up{}`** while the
+ServiceMonitor is present and healthy, the object was **never selected**.
+
+kube-prometheus-stack ships `serviceMonitorSelector: {release: <its release
+name>}`. A ServiceMonitor without a matching `release` label is simply ignored,
+and **nothing reports that** — the object exists, the flag is true, and zero
+series looks exactly like a quiet scooper.
+
+Read the real selector off the cluster instead of guessing:
+
+```bash
+kubectl get prometheus -A \
+  -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.spec.serviceMonitorSelector}{"\n"}{end}'
+```
+
+Then set it:
+
+```yaml
+metrics:
+  serviceMonitor:
+    releaseName: kube-prometheus-stack   # the default; match YOUR Prometheus
+    labels: {}                           # anything else the selector wants
+```
+
+⚠ This chart's first deploy hit exactly this. `releaseName` now defaults to
+`kube-prometheus-stack` — which is that chart's own default release name, so it
+is the common case rather than a cluster-specific guess — matching the five other
+monitoring charts in this repository. The earlier version emitted no `release`
+label at all, which was an undocumented divergence from that precedent rather
+than a decision.
 
 ## ⛔ Two failures that look identical from outside, with opposite remedies
 

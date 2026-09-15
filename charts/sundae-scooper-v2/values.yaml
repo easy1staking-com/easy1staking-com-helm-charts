@@ -155,6 +155,43 @@ config:
     # Service. Leave empty unless you are meant to receive strategy intents.
     publicAddress: ""
 
+# ── Chain data source: which node(s) to follow ───────────────────────────────
+#
+# → acropolis.module.peer-network-interface.node-addresses
+#
+# ⛔ A LIST OF SEED PEERS, `host:port` — not a single address, and NOT a
+# primary-with-fallback. The module connects to ALL of them and then does P2P
+# peer sharing on top: `peer-sharing-enabled` defaults true,
+# `target-peer-count` 15, `min-hot-peers` 3. Upstream's own docs use three
+# mainnet backbones as the example.
+#
+# ⇒ So pointing at a local node does NOT make this a one-peer client. It seeds
+# from what you list and discovers the rest. A cluster-internal address is fine —
+# `allow-non-public-peer-addrs` defaults true.
+#
+# ⚠ BUT IF YOUR NODE IS THE ONLY SEED AND IT IS DOWN AT STARTUP there is nothing
+# to bootstrap from. List a public relay after it.
+#
+# ⚠ AND THIS REPLACES UPSTREAM'S LIST WHOLESALE. Config merging replaces arrays
+# rather than appending, so anything you want kept must appear in YOUR list.
+#
+# Empty = use whatever upstream's config file says, which keeps the chart working
+# for anyone without a local node.
+#
+#   nodeAddresses:
+#     - cardano-node-preview.cardano-pv.svc.cluster.local:3000   # yours, first
+#     - preview-node.play.dev.cardano.org:3001                   # fallback seed
+#
+# ⛔ MIND THE PORT. On a cardano-node deployment the n2n peer protocol (what this
+# wants) and a socat bridge to the node's IPC socket are DIFFERENT PORTS.
+# Pointing this at the socat port gives you a socket where a peer is expected.
+#
+# ⚠ AND IT WILL NOT MAKE THE INITIAL SYNC FAST — see README, "What actually makes
+# the initial sync fast". A local node removes per-block network latency, which
+# is real and small. The intended fast path is the MITHRIL SNAPSHOT, a different
+# module with a different setting.
+nodeAddresses: []
+
 # ── v4 execution — THE GATE, and read this before turning it on ─────────────
 #
 # ⛔ THE BINARY TOLERATES `protocol.v4.execution` BEING ABSENT AND REJECTS IT
@@ -430,6 +467,33 @@ metrics:
   serviceMonitor:
     enabled: false
     interval: 30s
+
+    # ⛔ THE LABEL A SELECTOR-BASED PROMETHEUS MATCHES ON, AND WITHOUT IT THIS
+    # OBJECT IS CREATED, HEALTHY, AND SCRAPED BY NOBODY.
+    #
+    # kube-prometheus-stack ships
+    # `serviceMonitorSelector: {release: <its own release name>}`, so a
+    # ServiceMonitor without a matching `release` label is simply never selected.
+    # ⚠ Nothing reports that: the object exists, `enabled: true` is true, and the
+    # result is ZERO SERIES — which looks exactly like "the scooper has nothing
+    # to report".
+    #
+    # Measured on this chart's own first deploy: the ServiceMonitor was created
+    # and collected nothing. The other five monitoring charts in this repository
+    # all default this to `kube-prometheus-stack`; this chart did not, which was
+    # an undocumented divergence rather than a decision, and this is the fix.
+    #
+    # `kube-prometheus-stack` is that chart's OWN default release name, so it is
+    # the common case rather than a cluster-specific guess — and it is
+    # overridable because the release name is a local choice.
+    #
+    # Read the real selector off the cluster rather than guessing:
+    #   kubectl get prometheus -A \
+    #     -o jsonpath='{range .items[*]}{.metadata.namespace}{"\t"}{.spec.serviceMonitorSelector}{"\n"}{end}'
+    releaseName: kube-prometheus-stack
+
+    # Anything else to add. Merged after the standard labels and after
+    # `release`, so it can override either.
     labels: {}
 
 # ── Logging ──────────────────────────────────────────────────────────────────
