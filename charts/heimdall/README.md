@@ -48,6 +48,73 @@ The generous startup budget lives in `startupProbe`, never in
 There is also **no `ServiceMonitor`**: upstream has no operator metrics surface
 yet (WI-058). A dashboard cannot be built from an endpoint that does not exist.
 
+## ⛔⛔ The consensus inputs — absent means EXCLUDED, with no error anywhere
+
+```yaml
+cardano:
+  demoLiveStake: true            # boolean
+  demoVirtualEpochSlots: 86400   # integer, slots — a 24h virtual epoch
+```
+
+**These are not preferences.** Every node of the roster must carry the **same**
+values or the peers exclude each other at the pre-ceremony handshake.
+
+⇒ **Absent, they default to `false` and to real Cardano epochs** — so the node
+registers, stays reachable, answers `/health` 200, passes every `doctor` check,
+**and is never talked to.** There is no error on either side to find.
+
+⚠ **So "not set" is not a neutral state here. It is a different roster.** And
+both are refused outright on mainnet, which is why neither can be defaulted: a
+value that is mandatory on preview and rejected on mainnet has no safe default,
+only a correct one per network.
+
+⚑ `demoVirtualEpochSlots` was added on 2026-09-15. Before that **this chart could
+not express it at all** — upstream had promoted it out of a test appendix into
+the main config under a *consensus inputs* heading, and the published
+`0.1.0-alpha.1` predates that. A node built from that chart would have been
+exactly the silent-exclusion case above.
+
+⚠ `demo_exclude_unstaked` is also compared and is **still not settable here**,
+deliberately: its section and type are unconfirmed, and a values key that renders
+nothing would read as set while doing nothing — the same failure as a
+misspelling, from the other direction.
+
+## ⛔⛔ Name a StorageClass with `reclaimPolicy: Retain`
+
+`persistence.storageClass` is **required with no default**, and it is the one
+value in this chart that cannot be corrected afterwards.
+
+```bash
+kubectl get storageclass -o custom-columns=NAME:.metadata.name,RECLAIM:.reclaimPolicy
+```
+
+⚠ **Reclaim policy is decided when the volume is created, not when the file
+appears.** It belongs to the StorageClass and the PV, not to the claim, so it
+cannot be changed into place later for data that already exists.
+
+⇒ **Empty would mean "the cluster's default class", and that is precisely the
+dangerous answer** — on k3s that is `local-path` with `reclaimPolicy: Delete`,
+making `kubectl delete pvc` a one-command path to losing a federation share. An
+unnamed class is an *unknown* reclaim policy under a key that cannot be
+regenerated, so the chart refuses to guess.
+
+Three things land on this volume and only one is catastrophic:
+
+| | |
+|---|---|
+| `bifrost.skey` | ours — losing it costs re-registration |
+| the per-cycle DKG share | losing it costs the current cycle |
+| `federation-key.json` | ⛔ **the only copy of your share.** A re-run produces a different key, a different treasury address, and funds that are not in it. Below the threshold in surviving shares, **the recovery path is gone for good** |
+| `*-trie.json` | recomputable — the ones that do not matter |
+
+## ⚑ The advertised URL is portless because it has to be
+
+The chart already refuses an advertised URL whose explicit port disagrees with
+`listenPort`. ⚑ And on a cluster fronted by **Cloudflare with the record
+proxied**, a non-standard port is **not served at all** — so a portless
+`https://host` was never merely the more flexible shape, it was the only workable
+one. Do not add a port to make it look more explicit.
+
 ## ⛔ The state volume is the thing that loses money
 
 `/var/lib/heimdall`, `ReadWriteOnce`, annotated `helm.sh/resource-policy: keep`

@@ -136,9 +136,37 @@ cardano:
   # Compared across the roster BY NAME. The binary's own default, kept.
   stakeSource: blockfrost
 
-  # ⛔ A BOOLEAN, no default, roster-wide, and REFUSED OUTRIGHT ON MAINNET.
-  # Emitted only when explicitly set. This pilot roster runs `true`.
+  # ── CONSENSUS INPUTS — NOT PREFERENCES ────────────────────────────────────
+  #
+  # ⛔ EVERY NODE OF THE ROSTER MUST CARRY THE SAME VALUES, or the peers exclude
+  # each other at the PRE-CEREMONY HANDSHAKE.
+  #
+  # ⇒ AND THE FAILURE IS SILENT ON BOTH SIDES. Absent, these default to `false`
+  # and to real Cardano epochs — so the node registers, stays reachable, answers
+  # /health 200, passes every `doctor` check, AND IS NEVER TALKED TO. There is no
+  # error anywhere to find.
+  #
+  # ⚠ So "not set" is not a neutral state here. It is a different roster.
+  #
+  # ⛔ Refused outright on mainnet, which is why neither can be defaulted: a value
+  # mandatory on preview and rejected on mainnet has no safe default, only a
+  # correct one per network.
+
+  # Boolean. This pilot roster runs `true`.
   demoLiveStake: ""
+
+  # Integer, slots. This pilot roster runs 86400 — a 24h virtual epoch.
+  # ⚠ Absent, the node uses REAL Cardano epochs — a different consensus input
+  # from every peer running a virtual one. That is the exclusion case above, and
+  # it is the one this chart could not express at all until now.
+  demoVirtualEpochSlots: ""
+
+  # ⚠ `demo_exclude_unstaked` is ALSO compared and is still NOT settable here,
+  # deliberately: its section and type are unconfirmed, and inventing a values
+  # key that renders nothing would read as set while doing nothing — the same
+  # failure as a misspelling, from the other direction.
+
+  # ── end consensus inputs ──────────────────────────────────────────────────
 
   # ⚠ `demo_exclude_unstaked` IS ALSO COMPARED ACROSS THE ROSTER, AND THIS CHART
   # CANNOT SET IT YET — deliberately, not by oversight.
@@ -251,6 +279,36 @@ health:
 persistence:
   mountPath: /var/lib/heimdall
   size: 1Gi
+  # ⛔⛔ REQUIRED, AND THE REASON IS UNRECOVERABLE LOSS OF OTHER PEOPLE'S FUNDS.
+  # This is the one value in this chart where a wrong answer cannot be corrected
+  # afterwards.
+  #
+  # ⇒ THE CLASS YOU NAME MUST HAVE `reclaimPolicy: Retain`:
+  #   kubectl get storageclass -o custom-columns=NAME:.metadata.name,RECLAIM:.reclaimPolicy
+  #
+  # ⚠ AND IT IS DECIDED WHEN THE VOLUME IS CREATED, NOT WHEN THE FILE APPEARS.
+  # Reclaim policy belongs to the StorageClass and the PV, not to the claim, so
+  # it cannot be changed into place later for data that already exists.
+  #
+  # ⛔ WHAT LANDS ON THIS VOLUME — and only one of the three is catastrophic:
+  #   bifrost.skey             ours; losing it costs re-registration
+  #   the per-cycle DKG share  losing it costs the current cycle
+  #   federation-key.json      ⛔ THE ONLY COPY OF YOUR SHARE. Upstream: "a re-run
+  #                            produces a different key, hence a different
+  #                            treasury address, which the existing funds are not
+  #                            in. Below the threshold in surviving shares, THE
+  #                            RECOVERY PATH IS GONE FOR GOOD."
+  #   *-trie.json              recomputable — the ones that do not matter
+  #
+  # ⇒ WHY REQUIRED RATHER THAN DEFAULTED: empty means "the cluster's default
+  # class", and that is precisely the dangerous answer — on k3s it is
+  # `local-path` with `reclaimPolicy: Delete`, making `kubectl delete pvc` a
+  # one-command path to losing a federation share. An unnamed class is an UNKNOWN
+  # reclaim policy under a key that cannot be regenerated.
+  #
+  # ⚠ A refusal that is a FACT, not caution: the chart cannot read your cluster
+  # and cannot verify the policy, so the least it can do is refuse to guess which
+  # class holds it.
   storageClass: ""
   # Adopt an existing claim instead of provisioning. Pilot stage 3 replaces the
   # container onto the SAME volume; a chart that provisioned a fresh one there

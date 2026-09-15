@@ -7,6 +7,9 @@
   either is rejected. Same reason ft-aquarium-node in this repo exposes no
   replicaCount — do not normalise either toward the other charts.
 */ -}}
+{{- if and (not .Values.persistence.existingClaim) (not .Values.persistence.storageClass) -}}
+{{- fail "heimdall: persistence.storageClass is REQUIRED and has no default — the one value in this chart that cannot be corrected afterwards. Empty means the cluster's DEFAULT class; on k3s that is `local-path` with reclaimPolicy: Delete, so `kubectl delete pvc` would destroy the volume holding bifrost.skey and, if it ever exists, federation-key.json — the only copy of your federation share, whose loss is permanent and takes other people's funds with it. Name a class with reclaimPolicy: Retain. Check: kubectl get storageclass -o custom-columns=NAME:.metadata.name,RECLAIM:.reclaimPolicy" -}}
+{{- end -}}
 apiVersion: apps/v1
 kind: Deployment
 metadata:

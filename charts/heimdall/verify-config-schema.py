@@ -50,7 +50,14 @@ REQUIRED = {
 }
 OPTIONAL = {
     ("cardano", "blockfrost_url"),
+    # ⛔ CONSENSUS INPUTS, and they are "optional" only to the PARSER. Absent,
+    # they default to false and to real Cardano epochs, and the node is excluded
+    # from every ceremony with no error on either side. `demo_virtual_epoch_slots`
+    # was added 2026-09-15 after a session found the chart could not express it at
+    # all — it had been promoted out of upstream's test appendix into the main
+    # config under a CONSENSUS INPUTS heading, and the chart predated that.
     ("cardano", "demo_live_stake"),
+    ("cardano", "demo_virtual_epoch_slots"),
     ("cardano", "min_stake_lovelace"),
 }
 # Present => the chart has a defect that costs money or identity.
@@ -67,6 +74,7 @@ FORBIDDEN = {
 # u64 in the daemon: a float here is a type error the binary WILL refuse, and it
 # is exactly what a values-file number renders as without the numeric helper.
 MUST_BE_INT = {
+    ("cardano", "demo_virtual_epoch_slots"),
     ("protocol", "poll_interval_ms"), ("http", "listen_port"),
     ("cardano", "oracle_constructor"), ("cardano", "min_stake_lovelace"),
 }
