@@ -74,6 +74,19 @@ secret:
   key: scooper.skey
 ```
 
+### ⛔ 0.7.0 is the floor for envelope keys
+
+`normalize_secret_key_hex` — the function that accepts a cardano-cli envelope at
+all — **does not exist at 0.6.0 or 0.6.1.** It arrived in **0.7.0** ("mainnet
+readiness: address network, staked pool addresses, bip32 key files"). So on 0.6.x
+an envelope key is not undocumented, it is **unparsed**.
+
+⚠ **And the image tag has no `v`**: GHCR carries `0.7.1`; `v0.7.1` is the git
+release tag and a 404 as an image tag. Upstream's own README example
+(`scooper-v2:v0.6.0`) has the same mistake, so copying their docs gives
+`ImagePullBackOff`. Verified newest, 2026-09-15: **`0.7.1`**, digest
+`sha256:c74b697f…484b18b4`.
+
 ### What to put in it
 
 | form | accepted | validated at load |

@@ -46,8 +46,22 @@ network: preview
 
 image:
   repository: ghcr.io/sundaeswap-finance/scooper-v2
-  # ⛔ REQUIRED, no default, and there is no `latest` to fall back on.
-  # A scooper roster generally runs a common build. Ask which one.
+  # ⛔ REQUIRED, no default.
+  #
+  # ⚠ NO `v` PREFIX. GHCR carries `0.7.1`; `v0.7.1` is the git release tag and a
+  # 404 as an image tag — and upstream's own README example (`:v0.6.0`) has the
+  # same mistake, so following their docs gives ImagePullBackOff.
+  #
+  #   tag: "0.7.1"   # verified newest in the registry, 2026-09-15
+  #                  # sha256:c74b697fc14bc53e979d0fa72b80dbb92dff0574794747bc87c716df484b18b4
+  #
+  # ⛔ AND 0.7.0 IS THE FLOOR IF YOUR KEY IS A cardano-cli ENVELOPE.
+  # `normalize_secret_key_hex` — the function that accepts an envelope at all —
+  # DOES NOT EXIST at 0.6.0 or 0.6.1. It arrived in 0.7.0 with "mainnet
+  # readiness: address network, staked pool addresses, bip32 key files". So on
+  # 0.6.x an envelope key is not merely undocumented, it is unparsed.
+  #
+  # `latest` and `main` both move; pin the version, or pin the digest.
   tag: ""
   pullPolicy: IfNotPresent
 
