@@ -326,6 +326,33 @@ something else on the node needs the memory. **4Gi is still a guess.** Watch the
 first sync and set it from the observed peak — raise the **limit**, not the
 request.
 
+## ⛔ Two failures that look identical from outside, with opposite remedies
+
+**Both present as a pod restarting over and over.** An operator who reaches for
+the wrong remedy makes it worse and learns nothing, so check the discriminant
+before changing anything:
+
+| | **config validation** | **memory limit** |
+|---|---|---|
+| `reason` | `Error` | `OOMKilled` |
+| exit code | `1` | `137` |
+| time to die | **under a second** | **minutes** — it indexes first |
+| log size | **bytes.** One line, no banner, no version, no "loading config" | normal startup output, then nothing |
+| remedy | a different **config file** | a bigger **limit** |
+
+⇒ **The binary validates configuration before anything else runs**, which is why
+a config failure produces no banner and no partial startup: nothing is permitted
+to happen first. A 70-byte log is the signature — measured, on this chart's own
+first deploy.
+
+⛔ **So raising `resources.limits.memory` at a config error does nothing**, and
+rewriting config at an OOM kill does nothing. The one that reads as "it crashed
+instantly" is never the memory limit.
+
+**The config failure you are most likely to hit** is a partial `protocol.v4` —
+see above. It names one missing field at a time, so each restart reveals exactly
+one more, and the fix is to omit the block rather than to fill it in.
+
 ## Single replica
 
 `replicas: 1`, hardcoded, no `replicaCount`. A scooper signs from one key: two
