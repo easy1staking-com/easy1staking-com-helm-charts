@@ -61,8 +61,20 @@ image:
   # readiness: address network, staked pool addresses, bip32 key files". So on
   # 0.6.x an envelope key is not merely undocumented, it is unparsed.
   #
-  # `latest` and `main` both move; pin the version, or pin the digest.
+  # `latest` and `main` both move; pin the version, or pin the digest below.
   tag: ""
+
+  # ⚑ OPTIONAL DIGEST PIN, and it is the stronger one — a tag can be moved under
+  # you, a digest cannot.
+  #
+  # Set together with `tag` and the reference becomes
+  # `repository:tag@sha256:…`, which Kubernetes resolves by DIGEST while the tag
+  # stays human-readable. ⚠ Do not achieve this by appending `@sha256:…` to
+  # `repository` instead: it renders valid YAML and poisons
+  # `app.kubernetes.io/version`, because the version label is taken from `tag`.
+  #
+  #   digest: "sha256:c74b697fc14bc53e979d0fa72b80dbb92dff0574794747bc87c716df484b18b4"   # 0.7.1
+  digest: ""
   pullPolicy: IfNotPresent
 
 imagePullSecrets: []
@@ -143,6 +155,37 @@ config:
     # Service. Leave empty unless you are meant to receive strategy intents.
     publicAddress: ""
 
+# ── v4 execution — THE GATE, and read this before turning it on ─────────────
+#
+# ⛔ THE BINARY TOLERATES `protocol.v4.execution` BEING ABSENT AND REJECTS IT
+# BEING PARTIAL. `protocol.v4` is an Option, so v4 is switched on by the mere
+# PRESENCE of the key; once present, its required fields are demanded and serde
+# reports them ONE AT A TIME. Chart versions before this one emitted a v4
+# execution object containing only a key-file path, which is exactly the fatal
+# partial case — `missing configuration field "protocol.v4.execution.submit-url"`.
+#
+# ⇒ So the chart now gates the WHOLE object, never its individual members.
+#
+# ⛔ AND WHAT `enabled: false` ACTUALLY MEANS, stated plainly because it is not
+# what it sounds like: THE SCOOPER INDEXES AND DOES NOT SCOOP.
+#
+#   `SundaeV3Protocol` has NO execution field — only indexing coordinates. Every
+#   build-and-submit path in the binary runs through `v4_execution`
+#   (`match &self.v4_execution` in the scooper loop), and `sundaev3/builder.rs`
+#   contains no signing code at all. So a v3-only scooper is an OBSERVER: it
+#   syncs, serves /dashboard, /metrics and the pool and order listings, and
+#   produces no scoops and earns no fees.
+#
+#   That is a legitimate first deploy — it proves the image, the config, the key
+#   mount and the sync without touching funds — but it is not a working scooper,
+#   and there is no "v3 signing key" to configure because v3 has no execution
+#   block to put one in.
+v4:
+  # Turn on when `config.files` includes a `*-v4.json`. Upstream's v4 file
+  # already carries a COMPLETE execution block; this chart's overlay only
+  # overrides the parts Kubernetes decides, merging on top of it.
+  enabled: false
+
 # ── The signing key — BY REFERENCE, NEVER BY VALUE ───────────────────────────
 #
 # ⛔ THERE IS NO KEY VALUE IN THIS CHART AND THERE MUST NEVER BE ONE. This
@@ -175,7 +218,13 @@ config:
 # the PUBLIC key and panics on a bad length. Compare that hash with what
 # SundaeSwap has registered for your scooper.
 secret:
-  # ⛔ REQUIRED. A Secret you created; the chart never creates it.
+  # ⛔ REQUIRED WHEN `v4.enabled` — and only then, because v3 has no execution
+  # block and therefore no key to read. With v4 off this may be set anyway (it is
+  # mounted harmlessly, which is convenient if v4 is coming) or left empty.
+  #
+  # ⚠ It used to be unconditionally required, and that is what made a v3-only
+  # deploy inexpressible: a required Secret forced a key-file path, which forced
+  # a partial v4 block, which the binary rejects.
   name: sundae-scooper-v2-preview
   # The key within it. Mounted read-only and passed as
   # `protocol.v4.execution.scooper-secret-key-file`.

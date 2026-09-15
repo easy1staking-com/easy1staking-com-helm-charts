@@ -48,15 +48,40 @@ data:
           }
         }
       }
-      ,
+      {{- /*
+        ⛔ THE WHOLE `protocol` OBJECT IS GATED, AND `protocol.v4` WITH IT.
+        The binary tolerates protocol.v4.execution being ABSENT and rejects it
+        being PARTIAL — `protocol.v4` is an Option, so mere presence switches v4
+        on and then demands its required fields one at a time. An earlier version
+        of this file emitted an execution object containing only the key-file
+        path, which is precisely that fatal partial case.
+        ⇒ Gate the object, never its members.
+      */}}
+      {{- $emitProtocol := or .Values.bootstrap.enabled .Values.v4.enabled }}
+      {{- if $emitProtocol }},
       "protocol": {
+        {{- $parts := list }}
+        {{- if .Values.bootstrap.enabled }}
+        {{- $parts = append $parts "bootstrap" }}
+        {{- end }}
+        {{- if .Values.v4.enabled }}
+        {{- $parts = append $parts "v4" }}
+        {{- end }}
         {{- if .Values.bootstrap.enabled }}
         "bootstrap": {
           "source": {{ .Values.bootstrap.source | quote }},
           "url": {{ required "sundae-scooper-v2: bootstrap.enabled is true but bootstrap.url is empty. blockfrost needs the API base URL; kupo needs its own URL." .Values.bootstrap.url | quote }}
-        },
+        }{{ if has "v4" $parts }},{{ end }}
         {{- end }}
+        {{- if .Values.v4.enabled }}
+        {{- /*
+          Merged ON TOP of the complete execution block in upstream's own
+          *-v4.json. This overlay contributes only what Kubernetes decides; it
+          must never be the sole source of protocol.v4.
+        */}}
         "v4": {
+          {{- $v4 := list }}
+          {{- if .Values.mempool.enabled }}{{ $v4 = append $v4 "mempool" }}{{ end }}
           {{- if .Values.mempool.enabled }}
           "mempool": {
             "socket-path": {{ .Values.mempool.socketPath | quote }}
@@ -68,10 +93,7 @@ data:
           },
           {{- end }}
           "execution": {
-            {{- /*
-              THE KEY, BY PATH. Upstream: "prefer this over the inline key".
-              The chart offers no inline path at all.
-            */}}
+            {{- /* Upstream: "prefer this over the inline key". */}}
             "scooper-secret-key-file": "/app/secret/{{ .Values.secret.key }}"
             {{- with .Values.stakeKeyhash }},
             "scooper-stake-keyhash": {{ . | quote }}
@@ -81,5 +103,7 @@ data:
             {{- end }}
           }
         }
+        {{- end }}
       }
+      {{- end }}
     }

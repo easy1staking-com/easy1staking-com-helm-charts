@@ -25,13 +25,22 @@ import json, subprocess, sys, yaml
 CHART = "charts/sundae-scooper-v2"
 
 # Always emitted.
+# Always emitted, in every mode.
 REQUIRED = {
     "log.level", "log.format",
     "server.address",
     "persistence.sqlite.filename",
     "acropolis.global.startup.network-name",
-    "protocol.v4.execution.scooper-secret-key-file",
 }
+# ⛔ REQUIRED **TOGETHER OR NOT AT ALL**. `protocol.v4` is an Option in the
+# binary, so its mere presence switches v4 on and then its required fields are
+# demanded — ONE AT A TIME, so a partial block is discovered a deploy at a time.
+# An earlier chart emitted an execution object holding only the key-file path,
+# which is that fatal partial case:
+#     missing configuration field "protocol.v4.execution.submit-url"
+# ⇒ So this set must be all-present or all-absent, and `protocol` must never be
+# emitted by the overlay ALONE — upstream's own config file is its source.
+V4_GROUP = {"protocol.v4.execution.scooper-secret-key-file"}
 # Emitted only when the corresponding value is set.
 OPTIONAL = {
     "server.public_address",
@@ -61,6 +70,7 @@ def paths(o, p=""):
 
 
 def main(values):
+    vals = yaml.safe_load(open(values)) or {}
     r = subprocess.run(["helm", "template", "t", CHART, "-f", values],
                        capture_output=True, text=True)
     if r.returncode:
@@ -76,11 +86,31 @@ def main(values):
     bad = 0
     for k in sorted(got & FORBIDDEN.keys()):
         print(f"  FAIL  FORBIDDEN: {k} — {FORBIDDEN[k]}"); bad += 1
-    for k in sorted(got - REQUIRED - OPTIONAL - set(FORBIDDEN)):
+    for k in sorted(got - REQUIRED - OPTIONAL - V4_GROUP - set(FORBIDDEN)):
         print(f"  FAIL  NOT IN THE ALLOWLIST: {k} — a key with no upstream source, "
               f"or the right key on the wrong path (both load SILENTLY)"); bad += 1
     for k in sorted(REQUIRED - got):
         print(f"  FAIL  REQUIRED KEY MISSING: {k}"); bad += 1
+    # ⛔ VALUES vs OUTPUT, not the group's internal completeness.
+    #
+    # An earlier version of this check tested whether the v4 group was complete,
+    # and it did NOT catch the original defect — because the defect was a group
+    # that was complete by that definition (one key-file path) emitted when the
+    # operator had not asked for v4 at all. Completeness was the wrong question.
+    # The right one is whether the output AGREES WITH THE VALUES.
+    want_v4 = bool((vals.get("v4") or {}).get("enabled"))
+    v4_keys = {k for k in got if k.startswith("protocol.v4.")}
+    if v4_keys and not want_v4:
+        print(f"  FAIL  protocol.v4 EMITTED WITH v4.enabled FALSE: {sorted(v4_keys)}. "
+              f"protocol.v4 is an Option in the binary — its mere PRESENCE switches "
+              f"v4 on and then its required fields are demanded one at a time. This "
+              f"is the exact defect that failed the first deploy."); bad += 1
+    if want_v4 and not (V4_GROUP <= got):
+        print(f"  FAIL  v4.enabled but the group is incomplete — missing "
+              f"{sorted(V4_GROUP - got)}"); bad += 1
+    if want_v4 and not vals.get("submitUrl") and not v4_keys:
+        print("  WARN  v4.enabled and no submitUrl: upstream's *-v4.json must "
+              "supply protocol.v4.execution.submit-url, or startup fails")
     for k in sorted(got & MUST_BE_INT):
         v = overlay
         for part in k.split("."):

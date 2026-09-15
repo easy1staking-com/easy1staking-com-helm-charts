@@ -115,6 +115,77 @@ own warning: CIP-1852 wallets use base addresses, and *"funds sent to those
 addresses are unreachable from an enterprise address."* Fresh testnet keys with
 no staking are fine without it.
 
+## ⛔ v3-only means OBSERVER. There is no v3 signing key.
+
+`v4.enabled: false` does not mean "scoop v3 pools only". It means **index and do
+not scoop**, and that is a property of the binary, not of this chart:
+
+- `SundaeV3Protocol` has **no execution field** — only `order-script-hashes`,
+  `pool-script-hash`, `settings-script-hash`, `settings-nft`, `starting-point`.
+- `src/sundaev3/builder.rs` contains **no signing code at all**.
+- every build-and-submit path runs through `v4_execution`
+  (`match &self.v4_execution` in the scooper loop).
+
+⇒ **So there is nowhere else to put a key.** A v3-only deploy syncs, serves
+`/dashboard`, `/metrics` and the pool and order listings, and produces no scoops
+and earns no fees. That makes it a genuine first deploy — it proves the image,
+the config, the mount and the sync without touching funds — and it is not a
+working scooper. `secret.name` is therefore optional with v4 off and **required**
+with v4 on.
+
+## ⛔ Why a partial `protocol.v4` is fatal and an absent one is fine
+
+`protocol.v4` is an `Option`, so its **mere presence** switches v4 on. Once
+present, `ScooperExecution` demands its required fields — and serde reports them
+**one at a time**, so each deploy reveals exactly one more.
+
+An absent block is handled: `src/main.rs` logs *"mempool.execute set but no v4
+execution config; observing only"*.
+
+⇒ **So the chart gates the whole object and never its members.** An earlier
+version emitted an execution object containing only a key-file path — complete
+enough to switch v4 on, empty enough to fail — and the first deploy died with
+`missing configuration field "protocol.v4.execution.submit-url"` in under a
+second, on a 70-byte log, before anything else ran.
+
+### The complete required set, enumerated from source rather than discovered
+
+`ScooperExecution` has **exactly six** fields with no default:
+
+| | |
+|---|---|
+| `submit-url` | String |
+| `fee` | (u64, u64) |
+| `protocol-share` | (u64, u64) |
+| `module-scripts` | nine modules, each a hash + ref-utxo |
+| `plutus-v3-cost-model` | 350 integers |
+| `slot-config` | zero-slot, zero-time, slot-length |
+
+⇒ **All six are already present in upstream's `preview-v4.json`.** So enabling
+v4 is not a matter of filling them in — it is a matter of *loading upstream's v4
+file*, which the chart does via `config.files`. The chart's overlay contributes
+only the key-file path on top.
+
+⚠ **But upstream's `submit-url` is a Blockfrost URL carrying their project id in
+the query string.** That is a credential, it is not ours, and it must not be
+copied into this public repo. See the v4 plan below.
+
+## The v4 plan, recorded so it is not rediscovered
+
+Nothing on the target cluster speaks HTTP transaction submission — the preview
+node exposes 3000 (n2n), 3001 (a socat bridge to its IPC socket) and 12798
+(Prometheus). No submit-api, no Ogmios. So `submit-url` does not need a config
+key, **it needs an endpoint that does not exist yet.**
+
+⇒ **And the two remaining v4 gaps are one problem.** Ogmios is the scooper's
+**fallback dispatch branch**, so an Ogmios URL legally satisfies `submit-url` —
+and Ogmios needs the node's IPC socket, which is exactly what the `socat` source
+already solves for the mempool. **Solve the socket once and both gaps close**,
+using `charts/ogmios` from this same repository. That is the argument for doing
+v4 properly rather than reaching for Blockfrost to make `submit-url` go away —
+Blockfrost would drag a credential into a public repo, which this chart already
+refuses for config files.
+
 ## ⛔ Scoopers are permissioned, and the allow-list is per network
 
 `SettingsDatum.authorized_scoopers` is an **on-chain** list in the global

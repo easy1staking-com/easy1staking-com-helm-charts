@@ -36,8 +36,21 @@ know what you are running.
 {{- required "sundae-scooper-v2: image.tag is REQUIRED and has no default. Upstream publishes to ghcr.io/sundaeswap-finance/scooper-v2 with NO `v` prefix — `0.7.1`, not `v0.7.1` (that is the git release tag and a 404 as an image tag; upstream's README example gets this wrong). Newest verified 2026-09-15: 0.7.1." .Values.image.tag -}}
 {{- end }}
 
+{{/*
+`repository:tag` or, with a digest, `repository:tag@sha256:…` — Kubernetes
+resolves by digest while the tag stays readable. Keeping the tag in the string is
+why the digest belongs HERE and not appended to `repository`: the version label
+is taken from the tag, and a repository carrying an @digest poisons it.
+*/}}
 {{- define "sundae-scooper-v2.image" -}}
-{{- printf "%s:%s" .Values.image.repository (include "sundae-scooper-v2.imageTag" .) -}}
+{{- $ref := printf "%s:%s" .Values.image.repository (include "sundae-scooper-v2.imageTag" .) -}}
+{{- with .Values.image.digest -}}
+{{- if not (hasPrefix "sha256:" .) -}}
+{{- fail (printf "sundae-scooper-v2: image.digest must start with `sha256:` — got %q. Paste the whole digest as the registry reports it." .) -}}
+{{- end -}}
+{{- $ref = printf "%s@%s" $ref . -}}
+{{- end -}}
+{{- $ref -}}
 {{- end }}
 
 {{/*

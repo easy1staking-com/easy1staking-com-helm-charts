@@ -3,6 +3,9 @@
 {{- fail (printf "sundae-scooper-v2: mempool.enabled is true so mempool.source is REQUIRED — got %q. v4 execution needs a cardano-node IPC socket and this chart does not provision a node. Choose: `socat` (a sidecar in this pod bridges TCP back to a unix socket — the route that works when the node keeps its socket inside its own PVC, and what the v1 chart did), `hostPath` (same-machine socket; set nodeSelector or it schedules away and the socket is SILENTLY absent), `existingClaim` (a claim already carrying the socket — never the node's own live database claim), or `external` (you wire it via extraContainers/extraVolumes and this guard steps aside)." .Values.mempool.source) -}}
 {{- end -}}
 {{- end -}}
+{{- if and .Values.v4.enabled (not .Values.secret.name) -}}
+{{- fail "sundae-scooper-v2: v4.enabled is true, so secret.name is REQUIRED — v4 execution is the only path that signs, and it reads the key from a file. With v4 off the key is unused and this may be empty (v3 has no execution block, so a v3-only scooper indexes and does not scoop)." -}}
+{{- end -}}
 {{- if not .Values.config.existingConfigMap -}}
 {{- fail "sundae-scooper-v2: config.existingConfigMap is REQUIRED. No network config ships in the upstream image — its own Dockerfile says so — so there is nothing to inherit. Create a ConfigMap holding upstream's config JSON verbatim (copy config/<network>.json, plus <network>-v4.json for v4, from the scooper-v2 repo) and name it here." -}}
 {{- end -}}
@@ -101,9 +104,11 @@ spec:
             - name: config-overlay
               mountPath: /app/config-overlay
               readOnly: true
+            {{- if .Values.secret.name }}
             - name: secret
               mountPath: /app/secret
               readOnly: true
+            {{- end }}
             - name: data
               mountPath: {{ .Values.persistence.mountPath }}
             {{- /*
@@ -172,10 +177,12 @@ spec:
         - name: config-overlay
           configMap:
             name: {{ include "sundae-scooper-v2.fullname" . }}-overlay
+        {{- if .Values.secret.name }}
         - name: secret
           secret:
-            secretName: {{ required "sundae-scooper-v2: secret.name is REQUIRED. The chart references a Secret you created out of band and never creates one." .Values.secret.name }}
+            secretName: {{ .Values.secret.name }}
             defaultMode: 0400
+        {{- end }}
         {{- if and .Values.mempool.enabled (ne .Values.mempool.source "external") }}
         - name: node-ipc
           {{- if eq .Values.mempool.source "socat" }}
