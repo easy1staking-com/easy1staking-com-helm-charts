@@ -421,31 +421,39 @@ module.** Acropolis's own docs say `sync-point: "dynamic"` — which upstream's
 `acropolis.module.mithril-snapshot-fetcher` (`aggregator-url`, `genesis-key`)
 matters far more to first-sync time than which peer you follow.
 
-⛔ **And there is something odd in upstream's own defaults worth knowing before
-you chase sync speed.** `default.json` sets:
+⛔ **And Mithril cannot shorten the scooper's own index build. Measured and read
+from source, so nobody spends a wipe finding out.**
 
-```json
-"mithril-snapshot-fetcher": { "download-max-age": "never" }
-```
+The Mithril fetcher and the peer interface **publish to the same bus topic** —
+`cardano.block.proposed`, both set in upstream's `default.json`. Acropolis's own
+description is *"fetches chain snapshots from the Mithril aggregator and replays
+blocks"*. ⇒ **So Mithril changes where blocks come FROM; every block still flows
+through the same pipeline and through the scooper's own indexers.** It is a
+delivery optimisation, not an index handover.
 
-Acropolis documents `download-max-age` as an **integer, in hours** — *"if unset
-or invalid, cached downloads are reused when present."* `"never"` is a string,
-so it is an **invalid value**, not a documented "off" switch. What that produces
-with no cache present is not stated anywhere I could find.
+⇒ **And delivery is already known not to be the bottleneck.** Pointing the
+scooper at a node on the same cluster — which removes network latency
+entirely — measured **1.09×** (279.0 → 303.7 KiB/s). That bounds the whole
+delivery component at roughly 9%. The cost is block processing and SQLite index
+writes, and Mithril does not touch either.
 
-⇒ So if a scooper sits alive, peered, and not advancing from its starting point,
-**that is consistent with both "bootstrapping via Mithril" and "not syncing at
-all"**, and the Mithril settings are where to look — not the peer list. This
-chart does not touch them; they come from upstream's config file.
+⇒ **So a first sync is a first sync.** At a measured ~1,532 slots/s, ~74 million
+slots is about **13 hours**, and no configuration in this chart shortens it.
 
-### ⚠ If you change `nodeAddresses` and the memory limit together
+### `download-max-age: "never"` — what it actually does
 
-They are independent and need the same restart, so landing them in one change is
-reasonable — but **the sync-rate comparison then has two variables in it.** The
-rate change is attributable to the node address; the limit does not affect
-throughput unless it was causing OOM restarts. Say which you changed in your own
-values, or the next person reads a rate improvement as evidence about the wrong
-knob.
+Upstream's `default.json` sets it, and `default.json` is **compiled into the
+binary** (`include_str!`, added as the first config source). It is not this
+chart's doing, and this chart emits no Mithril key at all.
+
+Acropolis parses it as `config.get::<u64>(…)`, so `"never"` fails to parse and
+takes the error branch, which logs **`SKIP DOWNLOAD: Download max age is not set
+or invalid`** and returns *skip*.
+
+⚠ **But that check is only reached when a snapshot is ALREADY on disk** — the
+caller does `if let Ok(old_snapshot) = load_snapshot_metadata(…)` first. ⇒ So
+`"never"` is not an off switch: on a fresh volume Mithril downloads normally, and
+thereafter reuses what it has forever. **It bites re-downloads, not first runs.**
 
 ### Peer discovery is not displaced
 
