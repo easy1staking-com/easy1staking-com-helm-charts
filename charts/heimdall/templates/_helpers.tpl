@@ -129,16 +129,22 @@ no dependency; needs a POSIX shell.
 {{/*
 Where the assembled config lives inside the container.
 
-⛔ ONE SOURCE, because the mount and the `--config` flag MUST agree. They did not
-have to agree before, because nothing passed `--config` at all — the chart mounted
-here and trusted this to be the binary's default path. That assumption is what
-made the register-mode probe read an empty config while the daemon read a full one:
-the probe ran bare `heimdall doctor`, which did not resolve this file.
+⛔ ONE SOURCE, because the mount and the `--config` flag MUST agree.
+
+⛔ AND THE BINARY NEVER LOOKS HERE BY ITSELF. Confirmed in heimdall's source:
+`load_config(None)` returns compiled defaults and reads NO file — there is no
+search path and no env var the binary consults. `/etc/heimdall/heimdall.toml` is
+reachable only because something PASSES it. So a bare `heimdall doctor` evaluates
+an empty in-memory config and truthfully reports `state_dir is unset` and
+`no provider configured` about a file it never opened.
+
+⚠ heimdall does NOT layer config. Every subcommand takes `config: Option<String>`
+— a single path. A second `--config` REPLACES the first; the earlier file is never
+read. (That is the opposite of sundae-scooper-v2 in this repo, where repeated
+`--config` genuinely merges last-wins. Do not carry that habit here.)
 
 ⚠ Used by the mountPath and by every invocation THE CHART ITSELF constructs.
-Deliberately NOT applied to mode=run, whose container runs the image ENTRYPOINT
-unmodified — that invocation demonstrably works, and appending to or replacing an
-entrypoint whose shape we have not read would risk breaking the one mode that does.
+Deliberately NOT applied to mode=run — see the comment at that container.
 */}}
 {{- define "heimdall.configPath" -}}
 /etc/heimdall/heimdall.toml
