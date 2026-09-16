@@ -247,6 +247,71 @@ volume, because Ogmios wants `--node-socket` and a node in Kubernetes publishes
 over TCP. **If `socat.host` was left empty there, Ogmios is running and connected
 to nothing.**
 
+## Inheritances we cannot yet write off
+
+The overlay is applied **last**, so anything it writes wins. The hazard is the
+opposite case: **a key the overlay does not mention keeps whatever upstream's
+config file said.** Last-wins merges per key, not per file.
+
+⚠ **Today, on mainnet, this is a non-problem for a reason that belongs to mainnet
+and not to this chart:** upstream's `mainnet.json` carries no `server` block, no
+`bootstrap`, no `protocol.v4` and no mempool. Rendered with real values it
+produces `"server": {"address": "0.0.0.0:9999"}` and `"protocol": {}` — there is
+nothing to inherit.
+
+⇒ **That stops holding the day a `mainnet-v4.json` exists.** Upstream's other v4
+files carry two things you would not choose:
+
+| inherited | what it does |
+|---|---|
+| `server.public_address: 0.0.0.0:9998` | opens a **second, public** listener |
+| `protocol.bootstrap` | a bootstrap block carrying **upstream's own Blockfrost project id** |
+
+### What can write a value off, per key
+
+`null` is the obvious tool and it is **type-dependent**, which is the whole
+lesson: `null` on a plain Rust field is `invalid type: unit value` and refuses
+the entire config at startup. On an `Option<T>` it is exactly the override you
+want. Read from source at `v0.7.1`:
+
+| key | Rust type | `null` |
+|---|---|---|
+| `server.public_address` | `Option<SocketAddr>` | ✅ **works** |
+| `protocol.bootstrap` | `Option<BootstrapConfig>` | ✅ **works** |
+| `server.tls_cert` / `tls_key` | `Option<String>` | ✅ works |
+| `protocol.v3` / `protocol.v4` | `Option<…>` | ✅ works |
+| `server.address` | `SocketAddr` | ⛔ type error (moot — the overlay always writes it) |
+| `protocol.v4.execution.scooper-secret-key` | `String` | ⛔ **type error — measured on a live pod** |
+| `protocol.v4.execution.submit-url` | `String` | ⛔ type error (moot — required when v4 is on) |
+| `protocol.v4.mempool.socket-path` / `network-magic` / `execute` | `String` / `u64` / `bool` | ⛔ type error (whole block is gated instead) |
+
+⇒ **So both dangerous inheritances above ARE writable off, because both are
+`Option`.** The chart does not currently write them, and that is the open gap.
+
+⚠ **Why it is open:** 0.1.0-alpha.1 removed *every* explicit null after one of
+them crashed a live pod. That was the right emergency fix and an over-correction
+— the crash was on `scooper-secret-key`, a plain `String`, and the same commit
+discarded the two type-safe nulls that addressed the real hazard.
+
+### The other two mechanisms, for completeness
+
+- **Emit a complete replacement block.** For a plain-typed field, the overlay
+  must write *every* field of the object it is overriding, since a partial object
+  merges rather than replaces — and a partial `protocol.v4` is
+  [fatal](#-why-a-partial-protocolv4-is-fatal-and-an-absent-one-is-fine).
+- **Environment variables win over every file.** `load_config` adds
+  `Environment::with_prefix("SCOOPER_V2")` with `__` as the separator *after* all
+  file sources, so `SCOOPER_V2_PERSISTENCE__SQLITE__FILENAME` overrides
+  `persistence.sqlite.filename`. Useful for scalars; it cannot express `null`.
+
+### What an operator must do until the chart closes this
+
+Do not pass a `*-v4.json` you have not read. If it contains
+`server.public_address` or a `bootstrap` block, either strip those keys from your
+copy of the file — you supply it via `config.existingConfigMap`, so it is yours
+to edit — or accept a public listener and upstream's Blockfrost id. **The chart
+cannot currently protect you from either.**
+
 ## The v4 plan, recorded so it is not rediscovered
 
 Nothing on the target cluster speaks HTTP transaction submission — the preview
@@ -293,7 +358,7 @@ tip itself is unknown it also returns "unknown" and waits. Neither scoops.
 orders"* — a competitiveness concern about a scooper that has fallen behind after
 catching up, which is a different thing from the initial sync.
 
-## ⛔ Scoopers are permissioned, and the allow-list is per network## ⛔ Scoopers are permissioned, and the allow-list is per network
+## ⛔ Scoopers are permissioned, and the allow-list is per network
 
 `SettingsDatum.authorized_scoopers` is an **on-chain** list in the global
 settings UTxO, and the transaction redeemer pins the scooper's **index** in that
@@ -489,7 +554,7 @@ single local seed still fans out to a normal peer population — an observed
 the scooper starts, there is no other seed to bootstrap from. List a public relay
 after yours.
 
-## Sizing — read the provenance## Sizing — read the provenance
+## Sizing — read the provenance
 
 ```yaml
 resources:

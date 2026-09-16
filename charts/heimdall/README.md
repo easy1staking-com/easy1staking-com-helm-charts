@@ -147,6 +147,35 @@ deliberately: its section and type are unconfirmed, and a values key that render
 nothing would read as set while doing nothing — the same failure as a
 misspelling, from the other direction.
 
+## Two peer disagreements that look identical and are not
+
+Before every ceremony each node compares peers' `/health`. Two kinds of mismatch
+show up there and they need opposite responses.
+
+**`threshold` — expected, and it self-clears.** A node that registers mid-cycle
+sees a different threshold from the nodes already in the cycle, because the
+registry is read on entry. Observed at virtual epoch 1549: the four coordination
+nodes moved `threshold` 2 → 5 **at the boundary**, exactly as registration timing
+predicts. ⇒ **One cycle of `threshold` disagreement on a new node is normal. Do
+not chase it.**
+
+**`live_stake` or `virtual_epoch_slots` — never expected, and never self-clears.**
+These are the consensus inputs. A node whose values differ from the roster's is
+excluded from every ceremony, and **there is no error on either side** — it
+registers, stays reachable, answers `/health` 200 and passes all of
+`heimdall doctor`.
+
+⇒ **Live example you can `curl`:** `bifrost.xstakepool.com` registered on Monday
+afternoon and has been excluded from every ceremony since. Nearly 24 hours on it
+still publishes `live_stake: false`, no `virtual_epoch_slots`, and Cardano epoch
+313 where the roster publishes virtual 1549. A real operator, registered,
+reachable, `200 OK`, and never spoken to.
+
+⛔ **So the check that matters is not "is my node up".** It is whether your
+`/health` reports the same `live_stake` and `virtual_epoch_slots` as the roster.
+Set them with `cardano.demoLiveStake` and `cardano.demoVirtualEpochSlots`; absent,
+they default to `false` and to real Cardano epochs, which is a different roster.
+
 ## Storage: the default class is fine, but know what it does
 
 `persistence.storageClass` is **empty by default**, which means the cluster's

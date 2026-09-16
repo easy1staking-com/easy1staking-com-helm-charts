@@ -22,6 +22,9 @@ Excluded from `helm package` — a repo tool, not a chart artifact.
 """
 import json, subprocess, sys, yaml
 
+# Set from argv in __main__; see the note there.
+UPSTREAM_HAS_V4 = False
+
 CHART = "charts/sundae-scooper-v2"
 
 # Always emitted.
@@ -134,7 +137,7 @@ def main(values):
 
     want_v4 = bool((vals.get("v4") or {}).get("enabled"))
     v4_keys = {k for k in got if k.startswith("protocol.v4.")}
-    if v4_keys and not want_v4 and not (vals.get("config", {}) or {}).get("upstreamHasV4"):
+    if v4_keys and not want_v4 and not UPSTREAM_HAS_V4:
         print(f"  FAIL  protocol.v4 emitted with v4.enabled false and no upstream v4 "
               f"to disable: {sorted(v4_keys)}"); bad += 1
     want_url = vals.get("submitUrl")
@@ -160,4 +163,13 @@ def main(values):
 
 
 if __name__ == "__main__":
-    main(sys.argv[1] if len(sys.argv) > 1 else sys.exit("usage: verify-config-schema.py <values.yaml>"))
+    # `--upstream-has-v4` says the upstream config files you pass ALREADY carry a
+    # protocol.v4 block, so the overlay emitting protocol.v4 keys with
+    # v4.enabled=false is expected rather than a partial-block bug. It is a flag
+    # here and NOT a chart value: nothing a consumer sets could change it, since
+    # the explicit-null mechanism it used to gate no longer exists.
+    args = [a for a in sys.argv[1:] if a != "--upstream-has-v4"]
+    globals()["UPSTREAM_HAS_V4"] = "--upstream-has-v4" in sys.argv[1:]
+    if not args:
+        sys.exit("usage: verify-config-schema.py [--upstream-has-v4] <values.yaml>")
+    main(args[0])

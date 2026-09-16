@@ -121,33 +121,15 @@ config:
   # same --from-file flags and name it here; nothing else changes.
   existingConfigMap: ""
 
-  # ⛔ SET TRUE IF ANY FILE IN `files` CARRIES A `protocol.v4` BLOCK — i.e. any
-  # `*-v4.json`. The chart cannot tell from a filename and will not guess.
-  #
-  # ⛔ WHY IT MATTERS, AND IT IS THE WHOLE POINT OF THIS KEY: "not setting a key"
-  # IS NOT "SETTING IT OFF". Config files are layered last-wins, so where this
-  # chart stays silent, UPSTREAM'S FILE SPEAKS — and upstream's `preview-v4.json`
-  # speaks with THEIR credential, THEIR filesystem and THEIR dummy key:
-  #
-  #   protocol.bootstrap                    their Blockfrost project id, used on
-  #                                         EVERY startup to hydrate state
-  #   protocol.v4.execution.submit-url      their Blockfrost /tx/submit URL
-  #   protocol.v4.execution.scooper-secret-key
-  #                                         a DUMMY key (0202…), which is what
-  #                                         signs if ours is not written
-  #   protocol.v4.mempool.socket-path       /home/ec2-user/cardano-node/ipc/socket
-  #                                         — retried every 5s, forever
-  #   server.public_address                 0.0.0.0:9998 — the PUBLIC listener,
-  #                                         opened by inheritance
-  #   acropolis…node-addresses              preview-sundae-scooper:3002, an
-  #                                         upstream-internal name that will not
-  #                                         resolve in your cluster
-  #
-  # ⇒ With this true, the chart writes EXPLICIT NULLS for the things you turned
-  # off, instead of leaving them to upstream. With it false it cannot: emitting a
-  # `protocol.v4` object where upstream has none would create a PARTIAL v4 block,
-  # which the binary rejects outright.
-  upstreamHasV4: false
+  # ⛔ REMOVED in 0.1.0-alpha.2 — DO NOT RE-ADD AS A VALUE.
+  # It used to gate the chart writing explicit nulls for things you turned off.
+  # Those nulls were removed (`null` on a plain Rust field is a TYPE ERROR that
+  # refuses the whole config at startup), so the key gated nothing a consumer
+  # could observe — it only fed this repo's own verify-config-schema.py, which
+  # now takes it as `--upstream-has-v4` instead.
+  # ⇒ What upstream's v4 files still hand you by inheritance, and which of those
+  # the chart CAN and CANNOT write off, is in the README under
+  # "Inheritances we cannot yet write off". Read that before a mainnet v4 deploy.
 
   # ⛔ REQUIRED. Which keys of that ConfigMap to pass, IN ORDER. Order is
   # meaningful: later files override earlier ones.
