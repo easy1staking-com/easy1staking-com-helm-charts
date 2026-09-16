@@ -125,3 +125,21 @@ no dependency; needs a POSIX shell.
 {{- define "heimdall.initImage" -}}
 {{- default (include "heimdall.image" .) .Values.initImage -}}
 {{- end }}
+
+{{/*
+Where the assembled config lives inside the container.
+
+⛔ ONE SOURCE, because the mount and the `--config` flag MUST agree. They did not
+have to agree before, because nothing passed `--config` at all — the chart mounted
+here and trusted this to be the binary's default path. That assumption is what
+made the register-mode probe read an empty config while the daemon read a full one:
+the probe ran bare `heimdall doctor`, which did not resolve this file.
+
+⚠ Used by the mountPath and by every invocation THE CHART ITSELF constructs.
+Deliberately NOT applied to mode=run, whose container runs the image ENTRYPOINT
+unmodified — that invocation demonstrably works, and appending to or replacing an
+entrypoint whose shape we have not read would risk breaking the one mode that does.
+*/}}
+{{- define "heimdall.configPath" -}}
+/etc/heimdall/heimdall.toml
+{{- end }}

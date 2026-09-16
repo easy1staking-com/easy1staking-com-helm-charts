@@ -154,7 +154,7 @@ spec:
               echo "heimdall: ANY OTHER failure is a real problem — fix it before"
               echo "heimdall: spending an on-chain transaction."
               while true; do
-                heimdall doctor || true
+                heimdall doctor --config {{ include "heimdall.configPath" . }} || true
                 sleep 60
               done
           {{- else }}
@@ -192,7 +192,7 @@ spec:
                   key: {{ .Values.mnemonic.secretKey | quote }}
           volumeMounts:
             - name: config
-              mountPath: /etc/heimdall/heimdall.toml
+              mountPath: {{ include "heimdall.configPath" . }}
               subPath: heimdall.toml
               readOnly: true
             - name: state
@@ -227,13 +227,22 @@ spec:
             port. A probe against it would fail for the wrong reason, and a
             placeholder endpoint to make it pass would be a lie.
           */}}
-          readinessProbe:
-            exec:
-              command: ["heimdall", "doctor"]
-            initialDelaySeconds: 10
-            periodSeconds: 30
-            timeoutSeconds: 15
-            failureThreshold: 1
+          {{- /*
+            ⛔ NO readinessProbe IN REGISTER MODE, DELIBERATELY. Do not add one back.
+
+            There is no `ports:` block in this mode, so readiness GATES NOTHING —
+            there is no traffic for it to withhold. Its only effect was red in
+            ArgoCD, permanently, and a signal with no mechanism behind it that is
+            guaranteed red teaches an operator to ignore red.
+
+            ⚠ AND THE BANNER ABOVE WAS THE TELL: it printed "Expected until then:
+            [6/11] FAIL" while a probe asserted the same command must pass. A check
+            whose own documentation says "expected: FAIL" has already been observed
+            AGREEING, not working.
+
+            The pod's purpose is legible from that banner and from the doctor
+            readout in the logs — in words, rather than in a red dot.
+          */}}
           {{- else }}
           startupProbe:
             httpGet:

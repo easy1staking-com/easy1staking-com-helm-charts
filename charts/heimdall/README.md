@@ -147,6 +147,41 @@ deliberately: its section and type are unconfirmed, and a values key that render
 nothing would read as set while doing nothing — the same failure as a
 misspelling, from the other direction.
 
+## What register mode does and does not render
+
+`mode: register` starts no daemon. It runs `heimdall doctor` on a loop so the pod
+is a stable place to register *from*, with a live readout of what is still wrong.
+
+Three consequences, all deliberate:
+
+- **No `ports:` on the container.** Nothing binds the peer port, and a
+  placeholder `/health` would advertise a working bridge node that is not one. A
+  refused connection is honest.
+- **No readiness probe.** With no ports there is no traffic for readiness to
+  withhold, so a probe would gate nothing and simply sit red in ArgoCD forever —
+  the node is *by definition* unregistered in this mode, so `[6/11] registration
+  status` cannot pass. ⚠ A check whose own documentation says "expected: FAIL"
+  has already been observed agreeing, not working. The pod's state is legible
+  from the banner and the doctor output in its logs instead.
+- **No Service.** It would name `targetPort: peer` and `targetPort: health` on a
+  container declaring neither — an object that reads as dialable and resolves to
+  nothing. ⚠ **So flipping `register` → `run` creates the Service fresh and it
+  gets a new ClusterIP.** Harmless here, since peers reach this node by its
+  advertised URL through the ingress and nothing dials it by ClusterIP — but
+  surprising if you did not expect it.
+
+⛔ **`doctor` needs `--config` and the daemon does not.** The chart mounts the
+assembled config at `/etc/heimdall/heimdall.toml` and, in `run` mode, leaves the
+image's ENTRYPOINT untouched — that entrypoint resolves its own config path.
+A bare `heimdall doctor` does **not**, and reports `protocol.state_dir is unset`
+and `no provider configured` about a config that has both. So every invocation
+the chart constructs itself passes `--config` explicitly. If you exec in to run
+`doctor` by hand, pass it too:
+
+```bash
+kubectl exec deploy/<release>-heimdall -- heimdall doctor --config /etc/heimdall/heimdall.toml
+```
+
 ## Two peer disagreements that look identical and are not
 
 Before every ceremony each node compares peers' `/health`. Two kinds of mismatch
