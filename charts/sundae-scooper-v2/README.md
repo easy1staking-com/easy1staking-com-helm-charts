@@ -81,10 +81,10 @@ all — **does not exist at 0.6.0 or 0.6.1.** It arrived in **0.7.0** ("mainnet
 readiness: address network, staked pool addresses, bip32 key files"). So on 0.6.x
 an envelope key is not undocumented, it is **unparsed**.
 
-⚠ **And the image tag has no `v`**: GHCR carries `0.7.1`; `v0.7.1` is the git
+⚠ **And the image tag has no `v`**: GHCR carries `0.7.2`; `v0.7.2` is the git
 release tag and a 404 as an image tag. Upstream's own README example
 (`scooper-v2:v0.6.0`) has the same mistake, so copying their docs gives
-`ImagePullBackOff`. Verified newest, 2026-09-15: **`0.7.1`**, digest
+`ImagePullBackOff`. Verified newest, 2026-09-16: **`0.7.2`**, digest
 `sha256:c74b697f…484b18b4`.
 
 ### What to put in it
@@ -272,7 +272,8 @@ files carry two things you would not choose:
 `null` is the obvious tool and it is **type-dependent**, which is the whole
 lesson: `null` on a plain Rust field is `invalid type: unit value` and refuses
 the entire config at startup. On an `Option<T>` it is exactly the override you
-want. Read from source at `v0.7.1`:
+want. Read from source at `v0.7.1`, and unchanged in `v0.7.2` — that release
+touches only `src/main.rs` (one added `#[command(version)]` attribute):
 
 | key | Rust type | `null` |
 |---|---|---|
