@@ -1,24 +1,31 @@
 {{- /*
-  ⛔ THE VOLUME THAT LOSES MONEY IF IT IS LOST.
+  THE STATE VOLUME.
 
-  It holds the epoch's DKG signing share and federation-key.json. A container
-  replaced without it comes back UNABLE TO RESUME, and the federation share has
-  no second copy: once surviving shares fall below the threshold the recovery
-  path is gone for good. It never regenerates.
+  It holds the node identity (`bifrost.skey`), the current cycle's DKG signing
+  share, and recomputable trie files. A container replaced without it comes back
+  unable to resume and needs a RE-REGISTRATION — an on-chain transaction you can
+  simply repeat. That is the real cost: annoying, not catastrophic.
+
+  ⛔ THE FILE WHOSE LOSS WOULD BE PERMANENT IS NOT HERE FOR A JOINING NODE.
+  `federation-key.json` comes out of the INITIAL FEDERATION CEREMONY, run by the
+  people standing a bridge up; a joining SPO never produces one. If this chart is
+  ever used by a bridge FOUNDER, that changes and the volume becomes irreplaceable.
+  Stated because the opposite was claimed here until 0.1.0-alpha.3, and an
+  overstated warning gets discounted along with the accurate part of it.
 
   `helm.sh/resource-policy: keep` means `helm uninstall` LEAVES THIS BEHIND, and
   Argo CD treats it as `Delete=false`, so an Application with `prune: true` will
   not remove it either.
 
-  ⛔ BUT IT PROTECTS THE OBJECT, NOT THE DATA, and someone will read "keep" as
+  ⚠ BUT IT PROTECTS THE OBJECT, NOT THE DATA, and someone will read "keep" as
   "safe". On a StorageClass with `reclaimPolicy: Delete` a manual
-  `kubectl delete pvc` still destroys the volume and everything on it —
-  including `federation-key.json`, whose loss is permanent.
+  `kubectl delete pvc` still destroys the volume and everything on it.
 
-  ⚠ And `reclaimPolicy` is NOT a field a chart can set: it belongs to the
-  StorageClass and the PV, never to the claim. The two levers this chart has are
-  `persistence.storageClass` (which is why it is REQUIRED — naming a class is
-  what makes its reclaim policy knowable) and `persistence.existingClaim`.
+  ⚠ `reclaimPolicy` is NOT a field a chart can set — it belongs to the
+  StorageClass and the PV, never to the claim. So the declarative way to get
+  `Retain` is a StorageClass manifest in git, named via
+  `persistence.storageClass`; see values.yaml for that and for the repair path
+  for a volume that already exists on the wrong class.
 
   Skipped entirely when persistence.existingClaim is set — replacing a container
   onto EXISTING state is stage 3 of the pilot, and a chart that provisioned a

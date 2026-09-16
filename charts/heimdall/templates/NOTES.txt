@@ -1,0 +1,39 @@
+heimdall {{ .Chart.Version }} installed as {{ include "heimdall.fullname" . }}.
+
+{{ if .Values.persistence.existingClaim -}}
+State volume: adopting existing claim {{ .Values.persistence.existingClaim | quote }}.
+{{- else -}}
+State volume: PVC {{ include "heimdall.fullname" . }}-state ({{ .Values.persistence.size }}){{ if .Values.persistence.storageClass }} on StorageClass {{ .Values.persistence.storageClass | quote }}{{ else }} on the CLUSTER DEFAULT StorageClass{{ end }}.
+
+  ⚠ CHECK WHETHER THAT CLASS RECLAIMS OR DELETES — one command, now rather than later:
+
+      kubectl get storageclass -o custom-columns=NAME:.metadata.name,RECLAIM:.reclaimPolicy
+
+  On k3s the default is `local-path` with reclaimPolicy: Delete, so a
+  `kubectl delete pvc` destroys this volume and everything on it.
+
+  What that costs you as a JOINING node: `bifrost.skey` is the node identity, and
+  losing it means RE-REGISTERING (an on-chain tx you can repeat) — not lost funds.
+  The current cycle's DKG share goes with it; the trie files are recomputable.
+  `federation-key.json`, whose loss WOULD be permanent, is produced by the initial
+  federation ceremony and is not on a joining node's volume.
+
+  To get `Retain` declaratively, commit a StorageClass with
+  `reclaimPolicy: Retain` and set `persistence.storageClass` to it.
+  To repair a volume that ALREADY exists on the wrong class (keeps the data):
+
+      kubectl patch pv <name> -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
+{{- end }}
+
+{{ if eq .Values.mode "register" -}}
+⚑ mode=register: the daemon is NOT running. This pod idles running `heimdall doctor`
+so you have a stable place to register FROM. It will never report Ready — that is
+deliberate. Switch to mode=run once registered.
+{{- else -}}
+mode=run: the daemon is running on port {{ .Values.listenPort }}, advertised at
+{{ .Values.advertisedUrl }}.
+{{- end }}
+
+⛔ Before any ceremony, every peer's /health must report the SAME `version` and
+`blueprint_digest`. Ask the roster which build is current; a mismatched node is
+left out with no error on either side.

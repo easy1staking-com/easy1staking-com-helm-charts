@@ -147,51 +147,75 @@ deliberately: its section and type are unconfirmed, and a values key that render
 nothing would read as set while doing nothing — the same failure as a
 misspelling, from the other direction.
 
-## ⛔⛔ Name a StorageClass with `reclaimPolicy: Retain`
+## Storage: the default class is fine, but know what it does
 
-`persistence.storageClass` is **required with no default**, because the wrong
-answer here fails *silently* and you find out by losing something.
+`persistence.storageClass` is **empty by default**, which means the cluster's
+default class — the same as every other chart in this repo. Set it to pin a
+specific class; set `persistence.existingClaim` to adopt a claim you already made.
+
+⚠ **One command worth running before you install:**
 
 ```bash
 kubectl get storageclass -o custom-columns=NAME:.metadata.name,RECLAIM:.reclaimPolicy
 ```
 
-⚠ **A StorageClass's `reclaimPolicy` is fixed for every volume it creates** — it
-belongs to the class and the PV, never to the claim, so you cannot retune it
-through the PVC.
+On k3s the default is `local-path` with `reclaimPolicy: Delete`, so a
+`kubectl delete pvc` destroys the volume and everything on it.
 
-✅ **But an individual PV's policy IS mutable, and this is the remedy if a volume
-ever got created under the wrong class:**
+### What losing this volume actually costs a joining node
+
+| | |
+|---|---|
+| `bifrost.skey` | the node identity. Losing it costs a **re-registration** — an on-chain transaction you can simply repeat. Not funds. |
+| the per-cycle DKG share | costs **the current cycle**, not the next one |
+| `*-trie.json` | recomputable; these do not matter |
+
+⛔ **The file whose loss would be permanent is not on your volume.**
+`federation-key.json` is produced by the **initial federation ceremony**, run by
+the people standing a bridge up — a joining SPO never generates one. If you are a
+bridge *founder*, that file is the only copy of a share whose loss is permanent
+and this section becomes much more serious. For everyone else the honest summary
+is: losing this volume is annoying, and you re-register.
+
+⚠ This is stated plainly because **this chart claimed the opposite until
+0.1.0-alpha.3**, and an overstated warning gets discounted — taking the accurate
+part of it along too.
+
+### Getting `Retain`, declaratively
+
+`reclaimPolicy` belongs to the StorageClass and the PV and is **never settable on
+the claim**, so no chart can do this for you. The declarative answer is a
+StorageClass manifest in git with `reclaimPolicy: Retain`, named via
+`persistence.storageClass`.
+
+✅ **Repair, for a volume that already exists on the wrong class** — this keeps
+the existing data:
 
 ```bash
 kubectl patch pv <name> -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
 ```
 
-⇒ That repairs the **existing volume and its data**. The only thing that cannot
-be undone is a deletion that has already happened.
+An individual PV's policy **is** mutable. Only a deletion that has already
+happened is final.
 
-⛔ **So why is the value still required, if the mistake is repairable?** Because
-the patch is only ever reached by someone who already knows they need it. A
-volume sitting on a `Delete` class renders perfectly, mounts perfectly and runs
-perfectly — it is indistinguishable from a correct one until the single command
-that destroys it. Requiring the class moves that decision to creation time,
-where it is a deliberate answer, instead of to deletion time, where it is a
-discovery.
+⚠ But that is a *repair*, not a way to configure a new volume: it is manual, and
+manual is not reproducible. Use the class manifest for anything you intend to
+keep having.
 
-⇒ **Empty would mean "the cluster's default class", and that is precisely the
-dangerous answer** — on k3s that is `local-path` with `reclaimPolicy: Delete`,
-making `kubectl delete pvc` a one-command path to losing a federation share. An
-unnamed class is an *unknown* reclaim policy under a key that cannot be
-regenerated, so the chart refuses to guess.
+### Why this is documentation and not a refusal
 
-Three things land on this volume and only one is catastrophic:
+`0.1.0-alpha.2` made `persistence.storageClass` **required** and failed the render
+when it was empty. That was wrong, and it is worth saying why rather than quietly
+dropping it:
 
-| | |
-|---|---|
-| `bifrost.skey` | ours — losing it costs re-registration |
-| the per-cycle DKG share | losing it costs the current cycle |
-| `federation-key.json` | ⛔ **the only copy of your share.** A re-run produces a different key, a different treasury address, and funds that are not in it. Below the threshold in surviving shares, **the recovery path is gone for good** |
-| `*-trie.json` | recomputable — the ones that do not matter |
+⇒ **Naming a class does not make it `Retain`.** A named class can delete just as
+happily. The refusal could only verify that the operator typed *something* — a
+proxy for the property that mattered, not the property itself. It made the chart
+harder to install without making any volume safer, and once encountered it would
+be copy-pasted forever.
+
+**A refusal must verify the property it claims to protect. When it can only check
+a proxy, it belongs in documentation.**
 
 ## ⚑ The advertised URL is portless because it has to be
 
@@ -201,28 +225,26 @@ proxied**, a non-standard port is **not served at all** — so a portless
 `https://host` was never merely the more flexible shape, it was the only workable
 one. Do not add a port to make it look more explicit.
 
-## ⛔ The state volume is the thing that loses money
+## The state volume
 
 `/var/lib/heimdall`, `ReadWriteOnce`, annotated `helm.sh/resource-policy: keep`
 so **`helm uninstall` leaves it behind**.
 
-It holds the epoch's DKG signing share and `federation-key.json`:
+It holds the node identity (`bifrost.skey`), the current cycle's DKG signing
+share, and recomputable trie files. A container replaced without it comes back
+unable to resume and needs a **re-registration** — see the storage section above
+for what that costs, and for why `federation-key.json` is not on a joining node's
+volume.
 
-- a container replaced without it **comes back unable to resume**;
-- the federation share is **the only copy** — once surviving shares fall below
-  the threshold, **the recovery path is gone for good**. It never regenerates.
+`emptyDir` is not an option at any size: `[protocol].state_dir` is required by
+the daemon, which refuses to start without one because an empty trie would
+double-pay a peg-out. When replacing a container onto state that already exists —
+stage 3 of the pilot — set `persistence.existingClaim` so the chart adopts the
+claim instead of provisioning a fresh one.
 
-`emptyDir` is not an option at any size. When replacing a container onto state
-that already exists — stage 3 of the pilot — set `persistence.existingClaim` so
-the chart adopts the claim instead of provisioning a fresh one.
-
-⚑ **And when you cannot verify the class, `existingClaim` is the safer of the two
-answers that satisfy the chart.** Both get you a render; their failure modes are
-not comparable. A class name that does not exist leaves the pod `Pending` —
-nothing written, so nothing can be lost, and you learn immediately. A class name
-that *does* exist and is `Delete` renders perfectly and costs the federation
-share on one `kubectl delete pvc`. **The success case is the catastrophe, which
-is what takes the guess off the table** rather than merely making it risky.
+⚑ **`existingClaim` is also the path to use when you have deliberately created a
+claim on a class you chose** — it lets you inspect the volume before the chart
+adopts it, rather than provisioning one and finding out afterwards.
 
 ## Required values
 

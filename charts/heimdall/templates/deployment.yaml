@@ -7,9 +7,6 @@
   either is rejected. Same reason ft-aquarium-node in this repo exposes no
   replicaCount — do not normalise either toward the other charts.
 */ -}}
-{{- if and (not .Values.persistence.existingClaim) (not .Values.persistence.storageClass) -}}
-{{- fail "heimdall: persistence.storageClass is REQUIRED and has no default. Empty means the cluster's DEFAULT class; on k3s that is `local-path` with reclaimPolicy: Delete, so `kubectl delete pvc` would destroy the volume holding bifrost.skey and, if it ever exists, federation-key.json — the only copy of your federation share, whose loss is permanent and takes other people's funds with it. Name a class with reclaimPolicy: Retain. Check: kubectl get storageclass -o custom-columns=NAME:.metadata.name,RECLAIM:.reclaimPolicy — or set persistence.existingClaim instead, which is the safer answer when you cannot verify the class: a name that does not exist leaves the pod Pending with nothing written, whereas a name that DOES exist and is Delete renders perfectly and loses the share on one delete. (If a volume already got created under the wrong class, it is repairable and the data survives: kubectl patch pv <name> -p '{\"spec\":{\"persistentVolumeReclaimPolicy\":\"Retain\"}}'. That fixes a mistake; it does not make guessing safe, because nothing tells you to run it.)" -}}
-{{- end -}}
 {{- if not (has .Values.mode (list "run" "register")) -}}
 {{- fail (printf "heimdall: mode must be `run` or `register`, got %q. `register` gives you a stable pod to register FROM — the daemon hard-fails startup when unregistered, and a crash-looping pod is never Ready, so a rolling update will not replace it." .Values.mode) -}}
 {{- end -}}

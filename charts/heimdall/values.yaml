@@ -327,12 +327,14 @@ health:
   enabled: true
   port: 18580
 
-# ── Persistent state — the one that loses money ──────────────────────────────
+# ── Persistent state ─────────────────────────────────────────────────────────
 #
-# ⛔ NEVER emptyDir, AT ANY SIZE. This volume holds the epoch's DKG signing share
-# and federation-key.json. A container replaced without it comes back UNABLE TO
-# RESUME, and the federation share is the only copy: below the threshold in
-# surviving shares the recovery path is GONE FOR GOOD. It never regenerates.
+# ⛔ NEVER emptyDir, AT ANY SIZE. This volume holds the node identity
+# (bifrost.skey), the current cycle's DKG signing share, and recomputable trie
+# files. A container replaced without it comes back UNABLE TO RESUME and needs a
+# RE-REGISTRATION — an on-chain tx you can repeat. See `storageClass` below for
+# what losing it costs, and for why federation-key.json is NOT here for a joining
+# node (it belongs to bridge founders).
 #
 # ⛔ [protocol].state_dir IS REQUIRED BY THE DAEMON — it refuses to start without
 # one, because an EMPTY TRIE WOULD DOUBLE-PAY A PEG-OUT. `mountPath` below is
@@ -344,57 +346,52 @@ health:
 persistence:
   mountPath: /var/lib/heimdall
   size: 1Gi
-  # ⛔⛔ REQUIRED, AND THE REASON IS UNRECOVERABLE LOSS OF OTHER PEOPLE'S FUNDS.
-  # This is the one value in this chart where a wrong answer cannot be corrected
-  # afterwards.
+  # Empty means the cluster's DEFAULT StorageClass, like every other chart here.
+  # Set it to pin a specific class.
   #
-  # ⇒ THE CLASS YOU NAME MUST HAVE `reclaimPolicy: Retain`:
+  # ⚠ WORTH ONE MINUTE BEFORE YOU INSTALL: does your default class reclaim or
+  # delete?
   #   kubectl get storageclass -o custom-columns=NAME:.metadata.name,RECLAIM:.reclaimPolicy
+  # On k3s the default is `local-path` with `reclaimPolicy: Delete`, so a
+  # `kubectl delete pvc` destroys the volume and everything on it.
   #
-  # ⚠ A CLASS'S reclaimPolicy IS FIXED FOR EVERY VOLUME IT CREATES. It belongs to
-  # the class and the PV, never to the claim, so you cannot retune it via the PVC.
+  # ⇒ WHAT THAT ACTUALLY COSTS A JOINING NODE — and it is NOT catastrophic:
+  #   bifrost.skey             the node identity. Losing it costs a RE-REGISTRATION
+  #                            (an on-chain tx you can just do again). Not funds.
+  #   the per-cycle DKG share  losing it costs THE CURRENT CYCLE, not the next one
+  #   *-trie.json              recomputable; these do not matter
   #
-  # ✅ BUT AN INDIVIDUAL PV'S POLICY IS MUTABLE — the remedy if a volume ever got
-  # created under the wrong class, and it repairs the EXISTING DATA:
+  # ⛔ AND THE FILE THAT WOULD BE CATASTROPHIC IS NOT ON THIS VOLUME FOR YOU.
+  # `federation-key.json` is produced by the INITIAL FEDERATION CEREMONY, run by
+  # the people standing a bridge UP. A joining SPO never generates one. If you are
+  # a bridge FOUNDER, that file is the only copy of a share whose loss is
+  # permanent — and then everything below is not optional. For everyone else the
+  # honest summary is: losing this volume is annoying, and you re-register.
+  #
+  # ⇒ THE DECLARATIVE WAY TO GET `Retain` IS A STORAGECLASS MANIFEST IN GIT, not a
+  # command you remember to run. reclaimPolicy belongs to the class and the PV and
+  # is never settable on the claim, so no chart can do this for you — commit a
+  # class with `reclaimPolicy: Retain` and name it here.
+  #
+  # ✅ REPAIR, for a volume THAT ALREADY EXISTS on the wrong class:
   #   kubectl patch pv <name> -p '{"spec":{"persistentVolumeReclaimPolicy":"Retain"}}'
-  # Only a deletion that has already happened cannot be undone.
+  # An individual PV's policy IS mutable and this keeps the existing data. Only a
+  # deletion that has already happened is final.
+  # ⚠ This is a REPAIR, not a way to configure a new volume — it is manual, and
+  # manual is not reproducible. Use the class manifest for anything you intend to
+  # keep having.
   #
-  # ⛔ AND THE PATCH DOES NOT MAKE GUESSING A CLASS SAFE — it is reached only by
-  # someone who already knows they need it. A volume on a `Delete` class renders,
-  # mounts and runs identically to a correct one, right up to the single command
-  # that destroys it. Requiring this value moves the decision to creation time,
-  # where it is deliberate, instead of to deletion time, where it is a discovery.
-  #
-  # ⛔ WHAT LANDS ON THIS VOLUME — and only one of the three is catastrophic:
-  #   bifrost.skey             ours; losing it costs re-registration
-  #   the per-cycle DKG share  losing it costs the current cycle
-  #   federation-key.json      ⛔ THE ONLY COPY OF YOUR SHARE. Upstream: "a re-run
-  #                            produces a different key, hence a different
-  #                            treasury address, which the existing funds are not
-  #                            in. Below the threshold in surviving shares, THE
-  #                            RECOVERY PATH IS GONE FOR GOOD."
-  #   *-trie.json              recomputable — the ones that do not matter
-  #
-  # ⇒ WHY REQUIRED RATHER THAN DEFAULTED: empty means "the cluster's default
-  # class", and that is precisely the dangerous answer — on k3s it is
-  # `local-path` with `reclaimPolicy: Delete`, making `kubectl delete pvc` a
-  # one-command path to losing a federation share. An unnamed class is an UNKNOWN
-  # reclaim policy under a key that cannot be regenerated.
-  #
-  # ⚠ A refusal that is a FACT, not caution: the chart cannot read your cluster
-  # and cannot verify the policy, so the least it can do is refuse to guess which
-  # class holds it.
+  # ⛔ WHY THIS IS DOCUMENTATION AND NOT A `fail`: naming a class does not make it
+  # `Retain` — a named class can delete just as happily. A refusal here could only
+  # verify that you typed SOMETHING, which is a proxy for the property that
+  # matters and not the property itself. A refusal must verify what it claims to
+  # protect; when it can only check a proxy, it belongs in a comment like this one.
+  # (0.1.0-alpha.2 did refuse. It was wrong to.)
   storageClass: ""
   # Adopt an existing claim instead of provisioning. Pilot stage 3 replaces the
   # container onto the SAME volume; a chart that provisioned a fresh one there
-  # would fail that stage by construction.
-  #
-  # ⚑ WHEN YOU CANNOT VERIFY THE CLASS, THIS IS THE SAFER OF THE TWO SATISFYING
-  # ANSWERS. A storageClass name that does not exist leaves the pod Pending —
-  # nothing written, nothing lost, and you learn at once. One that DOES exist and
-  # is `Delete` renders perfectly and costs the federation share on one
-  # `kubectl delete pvc`. THE SUCCESS CASE IS THE CATASTROPHE, so the guess is
-  # not available — whereas an existing claim you can inspect before adopting.
+  # would fail that stage by construction. Also the path to use when you have
+  # already made a claim on a class you chose deliberately.
   existingClaim: ""
 
 # ── [log] ────────────────────────────────────────────────────────────────────
