@@ -22,7 +22,7 @@
 {{/*
 ⛔ REQUIRED, and appVersion is a record rather than a fallback.
 
-⚠ THE GHCR TAG HAS NO `v`: `0.7.1`, not `v0.7.1` — the latter is a 404, and
+⚠ THE GHCR TAG HAS NO `v`: `0.7.2`, not `v0.7.2` — the latter is a 404, and
 upstream's own README example uses it. Verified against the registry 2026-09-15.
 
 ⚠ AND I HAVE CORRECTED A CLAIM THAT WAS HERE: an earlier version of this comment
@@ -33,7 +33,7 @@ reason to pin is the ordinary one: `latest` and `main` both move, and you want t
 know what you are running.
 */}}
 {{- define "sundae-scooper-v2.imageTag" -}}
-{{- required "sundae-scooper-v2: image.tag is REQUIRED and has no default. Upstream publishes to ghcr.io/sundaeswap-finance/scooper-v2 with NO `v` prefix — `0.7.1`, not `v0.7.1` (that is the git release tag and a 404 as an image tag; upstream's README example gets this wrong). Newest verified 2026-09-15: 0.7.1." .Values.image.tag -}}
+{{- required "sundae-scooper-v2: image.tag is REQUIRED and has no default. Upstream publishes to ghcr.io/sundaeswap-finance/scooper-v2 with NO `v` prefix — `0.7.2`, not `v0.7.2` (that is the git release tag and a 404 as an image tag; upstream's README example gets this wrong). Newest verified 2026-09-16: 0.7.2." .Values.image.tag -}}
 {{- end }}
 
 {{/*
