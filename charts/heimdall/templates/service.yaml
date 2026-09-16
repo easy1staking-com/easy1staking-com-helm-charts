@@ -18,6 +18,17 @@
   liveness probe structurally cannot catch because a wedged process answers
   /health perfectly.
 */ -}}
+{{- /*
+  ⛔ NOT RENDERED IN REGISTER MODE. In that mode the container declares NO ports,
+  so this Service's `targetPort: peer` / `targetPort: health` named no port that
+  existed — an object that reads as dialable and resolves to nothing.
+
+  ⚠ CONSEQUENCE, so it is not a surprise: flipping mode=register -> mode=run
+  CREATES the Service fresh, so it gets a NEW ClusterIP. Harmless here — nothing
+  dials heimdall by ClusterIP; peers use the advertised URL through the ingress —
+  but undocumented it would look like a fault.
+*/ -}}
+{{- if ne .Values.mode "register" }}
 apiVersion: v1
 kind: Service
 metadata:
@@ -39,3 +50,4 @@ spec:
     {{- end }}
   selector:
     {{- include "heimdall.selectorLabels" . | nindent 4 }}
+{{- end }}

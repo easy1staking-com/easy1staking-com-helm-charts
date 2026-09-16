@@ -141,6 +141,29 @@ spec:
 
             `doctor` on a loop rather than a sleep: read-only, spends nothing, and
             turns a blind wait into a live readout of what is still wrong.
+
+            ⛔ THE FLAG IS SPELLED OUT LITERALLY AND MUST STAY THAT WAY. There is NO
+            way to invoke a subcommand through this image's entrypoint and receive
+            `--config`:
+              · zero args        -> entrypoint injects `run-spo --config <path>`
+              · args: ["doctor"] -> `command -v doctor` fails, so it is not exec'd
+                                    verbatim; it falls through to the config check,
+                                    and `$# -eq 1` skips the injection branch. It
+                                    execs `heimdall doctor` WITH NO FLAG — blind, by
+                                    a different path, and the manifest would read as
+                                    though it had been fixed.
+            ⇒ Never `args:` alone here, and never rely on the entrypoint for a
+            subcommand. Upstream's entrypoint comment says subcommands "all need the
+            config too" while the code only checks the file EXISTS and never
+            forwards the path.
+
+            ⚠ AND REPLACING THE ENTRYPOINT DROPS TWO OF ITS GUARDS, accepted here
+            deliberately: `exit 78` with a legible message when the config file is
+            missing (you get a doctor report about an empty world instead), and the
+            warning when bind_address is a loopback address. Both are moot in
+            register mode — no daemon, no bind address in play. ⇒ BUT IF mode=run's
+            argv IS EVER COMPOSED BY HAND it must reproduce `run-spo --config <path>`
+            AND both guards. That is the whole reason run mode stays empty.
           */}}
           command:
             - sh
@@ -148,16 +171,54 @@ spec:
             - |
               echo "heimdall: REGISTER MODE — the daemon is NOT running."
               echo "heimdall: this pod exists so there is somewhere stable to"
-              echo "heimdall: register FROM. It will never report Ready until"
-              echo "heimdall: registration exists on chain. Expected until then:"
+              echo "heimdall: register FROM. There is no readiness probe in this"
+              echo "heimdall: mode and no Service — nothing is served, by design."
+              echo "heimdall: THE 11-STEP DOCTOR REPORT IS PRINTED TO THESE LOGS"
+              echo "heimdall: EVERY 60s. That is the diagnostic channel here."
+              echo "heimdall: Expected while unregistered:"
               echo "heimdall:   [6/11] FAIL  [4/11] WARN  [10/11] FAIL"
               echo "heimdall: ANY OTHER failure is a real problem — fix it before"
               echo "heimdall: spending an on-chain transaction."
+              echo "heimdall: step 1 lists ALL local problems at once, not one."
               while true; do
-                heimdall doctor || true
+                heimdall doctor --config {{ include "heimdall.configPath" . }} || true
+                {{- /*
+                  Second, and a DIFFERENT question from doctor's. `bifrost-id`
+                  builds no tokio runtime and makes no chain call: it loads the
+                  config, loads the identity keypair, prints bifrost_id_pk, exits 1
+                  on failure. ⇒ It proves THE CONFIG FILE WAS FOUND AND PARSED and
+                  the identity key loads — and nothing else.
+
+                  ⚠ It exits 0 even with state_dir unset and no provider
+                  configured. That is what makes it a config-soundness check rather
+                  than a readiness gate, and exactly why it must never become one.
+                  ⚠ It needs bifrost.skey to exist, so it is meaningless until the
+                  key is generated — hence `|| true`, same as doctor.
+                */}}
+                heimdall bifrost-id --config {{ include "heimdall.configPath" . }} || true
                 sleep 60
               done
           {{- else }}
+          {{- /*
+            ⛔⛔ DAEMON MODE SETS NEITHER `command:` NOR `args:`, AND THAT IS LOAD-
+            BEARING. DO NOT "MAKE THE CONFIG PATH EXPLICIT" HERE — DOING SO REMOVES IT.
+
+            The image's entrypoint injects the config path ONLY on the zero-argument
+            branch:
+
+              CONFIG="${HEIMDALL_CONFIG:-/etc/heimdall/heimdall.toml}"
+              [ "$#" -eq 0 ] && set -- run-spo --config "$CONFIG" ...
+              *) command -v "$1" >/dev/null && exec "$@"      # else exec VERBATIM
+
+            ⇒ So the moment this container HAS arguments, the zero-arg branch never
+            runs, the injection disappears, and the daemon starts on compiled
+            defaults with no state_dir and no provider. THE WORKING INVOCATION WORKS
+            BECAUSE THE CHART SAYS NOTHING.
+
+            ⚠ And setting HEIMDALL_CONFIG in the pod env does NOT substitute for a
+            flag anywhere else: that variable is read only by the same zero-arg
+            branch, which a probe or an exec never reaches.
+          */}}
           ports:
             - name: peer
               containerPort: {{ include "heimdall.listenPort" . }}
@@ -192,7 +253,7 @@ spec:
                   key: {{ .Values.mnemonic.secretKey | quote }}
           volumeMounts:
             - name: config
-              mountPath: /etc/heimdall/heimdall.toml
+              mountPath: {{ include "heimdall.configPath" . }}
               subPath: heimdall.toml
               readOnly: true
             - name: state
@@ -227,13 +288,22 @@ spec:
             port. A probe against it would fail for the wrong reason, and a
             placeholder endpoint to make it pass would be a lie.
           */}}
-          readinessProbe:
-            exec:
-              command: ["heimdall", "doctor"]
-            initialDelaySeconds: 10
-            periodSeconds: 30
-            timeoutSeconds: 15
-            failureThreshold: 1
+          {{- /*
+            ⛔ NO readinessProbe IN REGISTER MODE, DELIBERATELY. Do not add one back.
+
+            There is no `ports:` block in this mode, so readiness GATES NOTHING —
+            there is no traffic for it to withhold. Its only effect was red in
+            ArgoCD, permanently, and a signal with no mechanism behind it that is
+            guaranteed red teaches an operator to ignore red.
+
+            ⚠ AND THE BANNER ABOVE WAS THE TELL: it printed "Expected until then:
+            [6/11] FAIL" while a probe asserted the same command must pass. A check
+            whose own documentation says "expected: FAIL" has already been observed
+            AGREEING, not working.
+
+            The pod's purpose is legible from that banner and from the doctor
+            readout in the logs — in words, rather than in a red dot.
+          */}}
           {{- else }}
           startupProbe:
             httpGet:
