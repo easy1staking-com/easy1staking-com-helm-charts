@@ -182,6 +182,36 @@ the chart constructs itself passes `--config` explicitly. If you exec in to run
 kubectl exec deploy/<release>-heimdall -- heimdall doctor --config /etc/heimdall/heimdall.toml
 ```
 
+## ⛔ Two listeners, and only one of them serves `/health`
+
+This is the single most confusable thing about the chart, and it caused a
+restart loop before `0.1.0-alpha.6`.
+
+| listener | binds | routes |
+|---|---|---|
+| **peer** | `http.bind_address`:`listenPort` (18500) | **`GET /health`** — the only place this path exists — plus the DKG and signing round endpoints |
+| **operator** | `health.bind` (upstream default `127.0.0.1:18580`) | `GET /` → JSON node state, `GET /live` → `ok`. ⛔ **No `/health`.** |
+
+⇒ **So `:18580/health` returns 404 from a listener that is alive and simply has no
+such route.** The probes therefore target the **peer** port, which is also the
+right instrument rather than merely the working one: peers fetch `/health` at your
+advertised URL, so the probe fails exactly when they would fail.
+
+⛔ **A 404 here is never a timing problem.** The peer listener binds before the
+operator surface spawns, and its routes are complete the moment it binds — so an
+early probe gets a *connection refusal*, never a 404. Retuning
+`initialDelaySeconds` cannot fix a 404.
+
+⚠ **And the 404 body is `404 page not found`, byte-identical to what an ingress
+controller returns when no route matches a host.** The same four bytes mean "wrong
+path on the right service" and "no such route at the edge", and nothing in the
+response distinguishes them. Only a port-by-port `curl` does.
+
+⇒ **The Ingress backend is derived from `listenPort`**, so it always targets the
+peer port and peers reaching `https://<host>/health` get the real endpoint.
+⛔ **Never route the operator surface through the Ingress** — nothing on it
+authenticates, which is why upstream binds it to loopback by default.
+
 ## Two peer disagreements that look identical and are not
 
 Before every ceremony each node compares peers' `/health`. Two kinds of mismatch
@@ -320,6 +350,14 @@ from a wallet.
 | Value | Why it has no default |
 |---|---|
 | `image.tag` | Run the build **the roster runs**. Peers compare `version` *and* `blueprint_digest` before every ceremony; a mismatched node is dropped. ⚠ **The GHCR tag has no `v`** — `0.1-M5.3`, not `v0.1-M5.3` (that is the git release tag, and pasting it gives an image that does not exist) |
+
+⛔ **Why `image.tag` is load-bearing rather than conventional: the contract
+blueprint is compiled INTO the binary.** `blueprint_digest` is computed from that
+embedded copy — the image ships no `plutus.json` (its Dockerfile has exactly three
+`COPY` lines: the binary, the entrypoint, and `heimdall.toml.example`), and
+`--blueprint` exists only to *override* the embedded one. ⇒ So a digest mismatch
+cannot be fixed with configuration. The only way to agree with the roster is to
+run the build the roster runs.
 | `advertisedUrl` | What peers dial, written **on chain** at registration — a one-way door, and an input to the registration signatures |
 | `listenPort` | What the daemon binds inside the container. **Not the same value** |
 | `cardano.network` | heimdall refuses to start without it, and an **unresolvable network is treated as mainnet** — a typo falls forward onto real funds, not back to preprod |
