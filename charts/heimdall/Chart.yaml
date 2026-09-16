@@ -12,7 +12,7 @@ type: application
 # The SemVer pre-release suffix is doing real work: `helm search` and
 # `helm install` will NOT select this without `--devel` or an explicit version,
 # which is the point. It comes off when a node has actually run against it.
-version: 0.1.0-alpha.5
+version: 0.1.0-alpha.6
 
 # ⛔ THERE IS DELIBERATELY NO `appVersion`, and that is a divergence from every
 # other chart in this repository. Do not "fix" it by adding one.

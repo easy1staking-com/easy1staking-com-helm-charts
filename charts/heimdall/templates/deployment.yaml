@@ -305,16 +305,47 @@ spec:
             readout in the logs — in words, rather than in a red dot.
           */}}
           {{- else }}
+          {{- /*
+            ⛔⛔ `port: peer`, NOT `port: health`. THERE ARE TWO LISTENERS AND ONLY
+            THE PEER ONE SERVES /health. Verified in heimdall's source: `/health`
+            appears exactly once in the whole tree, at src/http/server.rs:80 on the
+            listener bound to http.listen_port. The operator surface (src/health.rs)
+            serves only `/` (JSON NodeState) and `/live` — THERE IS NO /health THERE.
+
+            ⇒ Until 0.1.0-alpha.6 these probes hit /health on the health port and
+            got a 404 from a listener that was alive and simply had no such route.
+            kubelet then restarted a perfectly healthy container.
+
+            ⛔ IT IS NOT A TIMING PROBLEM. Do not retune initialDelaySeconds. The
+            peer listener binds BEFORE the operator surface spawns and its routes
+            are complete the moment it binds, so an early probe gets a CONNECTION
+            REFUSAL, never a 404. A 404 here can only mean the wrong route.
+
+            ⛔ AND DO NOT "FIX" IT BY POINTING AT :18580/live INSTEAD. Upstream binds
+            that surface to 127.0.0.1 by default precisely because nothing on it
+            authenticates; on a default config the kubelet could not reach it, and
+            you would trade a 404 for a connection refusal.
+
+            ⭐ Probing the peer port is also the RIGHT instrument rather than merely
+            the working one: it tests exactly what the roster tests. Peers fetch
+            /health at the advertised URL, so this probe fails when they would fail.
+
+            ⚠ A 404 body from these axum routers is the literal `404 page not found`
+            — byte-identical to what an ingress controller returns when no route
+            matches a host. The same four bytes mean "wrong path on the right
+            service" and "no such route at the edge". Only a port-by-port curl
+            separates them.
+          */}}
           startupProbe:
             httpGet:
               path: /health
-              port: health
+              port: peer
             periodSeconds: {{ .Values.probes.startup.periodSeconds }}
             failureThreshold: {{ .Values.probes.startup.failureThreshold }}
           livenessProbe:
             httpGet:
               path: /health
-              port: health
+              port: peer
             periodSeconds: {{ .Values.probes.liveness.periodSeconds }}
             timeoutSeconds: {{ .Values.probes.liveness.timeoutSeconds }}
             failureThreshold: {{ .Values.probes.liveness.failureThreshold }}
