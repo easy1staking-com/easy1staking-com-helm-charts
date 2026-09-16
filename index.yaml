@@ -737,6 +737,16 @@ entries:
     version: 0.1.0
   heimdall:
   - apiVersion: v2
+    created: "2026-09-16T11:31:57.815751267Z"
+    description: Easy1Staking's node in the Bifrost BTC<->Cardano bridge (preprod
+      pilot)
+    digest: 6dc5602127f4af53477c396212b0f16f84befca9115a4b060bbfda736a1d4596
+    name: heimdall
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/heimdall-0.1.0-alpha.6/heimdall-0.1.0-alpha.6.tgz
+    version: 0.1.0-alpha.6
+  - apiVersion: v2
     created: "2026-09-16T10:43:22.78845952Z"
     description: Easy1Staking's node in the Bifrost BTC<->Cardano bridge (preprod
       pilot)
@@ -1310,4 +1320,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/sundae-scooper-v2-0.1.0-alpha.1/sundae-scooper-v2-0.1.0-alpha.1.tgz
     version: 0.1.0-alpha.1
-generated: "2026-09-16T10:43:22.788799629Z"
+generated: "2026-09-16T11:31:57.816240415Z"
