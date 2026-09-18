@@ -54,9 +54,23 @@ fullnameOverride: ""
 podAnnotations: {}
 podLabels: {}
 
-# The image declares no user, so it runs as root today. There is no
-# PersistentVolume on this pod, so unlike the amaru chart there is no fsGroup
-# problem to solve here. Running non-root is untested against this image.
+# ⛔ THIS COMMENT USED TO SAY "the image declares no user, so it runs as root
+# today ... running non-root is untested". THAT IS NO LONGER TRUE and the stale
+# version of it was the defect: the image runs as UID 10001, which is why a
+# root-owned 0400 secret mount became unreadable (see secret.mode).
+#
+# Empty is correct for the default `secret.mode: env` — nothing is mounted, so
+# there is no file ownership to arrange.
+#
+# ⛔ BUT IF YOU SET `secret.mode: file` YOU MUST FILL THIS IN, AND fsGroup ALONE
+# IS NOT ENOUGH. Kubernetes applies fsGroup as the volume's GROUP owner while
+# still honouring defaultMode — so 0400 stays owner-only and the owner is still
+# root. BOTH have to move, and the chart refuses file mode without them:
+#
+#   podSecurityContext: {runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001}
+#
+# runAsUser must match the image's uid. `runAsUser: 0` also unblocks it, at the
+# cost of the hardening the image was changed to gain.
 podSecurityContext: {}
 securityContext: {}
 
@@ -634,7 +648,31 @@ secret:
   #   env  — classic secretKeyRef variables. Still by reference, but visible in
   #          `kubectl describe pod` and in Argo's UI, which is why `file` is the
   #          default and why the seed in particular should stay a file.
-  mode: file
+  # ⛔⛔ DEFAULT CHANGED TO `env` IN 0.10.0, AND IT WAS A CRASH FIX, NOT A
+  # PREFERENCE. The image now runs as uid 10001; `file` mode mounts a projected
+  # volume at `defaultMode: 0400` — owner-only, owner root — so the process could
+  # not read its own secrets and Spring died at startup with
+  #   java.nio.file.AccessDeniedException: /etc/aquarium-secrets/spring.flyway.password
+  # ⚠ AccessDenied, NOT NoSuchFile: the file was there and the process could not
+  # read it. `optional:configtree:` tolerates an ABSENT directory, not an
+  # unreadable file, so the `optional:` prefix did not save it.
+  #
+  # ⇒ AND `env` IS NOT A WORKAROUND HERE — IT IS REMOVING AN OVERRIDE. The
+  # application's own application.yaml already reads
+  #   spring.flyway.password:    ${DB_PASSWORD:...}
+  #   spring.datasource.username: ${DB_USERNAME:...}
+  # The config tree was THE CHART overriding the app with a higher-precedence
+  # property source. Removing it hands the app back its own wiring — no
+  # application change, and with no files to read the non-root image needs no
+  # fsGroup and no defaultMode at all.
+  #
+  # ⚠ NOT A CHART-WIDE RULE THAT "env IS FINE". Env vars leak into
+  # /proc/<pid>/environ, child processes and crash dumps. This is defensible for
+  # THESE secrets because the node already takes WALLET_MNEMONIC from the
+  # environment and the mnemonic is far more sensitive than a local Postgres
+  # password — so it is CONSISTENCY, not a downgrade. Judge per secret; `file`
+  # remains supported and is the better choice for anything held off-cluster.
+  mode: env
 
   # file mode only. Files are named for the Spring properties they set:
   #   wallet.mnemonic
@@ -738,6 +776,20 @@ compound:
   profitMarginLovelace: ""
 
   # Tuning. [documented] → AQUARIUM_COMPOUND_REFERENCE_SCRIPTS
+  #
+  # ⛔ LEAVE THIS EMPTY. DO NOT HAND-COPY CONTRACT COORDINATES HERE.
+  #
+  # The image ships all eleven coordinates, and the application repo verifies each
+  # derived hash against the published hash on mainnet. ⇒ A value here does not
+  # ADD to that — it REPLACES a maintained set with a frozen snapshot, silently,
+  # and the snapshot stops being true the next time FluidTokens redeploy. They
+  # redeployed on 2026-09-17 under a new config policy; the image tracks WHAT IS
+  # ON CHAIN rather than what is on upstream's main branch, which is exactly the
+  # distinction a hand-copied value destroys.
+  #
+  # ⇒ If you believe you need this, the question to ask is "why does the image
+  # have the wrong coordinates", and the answer is an image bump, not a values
+  # entry.
   #
   # Published reference scripts as a COMMA-SEPARATED list of `txHash#index`
   # coordinates — deliberately not one named key per validator, unlike

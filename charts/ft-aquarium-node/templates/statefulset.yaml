@@ -1,4 +1,26 @@
 {{- /*
+  ⛔⛔ FILE MODE NEEDS A POD securityContext, AND fsGroup ALONE IS NOT ENOUGH.
+
+  The image runs as uid 10001. A projected secret volume is root-owned, and
+  defaultMode is honoured regardless of fsGroup — so without both a matching
+  runAsUser/runAsGroup AND an fsGroup, the process cannot read its own secrets and
+  Spring dies at startup with AccessDeniedException. That is not a warning we can
+  leave to a comment: it is a guaranteed crash loop, and it is what 0.9.0 shipped.
+
+  ⚠ This guard checks the PROPERTY, not a proxy for it: the chart can see whether
+  fsGroup and runAsUser are set, so refusing is honest here. (Contrast the
+  `network`-vs-`config.files` case in sundae-scooper-v2, which is deliberately NOT
+  guarded because the only available signal there is a filename.)
+
+  The default `secret.mode: env` mounts nothing and needs none of this.
+*/ -}}
+{{- if eq .Values.secret.mode "file" -}}
+{{- $psc := .Values.podSecurityContext | default dict }}
+{{- if or (not (hasKey $psc "fsGroup")) (not (hasKey $psc "runAsUser")) -}}
+{{- fail "ft-aquarium-node: secret.mode is `file`, so podSecurityContext MUST set BOTH runAsUser and fsGroup. The image runs as uid 10001 and a projected secret volume is root-owned: fsGroup alone does NOT fix it, because Kubernetes applies fsGroup as the GROUP owner while still honouring defaultMode, so the mount stays unreadable and Spring fails at startup with java.nio.file.AccessDeniedException on /etc/aquarium-secrets/spring.flyway.password. Set podSecurityContext: {runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001} — runAsUser must match the image's uid. Or use the default `secret.mode: env`, which mounts nothing and needs neither." -}}
+{{- end -}}
+{{- end -}}
+{{- /*
   ── Secret resolution ────────────────────────────────────────────────────────
   ONE mechanism: a name and a key per source. There is no chart-wide
   `secret.name` and no chart-wide `secret.keys` — this form expresses everything
@@ -545,7 +567,12 @@ spec:
       volumes:
         - name: secrets
           projected:
-            defaultMode: 0400
+            {{- /*
+              0440, NOT 0400. fsGroup makes the volume GROUP-owned; defaultMode is
+              still honoured, so 0400 would stay owner-only and the owner is root.
+              Group-readable is the half that lets fsGroup do anything at all.
+            */}}
+            defaultMode: 0440
             sources:
               {{- if $mnFile }}
               - secret:
