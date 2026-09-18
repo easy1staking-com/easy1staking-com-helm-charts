@@ -33,11 +33,6 @@ data:
       "server": {
         "address": {{ .Values.config.overlay.address | quote }}
         {{- /*
-          ⛔ AN EXPLICIT null, NOT AN OMISSION. Upstream's preview-v4.json sets
-          `server.public_address: "0.0.0.0:9998"`, so staying silent OPENS THE
-          PUBLIC LISTENER BY INHERITANCE. "Off" has to be written to mean off.
-        */}}
-        {{- /*
           ⚠ OMITTED WHEN EMPTY, NOT NULLED. Upstream's field is a plain `String`,
           and `null` on a plain field is a TYPE ERROR that refuses the whole
           config at startup — measured. So this cannot be turned off from here,

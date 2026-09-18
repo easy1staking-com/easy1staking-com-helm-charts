@@ -1,3 +1,23 @@
+{{- /*
+  ⛔⛔ EMPTY `nodeAddresses` IS NOT "USE THE SENSIBLE DEFAULT" — IT IS SILENTLY
+  ADOPTING AN ADDRESS THAT CANNOT RESOLVE.
+
+  Upstream's own files disagree about which node to dial, and config merging is
+  LAST-WINS PER KEY, so the *-v4.json value replaces the base file's even when you
+  pass both — which is the shipping arrangement:
+
+    config/preview.json      node-addresses: ["preview-node.play.dev.cardano.org:3001"]   public
+    config/preview-v4.json   node-addresses: ["preview-sundae-scooper:3002"]              UPSTREAM-INTERNAL
+
+  ⇒ So a v4 deployment that writes nothing here inherits `preview-sundae-scooper:3002`,
+  a hostname that resolves in no cluster but SundaeSwap's. The symptom is a scooper
+  that starts cleanly and never reaches a peer. Measured, and it is the third time
+  this chart has met the same family: WRITING NOTHING IS NOT TURNING SOMETHING OFF —
+  the layer below stands, and here the layer below is wrong for everyone.
+*/ -}}
+{{- if and .Values.v4.enabled (not .Values.nodeAddresses) -}}
+{{- fail "sundae-scooper-v2: v4.enabled is true, so nodeAddresses is REQUIRED. Leaving it empty does NOT fall back to a sensible peer — upstream's preview-v4.json sets node-addresses to `preview-sundae-scooper:3002`, their own internal hostname, and config merging is last-wins per key so that value wins even when you also pass preview.json. The scooper would start and never reach a node. List the peers to dial, local node first, e.g. [cardano-node.cardano.svc.cluster.local:3001]. P2P peer sharing discovers the rest from these seeds." -}}
+{{- end -}}
 {{- if and .Values.mempool.enabled (eq (toString .Values.mempool.networkMagic) "") -}}
 {{- fail "sundae-scooper-v2: mempool.enabled is true so mempool.networkMagic is REQUIRED. The binary needs exactly two mempool fields — socket-path and network-magic — and omitting this one leaves upstream's file to supply it. preview 2 · preprod 1 · mainnet 764824073." -}}
 {{- end -}}
@@ -16,6 +36,23 @@
 {{- if hasPrefix "ws://" .Values.submitUrl -}}
 {{- fail "sundae-scooper-v2: submitUrl uses ws://. The Ogmios branch does an HTTP POST with a JSON-RPC body, not a websocket upgrade — use http:// with no path. And note Ogmios is the FALLBACK branch, so a wrong shape is not rejected, it is POSTed to as if it were Ogmios." -}}
 {{- end -}}
+{{- end -}}
+{{- /*
+  ⛔⛔ THE SAME HOLE AS `submitUrl`, THROUGH A DIFFERENT DOOR — and this one was
+  open until 0.1.0-alpha.4.
+
+  Upstream's *-v4.json carries `protocol.bootstrap.project-id` with THEIR Blockfrost
+  project id. Config merges maps PER KEY, so an overlay that writes `source` and
+  `url` but not `project-id` leaves THEIRS in force. ⇒ Enabling bootstrap without
+  supplying a credential does not fail — it bootstraps successfully, through
+  SundaeSwap's account, at their expense, and nothing in the logs says so.
+
+  Which is exactly why `submitUrl` is required when v4 is on. Same reasoning, same
+  remedy, and the fact that one was guarded and the other was not is what made this
+  worth finding.
+*/ -}}
+{{- if and .Values.bootstrap.enabled (eq .Values.bootstrap.source "blockfrost") (not .Values.bootstrap.projectId.secretName) -}}
+{{- fail "sundae-scooper-v2: bootstrap.enabled is true with source `blockfrost`, so bootstrap.projectId.secretName is REQUIRED. Upstream's *-v4.json ships protocol.bootstrap.project-id set to SUNDAESWAP'S OWN project id, and config merges per key — so writing source and url without a project id leaves theirs in force and you would bootstrap through their Blockfrost account. Create a Secret holding your project id and name it here; the chart passes it as SCOOPER_V2_PROTOCOL__BOOTSTRAP__PROJECT_ID, which config-rs applies after every file. Or use source `kupo`, which needs no credential." -}}
 {{- end -}}
 {{- if and .Values.v4.enabled (not .Values.secret.name) -}}
 {{- fail "sundae-scooper-v2: v4.enabled is true, so secret.name is REQUIRED — v4 execution is the only path that signs, and it reads the key from a file. With v4 off the key is unused and this may be empty (v3 has no execution block, so a v3-only scooper indexes and does not scoop)." -}}

@@ -42,7 +42,16 @@
 # The per-network presets in this directory set it: values-preview.yaml,
 # values-preprod.yaml, values-mainnet.yaml. Preview is the documented default in
 # the README and the only network Giovanni runs today.
-network: preview
+# ⛔ REQUIRED, NO DEFAULT. It sets acropolis.global.startup.network-name AND it is
+# the network whose upstream config you must supply in `config.files`.
+#
+# ⚠ It used to default to `preview`. That was the one network-shaped default left
+# in this chart, and on a chart that now serves mainnet a forgotten value would
+# have quietly indexed the wrong chain — which renders, starts, syncs and is
+# wrong. A missing value must fail, not pick.
+#
+# One of: preview | preprod | mainnet (or a custom name matching your config).
+network: ""
 
 image:
   repository: ghcr.io/sundaeswap-finance/scooper-v2
