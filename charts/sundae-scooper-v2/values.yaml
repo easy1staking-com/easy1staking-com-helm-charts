@@ -51,6 +51,15 @@
 # wrong. A missing value must fail, not pick.
 #
 # One of: preview | preprod | mainnet (or a custom name matching your config).
+#
+# ⛔ THIS MUST NAME THE SAME CHAIN AS `config.files`, AND NOTHING CHECKS THAT.
+# This value writes acropolis.global.startup.network-name and NOTHING ELSE about
+# the network — the mithril aggregator, the mithril genesis key, `starting-point`
+# and every script hash come from the FILE. So `network: mainnet` with
+# config.files: [preview.json] renders, starts, and is incoherent.
+# ⚠ Not guarded on purpose: the only signal is the filename, and a
+# filename-matching guard would refuse legitimate custom names while still passing
+# a renamed file. See README, "`network` and `config.files` can disagree".
 network: ""
 
 image:

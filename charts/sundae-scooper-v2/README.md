@@ -247,6 +247,75 @@ volume, because Ogmios wants `--node-socket` and a node in Kubernetes publishes
 over TCP. **If `socat.host` was left empty there, Ogmios is running and connected
 to nothing.**
 
+## ⛔ `network` and `config.files` can disagree, and nothing checks
+
+`network` writes `acropolis.global.startup.network-name`. **Everything else about
+the network comes from the file you name in `config.files`** — the mithril
+aggregator, the mithril genesis key, `starting-point`, and every script hash.
+
+⇒ So `network: mainnet` with `config.files: [preview.json]` **renders, starts, and
+is incoherent**: the daemon calls itself mainnet while fetching from preview's
+aggregator, verifying against preview's genesis key, and indexing preview's
+contracts.
+
+⚠ **This chart deliberately does NOT guard it.** The only signal available is the
+*filename*, and a filename-matching guard is a heuristic: it would refuse
+legitimate custom names while still passing a file that was renamed. **A guard
+that can only see a proxy for the thing it is checking will be wrong in both
+directions**, and a wrong guard is worse than none because it gets trusted.
+
+⇒ **So it is your invariant to hold: `network` and the file must name the same
+chain.** Setting them from one source in your values — an Argo Application that
+derives both from one parameter — is the reliable way.
+
+## The three regimes of `starting-point` — it is a FIRST-SYNC property
+
+`starting-point` is required in each protocol block and reads `<slot>.<blockhash>`.
+It is **not** baked into the binary, and it is **not** what governs a restart.
+There are three regimes and they are easy to collapse into two:
+
+| situation | where indexing starts |
+|---|---|
+| cold start, `bootstrap` configured and it succeeds | **the bootstrap point** — at tip. `starting-point` is never read |
+| cold start, `bootstrap` absent, failed, or returning no hash | **`starting-point`** — a full sync from the protocol's deployment slot |
+| **restart with a populated volume** | **neither** — it resumes from the database cursor |
+
+⇒ Bootstrap only runs when the index is **empty** (`tip_slot == 0`), so on any
+restart with data it does not run at all.
+
+⚠ **So the 13-hours-becomes-67-seconds effect is a first-sync property, not a
+restart property.** `starting-point` is not dead weight for an operator who has
+bootstrap switched on — **it governs every cold start where bootstrap is absent,
+fails, or returns no hash.** Someone will drop it because "bootstrap handles it"
+and discover the difference on the day the bootstrap source is down.
+
+## What the overlay writes, and what it deliberately leaves alone
+
+Config merges **last-wins per key**, so a key the overlay does not mention keeps
+whatever the upstream file said. We swept every parent map where the overlay
+writes some children and upstream's others survive. Under `protocol`, the overlay
+writes 4 leaves and **53 upstream leaves survive**.
+
+⇒ **That is not 53 defects.** Most of them *should* be inherited — butane
+deployment file, registry UTxO, script hashes, cost models, slot config. **Those
+are facts about SundaeSwap's deployment, not configuration of ours**, and a chart
+that overrode them would be asserting protocol constants it has no business
+knowing.
+
+⛔ **Silent inheritance is a defect only where the inherited thing is OURS TO
+SET.** By that test, four were, and all four are now guarded or written:
+
+| inherited value | why it was ours | fixed in |
+|---|---|---|
+| `node-addresses` | which node *we* dial | `nodeAddresses` required when v4 |
+| `bootstrap.project-id` | *our* Blockfrost account | `bootstrap.projectId.secretName` required |
+| `execution.submit-url` | *our* submit endpoint | `submitUrl` required when v4 |
+| `server.public_address` | whether *we* open a public port | documented; see below |
+
+⇒ **Apply that test before guarding anything else here.** The next person to read
+"53 keys survive" and guard all 53 would break the chart, because the majority are
+the protocol telling the scooper what the protocol is.
+
 ## Inheritances we cannot yet write off
 
 The overlay is applied **last**, so anything it writes wins. The hazard is the
