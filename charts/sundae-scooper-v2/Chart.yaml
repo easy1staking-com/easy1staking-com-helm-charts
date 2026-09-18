@@ -12,7 +12,7 @@ type: application
 # load-bearing: `helm search` and `helm install` will not select this without
 # `--devel` or an explicit version. It comes off when a scooper has actually run
 # from it. Same convention as the `heimdall` chart in this repo.
-version: 0.1.0-alpha.3
+version: 0.1.0-alpha.4
 
 # Upstream image tag. Published by SundaeSwap, not by us.
 #
