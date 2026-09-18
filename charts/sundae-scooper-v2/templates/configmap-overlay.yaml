@@ -39,9 +39,49 @@ data:
           and upstream's preview-v4.json value (0.0.0.0:9998) is INHERITED.
           See README, "Inheritances we cannot yet write off".
         */}}
-        {{- with .Values.config.overlay.publicAddress }},
+        {{- /*
+          THREE STATES, AND THE THIRD USES A BOOLEAN RATHER THAN A `null` SENTINEL:
+            publicAddress: ""            -> key omitted; UPSTREAM'S VALUE STANDS
+            publicAddress: "0.0.0.0:x"   -> written; overrides
+            publicAddressDisabled: true  -> EXPLICIT JSON null; listener NOT STARTED
+
+          ⛔ WHY A BOOLEAN AND NOT `publicAddress: null`. MEASURED: an unquoted
+          `publicAddress: null` in a values file makes HELM DELETE THE KEY, so it
+          renders as ABSENT and the upstream value is INHERITED — the exact
+          opposite of what the operator wrote, silently. `"null"` quoted works, but
+          the natural spelling is the trap, and the chart cannot tell a deleted key
+          from an unset one (both are nil) so it cannot warn either.
+          ⇒ A boolean has no null ambiguity and matches bootstrap.disableInherited
+          and mempool.disableInherited.
+
+          ⛔ TYPE EACH NULL FROM SOURCE BEFORE WRITING IT. An explicit null is a
+          valid override ONLY where the field is `Option<T>`; on a plain field it
+          is `invalid type: unit value` and refuses the whole config at startup.
+          Typed at v0.7.2:
+            server.public_address   src/server.rs:121            Option<SocketAddr>  ✅
+            protocol.bootstrap      src/config.rs:57             Option<BootstrapConfig> ✅
+            protocol.v4.mempool     src/sundaev4/types.rs:1455   Option<MempoolMonitorConfig> ✅
+            …execution.scooper-secret-key  types.rs:1051         String  ⛔ NEVER NULL
+          ⚠ 0.1.0-alpha.1 removed EVERY null after the plain-String one crash-looped.
+          Three of the four were safe, and the blanket cost us the only way to switch
+          off an inherited listener. Over-correction is a different error, not the
+          safe direction.
+
+          ⇒ WHY THE NULL EARNS ITS PLACE: mainnet-v4.json sets
+          public_address 0.0.0.0:9998, so a mainnet v4 deployment INHERITS a second
+          listener. Loopback also works and is a values-only fix, but it still
+          binds and still emits a Service port pointing at nothing; null does not
+          bind at all.
+          ⚠ That listener serves ONLY the strategy-intent endpoints and /health.
+          `/pause`, the dashboard, the listings and /metrics are all on the PRIVATE
+          port — src/server.rs:275-281, `enum Visibility`. So switching it off
+          costs monitoring nothing.
+        */}}
+        {{- if .Values.config.overlay.publicAddressDisabled }},
+        "public_address": null
+        {{- else }}{{- with .Values.config.overlay.publicAddress }},
         "public_address": {{ . | quote }}
-        {{- end }}
+        {{- end }}{{- end }}
       },
       "persistence": {
         "sqlite": {
@@ -97,7 +137,20 @@ data:
         {{- $parts := list }}
         {{- if .Values.bootstrap.enabled }}{{ $parts = append $parts "b" }}{{ end }}
         {{- if .Values.v4.enabled }}{{ $parts = append $parts "v" }}{{ end }}
-        {{- if .Values.bootstrap.enabled }}
+        {{- /*
+          `bootstrap.disableInherited: true` writes an explicit null, which
+          DISABLES a bootstrap block the upstream file supplies. A dedicated key
+          rather than a magic value in `source`, because `source` names a real
+          provider (blockfrost | kupo) and overloading it would read as a third
+          provider.
+          ⇒ mainnet-v4.json ships a bootstrap block whose project-id is the
+          PLACEHOLDER REPLACE_WITH_MAINNET_BLOCKFROST_PROJECT_ID. With
+          `enabled: false` and no null that block STANDS and the scooper tries to
+          bootstrap with it.
+        */}}
+        {{- if .Values.bootstrap.disableInherited }}
+        "bootstrap": null{{ if has "v" $parts }},{{ end }}
+        {{- else if .Values.bootstrap.enabled }}
         "bootstrap": {
           "source": {{ .Values.bootstrap.source | quote }},
           "url": {{ required "sundae-scooper-v2: bootstrap.enabled is true but bootstrap.url is empty. blockfrost needs the API base URL; kupo needs its own URL." .Values.bootstrap.url | quote }}
@@ -105,7 +158,16 @@ data:
         {{- end }}
         {{- if .Values.v4.enabled }}
         "v4": {
-          {{- if .Values.mempool.enabled }}
+          {{- /*
+            `mempool.disableInherited: true` writes an explicit null, disabling a
+            mempool block the upstream file supplies.
+            ⇒ mainnet-v4.json ships one with `execute: true` and a placeholder
+            socket path, which is retried forever. Noise rather than danger — but
+            unoverridable noise without this.
+          */}}
+          {{- if .Values.mempool.disableInherited }}
+          "mempool": null,
+          {{- else if .Values.mempool.enabled }}
           "mempool": {
             "socket-path": {{ .Values.mempool.socketPath | quote }}
             {{- if not (kindIs "invalid" .Values.mempool.networkMagic) }}

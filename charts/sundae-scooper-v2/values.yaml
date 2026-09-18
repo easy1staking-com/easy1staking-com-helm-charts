@@ -181,7 +181,33 @@ config:
     #
     # ⚠ Setting it is what opens the second listener — it is not a hint to the
     # Service. Leave empty unless you are meant to receive strategy intents.
+    # ⇒ THREE STATES. The third is a SEPARATE BOOLEAN below, not a null here:
+    #     publicAddress: ""           key OMITTED, upstream's value STANDS
+    #     publicAddress: "0.0.0.0:x"  written, overrides
+    #
+    # ⛔ `null` is type-safe HERE and nowhere else by default. Typed at v0.7.2:
+    # server.public_address is `Option<SocketAddr>` (src/server.rs:121). The crash
+    # that made alpha.1 strip every null was a PLAIN `String`
+    # (execution.scooper-secret-key, types.rs:1051) — that one is still omitted,
+    # never nulled.
+    #
+    # ⇒ FOR MAINNET v4, SET `publicAddressDisabled: true` BELOW. mainnet-v4.json sets
+    # public_address 0.0.0.0:9998, so the deployment inherits a second listener.
+    # ⚠ It serves ONLY the strategy-intent endpoints and /health — /pause, the
+    # dashboard, the listings and /metrics are all on the PRIVATE port
+    # (src/server.rs `enum Visibility`) — so switching it off costs no monitoring.
     publicAddress: ""
+
+    # ⇒ Writes an EXPLICIT JSON null, so the second listener is NOT STARTED.
+    #
+    # ⛔ A BOOLEAN AND NOT `publicAddress: null`, AND THE REASON IS MEASURED: an
+    # unquoted `publicAddress: null` in a values file makes HELM DELETE THE KEY.
+    # The overlay then omits it and UPSTREAM'S VALUE IS INHERITED — the exact
+    # opposite of what you wrote, with nothing to notice. `"null"` quoted does
+    # work, but the natural spelling is the trap and the chart cannot warn: a
+    # deleted key and an unset key are both nil to a template.
+    # Type-safe: server.public_address is `Option<SocketAddr>` (src/server.rs:121).
+    publicAddressDisabled: false
 
 # ── Chain data source: which node(s) to follow ───────────────────────────────
 #
@@ -329,6 +355,14 @@ bootstrap:
   #   kupo         needs url only, and no credential
   # The v1 scooper ran its own Kupo; if you still have one, `kupo` avoids
   # introducing a Blockfrost dependency at all.
+  # ⇒ Write an explicit `bootstrap: null`, disabling a bootstrap block that the
+  # UPSTREAM FILE supplies. Different from `enabled: false`, which merely writes
+  # nothing and lets theirs stand.
+  # ⛔ Needed for mainnet v4: mainnet-v4.json ships a bootstrap block whose
+  # project-id is the placeholder REPLACE_WITH_MAINNET_BLOCKFROST_PROJECT_ID.
+  # Type-safe: protocol.bootstrap is `Option<BootstrapConfig>` (src/config.rs:57).
+  disableInherited: false
+
   source: blockfrost
 
   url: ""
@@ -398,6 +432,13 @@ submitUrl: ""
 #     the v1 scooper chart did
 mempool:
   enabled: false
+
+  # ⇒ Write an explicit `mempool: null`, disabling a mempool block the UPSTREAM
+  # FILE supplies. `enabled: false` writes nothing and lets theirs stand.
+  # ⛔ Needed for mainnet v4: mainnet-v4.json ships one with `execute: true` and a
+  # placeholder socket path, retried forever.
+  # Type-safe: protocol.v4.mempool is `Option<MempoolMonitorConfig>` (types.rs:1455).
+  disableInherited: false
 
   # ⛔ WHERE THE SOCKET COMES FROM — an explicit choice, REQUIRED when enabled.
   # One enum rather than several booleans, so the guard cannot be satisfied by
