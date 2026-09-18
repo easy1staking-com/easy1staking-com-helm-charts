@@ -1312,6 +1312,16 @@ entries:
   sundae-scooper-v2:
   - apiVersion: v2
     appVersion: 0.7.2
+    created: "2026-09-18T23:24:47.248213457Z"
+    description: SundaeSwap scooper v2 — produces the scoops that execute v4 DEX swaps
+    digest: b1a913b123208b895ccbee95436f84817587881a294c9dc8ea3e52e2bf7de0a6
+    name: sundae-scooper-v2
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/sundae-scooper-v2-0.1.0-alpha.4/sundae-scooper-v2-0.1.0-alpha.4.tgz
+    version: 0.1.0-alpha.4
+  - apiVersion: v2
+    appVersion: 0.7.2
     created: "2026-09-16T21:14:42.854644133Z"
     description: SundaeSwap scooper v2 — produces the scoops that execute v4 DEX swaps
     digest: d86858951f5c78238b003ccc975a239a0a75e18cc8c59dc88faa13af18c55162
@@ -1340,4 +1350,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/sundae-scooper-v2-0.1.0-alpha.1/sundae-scooper-v2-0.1.0-alpha.1.tgz
     version: 0.1.0-alpha.1
-generated: "2026-09-18T15:04:58.912127193Z"
+generated: "2026-09-18T23:24:47.248524809Z"
