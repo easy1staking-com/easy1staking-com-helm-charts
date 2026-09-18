@@ -1,4 +1,32 @@
 {{- /*
+  ⚠ FILE MODE AND NON-ROOT IMAGES — DOCUMENTED, DELIBERATELY NOT GUARDED.
+
+  A projected secret volume is root-owned. On a NON-ROOT image the process cannot
+  read it and Spring dies at startup with AccessDeniedException — which is what
+  0.9.0 shipped into. The remedy needs BOTH knobs, because fsGroup alone does
+  nothing here: Kubernetes applies it as the volume's GROUP owner while still
+  honouring defaultMode, so 0400 stays owner-only with root as the owner.
+
+    podSecurityContext: {runAsUser: <image uid>, runAsGroup: <same>, fsGroup: <same>}
+
+  ⛔ AND THIS IS DOCUMENTATION RATHER THAN A `fail`, THOUGH IT WAS BRIEFLY A FAIL.
+  THE CHART CANNOT SEE WHAT IT WOULD NEED TO CHECK. The property is "can this
+  process read the mount", which depends on THE IMAGE'S uid — and a chart cannot
+  inspect an image. Whether runAsUser is set is only a PROXY for it, and a guard
+  that can see only a proxy is wrong in both directions.
+
+  ⇒ It was already wrong in one: EVERY PUBLISHED IMAGE TODAY RUNS AS ROOT.
+  Verified on the registry — fluidtokens/ft-aquarium-node:2026.09.17 has no `User`
+  field — and root reads a root-owned mount with no securityContext at all. So the
+  fail refused a working configuration, and would have pushed an operator into
+  declaring a uid their image does not have.
+
+  ⇒ Same reasoning as sundae-scooper-v2's `network`-vs-`config.files` and
+  heimdall's removed storageClass refusal. GUARD THE PROPERTY, DOCUMENT THE PROXY.
+
+  The default `secret.mode: env` mounts nothing and sidesteps all of it.
+*/ -}}
+{{- /*
   ── Secret resolution ────────────────────────────────────────────────────────
   ONE mechanism: a name and a key per source. There is no chart-wide
   `secret.name` and no chart-wide `secret.keys` — this form expresses everything
@@ -545,7 +573,12 @@ spec:
       volumes:
         - name: secrets
           projected:
-            defaultMode: 0400
+            {{- /*
+              0440, NOT 0400. fsGroup makes the volume GROUP-owned; defaultMode is
+              still honoured, so 0400 would stay owner-only and the owner is root.
+              Group-readable is the half that lets fsGroup do anything at all.
+            */}}
+            defaultMode: 0440
             sources:
               {{- if $mnFile }}
               - secret:
