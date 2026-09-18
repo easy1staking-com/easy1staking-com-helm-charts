@@ -1,25 +1,31 @@
 {{- /*
-  ⛔⛔ FILE MODE NEEDS A POD securityContext, AND fsGroup ALONE IS NOT ENOUGH.
+  ⚠ FILE MODE AND NON-ROOT IMAGES — DOCUMENTED, DELIBERATELY NOT GUARDED.
 
-  The image runs as uid 10001. A projected secret volume is root-owned, and
-  defaultMode is honoured regardless of fsGroup — so without both a matching
-  runAsUser/runAsGroup AND an fsGroup, the process cannot read its own secrets and
-  Spring dies at startup with AccessDeniedException. That is not a warning we can
-  leave to a comment: it is a guaranteed crash loop, and it is what 0.9.0 shipped.
+  A projected secret volume is root-owned. On a NON-ROOT image the process cannot
+  read it and Spring dies at startup with AccessDeniedException — which is what
+  0.9.0 shipped into. The remedy needs BOTH knobs, because fsGroup alone does
+  nothing here: Kubernetes applies it as the volume's GROUP owner while still
+  honouring defaultMode, so 0400 stays owner-only with root as the owner.
 
-  ⚠ This guard checks the PROPERTY, not a proxy for it: the chart can see whether
-  fsGroup and runAsUser are set, so refusing is honest here. (Contrast the
-  `network`-vs-`config.files` case in sundae-scooper-v2, which is deliberately NOT
-  guarded because the only available signal there is a filename.)
+    podSecurityContext: {runAsUser: <image uid>, runAsGroup: <same>, fsGroup: <same>}
 
-  The default `secret.mode: env` mounts nothing and needs none of this.
+  ⛔ AND THIS IS DOCUMENTATION RATHER THAN A `fail`, THOUGH IT WAS BRIEFLY A FAIL.
+  THE CHART CANNOT SEE WHAT IT WOULD NEED TO CHECK. The property is "can this
+  process read the mount", which depends on THE IMAGE'S uid — and a chart cannot
+  inspect an image. Whether runAsUser is set is only a PROXY for it, and a guard
+  that can see only a proxy is wrong in both directions.
+
+  ⇒ It was already wrong in one: EVERY PUBLISHED IMAGE TODAY RUNS AS ROOT.
+  Verified on the registry — fluidtokens/ft-aquarium-node:2026.09.17 has no `User`
+  field — and root reads a root-owned mount with no securityContext at all. So the
+  fail refused a working configuration, and would have pushed an operator into
+  declaring a uid their image does not have.
+
+  ⇒ Same reasoning as sundae-scooper-v2's `network`-vs-`config.files` and
+  heimdall's removed storageClass refusal. GUARD THE PROPERTY, DOCUMENT THE PROXY.
+
+  The default `secret.mode: env` mounts nothing and sidesteps all of it.
 */ -}}
-{{- if eq .Values.secret.mode "file" -}}
-{{- $psc := .Values.podSecurityContext | default dict }}
-{{- if or (not (hasKey $psc "fsGroup")) (not (hasKey $psc "runAsUser")) -}}
-{{- fail "ft-aquarium-node: secret.mode is `file`, so podSecurityContext MUST set BOTH runAsUser and fsGroup. The image runs as uid 10001 and a projected secret volume is root-owned: fsGroup alone does NOT fix it, because Kubernetes applies fsGroup as the GROUP owner while still honouring defaultMode, so the mount stays unreadable and Spring fails at startup with java.nio.file.AccessDeniedException on /etc/aquarium-secrets/spring.flyway.password. Set podSecurityContext: {runAsUser: 10001, runAsGroup: 10001, fsGroup: 10001} — runAsUser must match the image's uid. Or use the default `secret.mode: env`, which mounts nothing and needs neither." -}}
-{{- end -}}
-{{- end -}}
 {{- /*
   ── Secret resolution ────────────────────────────────────────────────────────
   ONE mechanism: a name and a key per source. There is no chart-wide
