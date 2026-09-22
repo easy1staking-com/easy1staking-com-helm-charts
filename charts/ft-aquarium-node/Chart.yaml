@@ -19,12 +19,27 @@ version: 0.10.1
 #   sha256:da105d5649655a0a207388cf40349ca99afab154ae9332bd0409d3575d1a1d84
 # Built from main at 61b3e6d. Was 2026.07.13 — two months and six releases stale.
 #
-# ⚠⚠ AND WHOEVER BUMPS THIS NEXT IS ALSO, SILENTLY, THE PERSON WHO SWITCHES
-# OPERATORS TO A NON-ROOT IMAGE. Every published image to date runs as ROOT — I
-# verified 2026.09.17 has no `User` field. The uid-10001 change lives on an
-# unmerged draft (PR #36) and reaches the registry only when that merges and CI
-# passes. ⇒ On the day a new date tag carries it, `secret.mode: file` deployments
-# WITHOUT a matching podSecurityContext start failing with AccessDeniedException,
-# and nothing in this chart can detect that from the tag. The default
-# `secret.mode: env` is immune; see values.yaml.
+# ⚠⚠ BUMPING THIS PAST 2026.09.17 ALSO SWITCHES OPERATORS TO A NON-ROOT IMAGE.
+# THAT IS NO LONGER A FORWARD-DATED WARNING — IT HAS HAPPENED.
+#
+#   2026.09.17 and earlier   runs as ROOT (verified: no `User` field in the config blob)
+#   2026.09.19 and later     runs as uid 10001
+#
+# ⇒ A TAG COMPARISON AND NOT A DATE, DELIBERATELY. There is no 2026.09.18 image —
+# the Dockerfile change was WRITTEN on the 18th and SHIPPED in 2026.09.19, and a
+# note dated by the writing would send an operator looking for a build that does
+# not exist. Published sequence: 2026.09.14, 2026.09.17, 2026.09.19, 2026.09.20.
+# Ask "is the tag I run at or past 2026.09.19", which is checkable; do not ask
+# "is it after some date", which is not.
+#
+# ⇒ CONSEQUENCE: at 2026.09.19+, `secret.mode: file` WITHOUT a matching
+# podSecurityContext fails with AccessDeniedException, and nothing in this chart
+# can detect that from a tag. The default `secret.mode: env` is immune — it mounts
+# nothing. See values.yaml.
+#
+# ⚠ This note previously said the change "lives on an unmerged draft (PR #36) and
+# reaches the registry only when that merges". True when written, false now. Left
+# visible rather than overwritten: a forward-dated warning becomes a stale claim
+# the moment the thing it predicts happens, and that is the same defect it was
+# written to prevent.
 appVersion: "2026.09.17"
