@@ -1239,13 +1239,29 @@ scheduling:
   # above, so a node you merely install indexes, serves and spends nothing.
   # Leaving this empty means OFF: the application's own default is false and it
   # does not fall back to true if the variable is absent.
-  # ⚠ UPGRADING — AND THE TRIGGER IS THE IMAGE, NOT THIS CHART'S VERSION.
-  # Taking chart 0.8.0 alone changes NOTHING: `appVersion` here is 2026.07.13,
-  # which has no such gate, so the variable lands on an image that ignores it.
-  # A processor that was running STOPS the moment you run an image that HAS the
-  # gate — which, if you build your own, is a move this chart's version never
-  # sees. Set this before or with that image bump, not before this upgrade.
-  # The stop is deliberate: arming is now something an operator does on purpose.
+  # ⚠⚠ UPGRADING STOPS A RUNNING PROCESSOR, AND FOR EVERY OPERATOR, NOT SOME.
+  #
+  # Images BEFORE 2026.09.09 ran the transaction processor UNCONDITIONALLY —
+  # there was no switch at all. From 2026.09.09 onward it is off unless this value
+  # is "true". The gate entered in commit 6ad5e0f (#22) and first shipped in the
+  # 2026.09.09 image.
+  #
+  # ⇒ AND THE PUBLISHED TAGS MAKE IT UNIVERSAL RATHER THAN A CORNER CASE: there is
+  # NOTHING between 2026.07.13 and 2026.09.09 in the registry — verified against
+  # Docker Hub. So every operator running a processor today is on 2026.07.13 or
+  # older, and EVERY ONE of them stops on upgrade unless this is set first.
+  #
+  # ⛔ AND THIS CHART'S appVersion IS 2026.09.17, WHICH HAS THE GATE. So taking
+  # chart 0.10.0 or later without an explicit image.tag IS that upgrade.
+  #
+  # ⇒ SET THIS BEFORE THE UPGRADE, NOT AFTER. Set-then-upgrade has no gap;
+  # upgrade-then-set leaves a window in which the node processes nothing.
+  #
+  # ⚠ This comment said the OPPOSITE until chart 0.10.1 — it claimed the variable
+  # "lands on an image that ignores it", which was true while appVersion was
+  # 2026.07.13 and became false when THIS CHART bumped it to 2026.09.17. Recorded
+  # rather than quietly rewritten, because the stale sentence was made stale by
+  # the same change that should have updated it.
   transactionProcessorEnabled: ""
   # Tuning. [documented] → SCHEDULING_TRANSACTION_PROCESSOR_DELAY_MINUTES
   transactionProcessorDelayMinutes: ""
