@@ -82,6 +82,18 @@
 # evaporates.
 mode: run
 
+# Pod count. Defaults to 1 when unset.
+#
+# ⚠ 1 IS THE ONLY SAFE VALUE FOR A REAL NODE. Two replicas share one identity and
+# one DKG share with no idempotence key, so both sign before either is rejected —
+# which is why this was hardcoded until 0.1.0-alpha.7.
+#
+# ⇒ 0 IS THE USEFUL ONE: it parks the node without deleting the Deployment or the
+# state volume, which is what you want for testing and for a controlled stop.
+# ⚠ And >1 will not do what it looks like anyway: the state volume is
+# ReadWriteOnce, so the second pod stays Pending on the PVC rather than running.
+replicas: 1
+
 image:
   repository: ghcr.io/lantr-io/heimdall
   # ⛔ REQUIRED, no default, and never `latest`.

@@ -1,5 +1,5 @@
 {{- /*
-  ⛔ replicas: 1, HARDCODED. There is no `replicaCount`, no HPA and no
+  ⛔ replicas DEFAULTS TO 1 AND SHOULD STAY THERE. There is no HPA and no
   autoscaling stanza anywhere in this chart — nothing that invites a 2.
 
   This is CORRECTNESS, not preference or cost. The node signs from ONE key with
@@ -17,7 +17,12 @@ metadata:
   labels:
     {{- include "heimdall.labels" . | nindent 4 }}
 spec:
-  replicas: 1
+  {{- /*
+    `kindIs "invalid"` and NOT `| default 1`: Helm's `default` treats 0 as empty,
+    so `replicas: 0` would silently become 1 — and 0 is the whole point of having
+    this value. Same trap as `with` on a numeric zero.
+  */}}
+  replicas: {{ if kindIs "invalid" .Values.replicas }}1{{ else }}{{ .Values.replicas }}{{ end }}
   {{- /*
     Recreate, not RollingUpdate. RollingUpdate deliberately OVERLAPS the old and
     new pods, which is the precise state the single-signer rule above forbids —
