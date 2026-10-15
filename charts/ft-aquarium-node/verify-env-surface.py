@@ -33,6 +33,8 @@ KEPT = {
     "AQUARIUM_COMPOUND_ENABLED",
     "LOANS_CONFIG_ASSET_NAME",
     "WALLET_ACCOUNT_INDEX",
+    "AQUARIUM_WALLET_REBALANCE_ENABLED",
+    "AQUARIUM_SYNCING_THRESHOLD_MINUTES",
 }
 # Deleted from the application. Emitting one is at best inert and at worst a lie
 # in the pod spec about what governs this node.
@@ -42,6 +44,7 @@ REMOVED = {
     "LOANS_SUBMITTABLE_NETWORK",
     "LOANS_ENABLED",
     "AQUARIUM_LIQUIDATION_ENABLED",
+    "AQUARIUM_LIQUIDATION_QUARANTINE_MINUTES",
 }
 
 

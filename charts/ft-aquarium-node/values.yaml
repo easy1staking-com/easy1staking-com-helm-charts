@@ -18,10 +18,9 @@ image:
   repository: fluidtokens/ft-aquarium-node
   pullPolicy: IfNotPresent
 
-  # Overrides the tag, whose default is the chart appVersion (2026.07.13).
-  # Do not use "latest": it currently resolves to the same digest as
-  # 2026.07.13, but a tag describes while a digest resolves, and "latest"
-  # is free to move under you.
+  # Overrides the tag, whose default is the chart appVersion (see Chart.yaml).
+  # Do not use "latest": FluidTokens' CI re-points it at every build of their
+  # main, so it is free to move under you between two pod restarts.
   tag: ""
 
   # Optional digest pin. When set, the image becomes `repository@digest` and the
@@ -42,8 +41,9 @@ image:
   # be correct for one deployer.
   #
   # If you pin, pin a digest you resolved from the repository you configured.
-  # For reference, FluidTokens' published `2026.07.13` is
-  # sha256:3e016ea1aeb0cb38dda13ec29bb16a40f560abaf345378b7cb335fe9875eeb2a —
+  # For reference, FluidTokens' published `2026.10.15-a51259ff148b` (the chart default
+  # since 0.11.0) is
+  # sha256:a1eaf4c26e7060ac27e9061c3eb87ad746b5690e97f83fd2fc86eca5f8fd8cdd —
   # information, not a default.
   digest: ""
 
@@ -1031,8 +1031,9 @@ liquidation:
   # candidate merely reports ORACLE_WINDOW_MARGIN_TOO_SMALL — which reads as "no
   # candidates" rather than as a misconfiguration.
   oracleWindowMarginSeconds: ""
-  # Tuning. [documented] → AQUARIUM_LIQUIDATION_QUARANTINE_MINUTES
-  quarantineMinutes: ""
+  # `quarantineMinutes` (AQUARIUM_LIQUIDATION_QUARANTINE_MINUTES) was REMOVED in
+  # chart 0.11.0: 2026.10.15-a51259ff148b no longer declares the property. Setting it
+  # is refused at render rather than emitted to an image that ignores it.
   # Tuning. [documented] → AQUARIUM_LIQUIDATION_DECISION_LOG_SIZE
   decisionLogSize: ""
 
@@ -1183,6 +1184,23 @@ loans:
     # `Read ConfigDatum from <txHash>#0` and `Read LMConfigDatum from <txHash>#1`.
     # A verifier that skipped could not have read two datums off specific UTxOs.
     failOnUnreachable: ""
+  wallet:
+    rebalance:
+      # Gate. [documented from 2026.10.15-a51259ff148b] → AQUARIUM_WALLET_REBALANCE_ENABLED
+      # ⛔ THE IMAGE DEFAULTS THIS TO TRUE, AND IT SUBMITS IN SHADOW.
+      # On every block, once the node is not syncing, it moves the bot wallet into
+      # the shape ANTICIPATE liquidations need with one self-send — SIGNED AND
+      # SUBMITTED in `shadow` as well as `live`, because upstream classes it as
+      # wallet housekeeping, not a liquidation. It acts only when at least one
+      # `action: ANTICIPATE` market has an EFFECTIVE mode of shadow or live (the
+      # market's own `mode`, capped by `liquidation.mode`). With `markets: []`, or
+      # at `liquidation.mode: disabled`, it does nothing whatever this says.
+      #
+      # ⇒ "shadow submits nothing" STOPPED BEING TRUE with this image. An
+      # ANTICIPATE market trialled in shadow now spends fees on self-sends. Set
+      # "false" to keep shadow submission-free. Validated true/false at render:
+      # a typo would silently leave the image default, which is ON.
+      enabled: ""
 
 ## Aquarium contract identity. Wrong values derive the wrong script tree; the
 ## startup verifiers are what catch that.
@@ -1225,6 +1243,13 @@ aquarium:
     refInput:
       txHash: ""       # [derived] → AQUARIUM_TANK_REF_INPUT_TXHASH
       outputIndex: ""  # [derived] → AQUARIUM_TANK_REF_INPUT_OUTPUTINDEX
+  # Tuning. [documented from 2026.10.15-a51259ff148b] → AQUARIUM_SYNCING_THRESHOLD_MINUTES
+  # The node counts as SYNCING while its last applied block is more than this
+  # many minutes old, and while syncing the three spending processors
+  # (scheduled transactions, liquidation, compound) do nothing. Image default 10;
+  # must be a positive whole number. ⚠ The flag moves only when a block arrives,
+  # so a stalled relay leaves its last value — upstream accepts that, no watchdog.
+  syncingThresholdMinutes: ""
 
 blockfrost:
   # Tuning. [derived] → BLOCKFROST_URL
@@ -1246,10 +1271,13 @@ wallet:
   #
   # ⛔ NODES SHARING A SEED NEED DIFFERENT INDEXES — two left empty are both
   # account 0, one wallet signing from two pods: the race `replicaCount` refuses,
-  # reached across releases where no guard can see it. And IMAGES BUILT BEFORE
-  # #57 IGNORE THIS ENTIRELY, including this chart's default `appVersion`, which
-  # produces the same race while the values say otherwise. The boot log tells
-  # the two apart in one line — check it, and the addresses, before arming:
+  # reached across releases where no guard can see it. And an image built before
+  # #57 IGNORES THIS ENTIRELY, which produces the same race while the values say
+  # otherwise:
+  #   2026.10.13-342352f8ff83 and earlier   ignored
+  #   2026.10.15-a51259ff148b and later   honoured (the chart default since 0.11.0)
+  # The boot log tells the two apart in one line — check it, and the addresses,
+  # before arming:
   #   honoured: INIT - Aquarium Node wallet: account index N, address …, stake address …
   #   ignored:  INIT - Aquarium Node base address: …
   #
@@ -1277,8 +1305,10 @@ scheduling:
   # Docker Hub. So every operator running a processor today is on 2026.07.13 or
   # older, and EVERY ONE of them stops on upgrade unless this is set first.
   #
-  # ⛔ AND THIS CHART'S appVersion IS 2026.09.17, WHICH HAS THE GATE. So taking
-  # chart 0.10.0 or later without an explicit image.tag IS that upgrade.
+  # ⛔ AND EVERY appVersion THIS CHART HAS SHIPPED SINCE 0.10.0 HAS THE GATE,
+  # defaulting false: 2026.09.17, and 2026.10.15-a51259ff148b from 0.11.0 — both
+  # read from the image. So taking chart 0.10.0 or later without an explicit
+  # image.tag IS that upgrade.
   #
   # ⇒ SET THIS BEFORE THE UPGRADE, NOT AFTER. Set-then-upgrade has no gap;
   # upgrade-then-set leaves a window in which the node processes nothing.

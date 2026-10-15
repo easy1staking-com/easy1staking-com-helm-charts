@@ -25,24 +25,37 @@ helm install aquarium ./charts/ft-aquarium-node \
 
 Each of these has a specific way of wasting a day.
 
-### 1. The image does not contain the liquidation work
+### 1. Which image, and what is in it
 
 | | |
 |---|---|
-| repository | `fluidtokens/ft-aquarium-node` |
-| tag | `2026.07.13` (`latest` currently resolves to the same digest) |
-| digest (informational, **not** a default) | `sha256:3e016ea1aeb0cb38dda13ec29bb16a40f560abaf345378b7cb335fe9875eeb2a` |
+| repository | `fluidtokens/ft-aquarium-node` — FluidTokens' build from their `main`; we neither build nor publish it |
+| default tag | the chart's `appVersion` — `Chart.yaml` carries the tag and its verified digest |
 | platform | **linux/amd64 only** — confirm the node's architecture before deploying |
+| `latest` | **do not use** — FluidTokens' CI re-points it at every build of their `main` |
 
-**This is FluidTokens' build from their `main`. It does not contain the
-Lending v4 liquidation work**, which lives on a feature branch and has never been
-published. It is sufficient for indexing and for syncing to tip — that is
-`yaci-store`'s job and works in any version — and **not** sufficient for the bot
-to liquidate anything.
+What each tag contains, read from the image's own jar and `application.yaml`
+rather than from any document:
 
-So: **if the bot appears to do nothing on this image, that is expected**, not a
-defect and not a chart bug. Closing the gap is a build-pipeline question on
-FluidTokens' side; we neither build nor publish this image.
+| tag | liquidation code | `WALLET_ACCOUNT_INDEX` |
+|---|---|---|
+| `2026.07.13` | **absent** — 0 liquidation classes, no `AQUARIUM_LIQUIDATION_*` keys | ignored |
+| `2026.09.17` — default in chart 0.10.x | present — 56 classes, the full `AQUARIUM_LIQUIDATION_*` surface | ignored |
+| `2026.10.15-a51259ff148b` — default from chart 0.11.0 | present — 59 classes | honoured |
+
+**What the default image does on its own.** The liquidation mode defaults to
+`disabled` in the base profile and to **`shadow`** under `preview`, which this
+chart selects by default; the transaction processor defaults to off. So an
+installed node evaluates liquidations and submits none of them — with one
+exception on `2026.10.15-a51259ff148b`: the wallet rebalancer, which submits in shadow when an
+`ANTICIPATE` market is active (see "The wallet rebalancer submits in shadow").
+Arming is §5.
+
+⚠ Until chart 0.11.0 this section said the image "does not contain the Lending
+v4 liquidation work" and that `latest` resolved to `2026.07.13`. Both were true
+of `2026.07.13`; both became false when chart 0.10.0 moved the default to
+`2026.09.17` and nothing revisited this section — the same defect, a version bump
+falsifying a note elsewhere, that 0.10.1 corrected in the upgrade note.
 
 **`image.digest` is empty by default, and that is deliberate.** The chart used to
 ship FluidTokens' published digest as the default — which meant an operator who
@@ -682,8 +695,15 @@ signing from two pods**, the race `replicaCount` refuses, reached across two
 releases where no guard can see it.
 
 The same race happens *while the values say otherwise* on an image built before
-#57, which ignores the variable entirely — and this chart's default `appVersion`
-(`2026.09.17`) is one. The render is identical either way. The boot log is not:
+#57, which ignores the variable entirely:
+
+| tag | `WALLET_ACCOUNT_INDEX` |
+|---|---|
+| `2026.10.13-342352f8ff83` and earlier | ignored |
+| `2026.10.15-a51259ff148b` and later — the chart default since 0.11.0 | honoured |
+
+That matters to anyone pinning an older `image.tag`. The render is identical
+either way. The boot log is not:
 
 ```
 honoured:  INIT - Aquarium Node wallet: account index N, address …, stake address …
@@ -1106,6 +1126,39 @@ that absence is the design.
 
 ---
 
+## The wallet rebalancer submits in shadow
+
+From `2026.10.15-a51259ff148b`. `loans.wallet.rebalance.enabled` →
+`AQUARIUM_WALLET_REBALANCE_ENABLED`, **default `true` in the image**. On every
+block, once the node is not syncing, it moves the bot wallet into the shape
+`ANTICIPATE` liquidations need with one self-send — **signed and submitted in
+`shadow` as well as `live`**, because upstream classes it as wallet housekeeping
+rather than a liquidation.
+
+It acts only when at least one `action: ANTICIPATE` market has an *effective*
+mode of `shadow` or `live` — the market's own `mode`, capped by
+`liquidation.mode`. So `markets: []`, or `liquidation.mode: disabled`, does
+nothing whatever this says, and **neither this chart's defaults nor
+`values-preview.yaml` trigger it.**
+
+⛔ **"Shadow submits nothing" stopped being true with this image.** An
+`ANTICIPATE` market trialled in shadow now spends fees on self-sends. Set
+`"false"` to keep shadow submission-free. The value is validated `true`/`false`
+at render, because a typo would silently leave the image default — on. A wallet
+too small to shape is logged at WARN on every block and never submitted.
+
+### `quarantineMinutes` is gone, and two diagnostics stay in `extraEnv`
+
+`liquidation.quarantineMinutes` was removed in chart 0.11.0: `2026.10.15-a51259ff148b` no longer
+declares the property. Setting it is **refused at render** rather than emitted to
+an application that ignores it. Pinning an older `image.tag` that still reads it
+is what `extraEnv` is for.
+
+`SCHEDULING_TRANSACTION_PROCESSOR_OGMIOS_URL` and
+`SCHEDULING_TRANSACTION_PROCESSOR_DUMP_CBOR` are new in the same image and are
+deliberately **not** typed keys: upstream describes both as diagnostics, not
+operating settings. They pass through `extraEnv` unrefused.
+
 ## Chain source
 
 `config.store.cardano.host` / `.port` — the relay the node dials over
@@ -1202,11 +1255,12 @@ design.
 | `liquidation.delaySeconds` | `…_DELAY_SECONDS` | interval between cycles |
 | `liquidation.validityWindowSeconds` | `…_VALIDITY_WINDOW_SECONDS` | transaction validity window |
 | `liquidation.oracleWindowMarginSeconds` | `…_ORACLE_MARGIN_SECONDS` | required headroom inside the feed's window. Raising it shortens the usable stretch one second for one; near the feed window it disables the bot in practice while every candidate merely reports `ORACLE_WINDOW_MARGIN_TOO_SMALL` — **which reads as "no candidates" rather than as a misconfiguration** |
-| `liquidation.quarantineMinutes` | `…_QUARANTINE_MINUTES` | how long a failed loan is skipped |
+| `aquarium.syncingThresholdMinutes` | `AQUARIUM_SYNCING_THRESHOLD_MINUTES` | block-time drift, in minutes, past which the node counts as syncing and its three spending processors stop. Image default 10 |
+| `loans.wallet.rebalance.enabled` | `AQUARIUM_WALLET_REBALANCE_ENABLED` | **gate** — image default **true**, and it **submits in shadow**. See "The wallet rebalancer submits in shadow" |
 | `liquidation.decisionLogSize` | `…_DECISION_LOG_SIZE` | in-memory decision ring buffer |
 | `loans.oracle.enabled` | `LOANS_ORACLE_ENABLED` | off ⇒ every collateral prices as unavailable, so nothing is liquidatable |
 | `loans.oracle.url` | `LOANS_ORACLE_URL` | wrong network's registry ⇒ collaterals silently price as unavailable |
-| `scheduling.transactionProcessorEnabled` | `SCHEDULING_TRANSACTION_PROCESSOR_ENABLED` | **The transaction processor is OFF unless this is `"true"`.** It builds and submits Scheduled Transactions from the operator wallet, so an unset value means a node that indexes and serves and spends nothing. ⚠ Upgrading: the trigger is the **image**, not this chart's version — `appVersion` 2026.07.13 has no gate, so a processor that was running stops when you run an image that HAS one, not when you take 0.8.0 |
+| `scheduling.transactionProcessorEnabled` | `SCHEDULING_TRANSACTION_PROCESSOR_ENABLED` | **The transaction processor is OFF unless this is `"true"`.** It builds and submits Scheduled Transactions from the operator wallet, so an unset value means a node that indexes and serves and spends nothing. ⚠ Upgrading: the trigger is the **image**, not this chart's version — every `appVersion` since chart 0.10.0 has the gate, so a processor running on an older image stops when the image moves |
 | `scheduling.transactionProcessorDelayMinutes` | `SCHEDULING_TRANSACTION_PROCESSOR_DELAY_MINUTES` | |
 | `scheduling.taskPoolSize` | `SPRING_TASK_SCHEDULING_POOL_SIZE` | Spring's default of 1 lets the transaction processor starve the 30 s oracle refresh — observed as feeds ageing past expiry exactly while transactions were processing. The app corrects it to 4; lowering it reintroduces that |
 | `config.network` | `NETWORK` `[derived]` | the app derives this from the Spring profile. Setting it **overrides** that, so profile and network can disagree. Leave empty unless you mean to break the link |
