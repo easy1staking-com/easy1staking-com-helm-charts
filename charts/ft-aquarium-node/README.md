@@ -14,7 +14,9 @@ helm install aquarium ./charts/ft-aquarium-node \
   --namespace cardano-pv \
   --set config.db.host=<postgres-host> \
   --set config.store.cardano.host=<relay-host> \
-  --set secret.name=<secret-name>
+  --set secret.mnemonic.name=<secret-name> \
+  --set secret.blockfrost.name=<secret-name> \
+  --set secret.db.name=<secret-name>
 ```
 
 ---
@@ -443,7 +445,7 @@ the deployment proceeds while the question gets answered. Being wrong should be
 cheap, not blocking. Both modes read the **same Secret with the same keys**; only
 the projection differs, and neither puts a secret in this repository.
 
-Leave `secret.name` empty and the secrets are absent from the render entirely —
+Leave the `secret.*.name` values empty and the secrets are absent from the render entirely —
 the application then fails at startup with a named error, which is §3 working.
 
 ### Secrets: one mechanism, a name and a key per source
@@ -1272,23 +1274,28 @@ someone fixed is filed.**
 | Key | Default | Notes |
 |---|---|---|
 | `image.repository` | `fluidtokens/ft-aquarium-node` | FluidTokens' build, not ours |
-| `image.tag` | `""` → chart `appVersion` (`2026.07.13`) | refused if `image.digest` is also set |
+| `image.tag` | `""` → chart `appVersion` | refused if `image.digest` is also set. The default image is whatever `Chart.yaml` says — not restated here, because a restated tag goes stale |
 | `image.digest` | `""` | optional pin; **must belong to `image.repository`** — see §1 |
-| `service.type` / `service.port` | `ClusterIP` / `8080` | no NodePort, no Ingress |
+| `service.type` / `service.port` | `ClusterIP` / `8080` | `NodePort` supported — read "`service.type: NodePort`" first |
+| `ingress.enabled` | `false` | read "Publishing the UI" first |
 | `resources` | 512Mi/1Gi, 250m/1 | §8 — adequate at steady state; do not size from the §9 peak |
 | `jvm.opts` | `-XX:MaxRAMPercentage=75` | via `JAVA_TOOL_OPTIONS`; `JAVA_OPTS` is read by nothing |
 | `terminationGracePeriodSeconds` | `60` | app has no graceful shutdown |
 | `startupProbe` / `livenessProbe` | `/actuator/health` | no readiness probe — §2 |
-| `config.springProfile` | `preview` | required by the app; the only supported network |
+| `config.springProfile` | `preview` | required by the app; the single source of truth for which chain the node acts on |
 | `config.db.*` | host `""`, port 5432, db `aquarium`, schema `public`, user `aquarium` | Postgres is consumed, not deployed — §7 on the username |
 | `config.db.url` | `""` | composed from the parts above unless overridden |
 | `config.store.cardano.host` / `.port` | public preview relay / `3001` | |
 | `config.store.cardano.cursorCleanupIntervalSeconds` | `60` | **diverges from upstream's `3600`** — §9; `null` inherits |
 | `config.store.cardano.cursorNoOfBlocksToKeep` | `2160` | upstream default; **`0` disables cleanup entirely** — §9 |
-| `secret.name` | `""` | empty → no secrets in the render |
-| `secret.mode` | `file` | or `env` — same Secret, different projection |
-| `secret.keys.*` | `wallet-mnemonic`, `blockfrost-key`, `db-password` | keys within that Secret |
+| `secret.mnemonic.name` / `.key` | `""` / `wallet-mnemonic` | empty name → no wallet secret. Must be set together with `secret.blockfrost.name` — the render refuses one without the other |
+| `secret.blockfrost.name` / `.key` | `""` / `blockfrost-key` | may name the same Secret as the mnemonic |
+| `secret.db.name` | `""` | empty + `postgres.enabled` → the operator's generated Secret; otherwise required once the wallet secrets are named |
+| `secret.db.passwordKey` / `.usernameKey` | `password` / `username` | |
+| `secret.db.mode` | `""` → `secret.mode` | the DB credential's projection, set separately when its Secret is operator-owned |
+| `secret.mode` | `env` | or `file`. `env` since 0.10.0 — see "Secrets" before choosing `file` |
 | `secret.mountPath` | `/etc/aquarium-secrets` | `file` mode only |
+| `postgres.enabled` | `false` | deploy a Zalando `postgresql` CR alongside — §7 |
 | `liquidation.mode` | `""` | `disabled\|shadow\|live`; empty → image default. **§5** |
 | `extraEnv` | `{}` | Spring property passthrough — **read §4 first** |
 | `waitForPostgres.enabled` | `false` | optional tcp-wait init container |
@@ -1307,22 +1314,32 @@ Hard-coding it would let the chart and the deployment tool disagree.
 render, and a render producing zero objects exits 0. Assert on what came out:
 
 ```bash
-helm lint ./charts/ft-aquarium-node
-helm template t ./charts/ft-aquarium-node | grep -c '^kind:'                    # 2
+C=./charts/ft-aquarium-node
+S="--set secret.mnemonic.name=s --set secret.blockfrost.name=s --set secret.db.name=s"
 
-helm template t ./charts/ft-aquarium-node \
-  -f ./charts/ft-aquarium-node/values-preview.yaml \
-  --set secret.name=s --set serviceMonitor.enabled=true | grep -c '^kind:'      # 3
+helm lint $C
+helm template t $C | grep -c '^kind:'                                            # 3
 
-# file mode projects four property files from three keys:
-helm template t ./charts/ft-aquarium-node --set secret.name=s \
-  | grep -cE 'path: (wallet.mnemonic|blockfrost.key|spring.(datasource|flyway).password)'   # 4
+helm template t $C -f $C/values-preview.yaml $S \
+  --set serviceMonitor.enabled=true | grep -c '^kind:'                           # 4
 
-# and the things that must never render, never render:
-helm template t ./charts/ft-aquarium-node --set secret.name=s | grep -iE \
+# file mode projects six property files from four keys — password and username
+# each twice, once for the datasource and once for Flyway:
+helm template t $C --set secret.mode=file $S \
+  | grep -cE 'path: (wallet|blockfrost|spring)\.'                               # 6
+
+# and the things that must never render, never render — against a render that
+# is asserted NON-EMPTY first, or an empty render passes this vacuously:
+out=$(helm template t $C $S) && [ "$(echo "$out" | grep -c '^kind:')" -eq 3 ] \
+  && echo "$out" | grep -iE \
   'LIQUIDATION_MODE|LIQUIDATION_ENABLED|AQUARIUM_X_SUBMIT|kind: Ingress|readinessProbe|replicaCount'
-# ^ must produce no output
+# ^ must produce no output, AND the line before it must have passed
 ```
+
+⚠ Until 0.10.2 these commands used `--set secret.name=s`, removed in 0.3.0 and
+refused by the render since. The counts came back 0 and the must-never-render
+check **passed because nothing rendered** — which is the failure this section
+exists to prevent, reproduced by its own instructions.
 
 ## Provenance
 
