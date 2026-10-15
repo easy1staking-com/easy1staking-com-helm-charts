@@ -75,6 +75,9 @@
 {{- if .Values.secrets -}}
 {{- fail "values set a top-level `secrets:` key, but this chart's key is `secret:` (singular). Helm ignores unknown top-level keys silently, so `secrets:` mounts NOTHING and the application fails at startup with \"Invalid mnemonic phrase\" — a message about the value, caused by the key. Rename `secrets:` to `secret:`." -}}
 {{- end -}}
+{{- if (.Values.wallet | default dict).mnemonic -}}
+{{- fail "values set `wallet.mnemonic`. `wallet:` holds only `accountIndex`; the seed is never a values key in this chart and comes only from the Secret named by `secret.mnemonic`. Helm discards unknown keys silently, so this one does nothing — and the seed now sits in plaintext in whatever values file or Argo Application set it. Move it into a Secret and delete it from the values." -}}
+{{- end -}}
 {{- /*
   ⛔ REMOVED IN 0.6.0, AND THE APPLICATION NO LONGER READS EITHER.
 
@@ -507,6 +510,13 @@ spec:
             {{- include "ft-aquarium-node.env" (dict "name" "SCHEDULING_TRANSACTION_PROCESSOR_ENABLED" "value" (.Values.scheduling | default dict).transactionProcessorEnabled) }}
             {{- include "ft-aquarium-node.env" (dict "name" "SCHEDULING_TRANSACTION_PROCESSOR_DELAY_MINUTES" "value" (.Values.scheduling | default dict).transactionProcessorDelayMinutes) }}
             {{- include "ft-aquarium-node.env" (dict "name" "SPRING_TASK_SCHEDULING_POOL_SIZE" "value" (.Values.scheduling | default dict).taskPoolSize) }}
+            {{- /*
+              Emitted only when set. `0` IS emitted — the helper tests the string,
+              not truthiness. No range check here: the application's parser is the
+              authority, fails the boot naming the setting, and accepts forms
+              (`+3`, `007`) a template regex would refuse.
+            */}}
+            {{- include "ft-aquarium-node.env" (dict "name" "WALLET_ACCOUNT_INDEX" "value" (.Values.wallet | default dict).accountIndex) }}
             {{- /*
               extraEnv stays permissive for anything the chart does not emit — the
               38th parameter arrives with the next application release and an

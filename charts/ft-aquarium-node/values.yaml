@@ -1232,6 +1232,32 @@ blockfrost:
   # settable here and never will be.
   url: ""
 
+wallet:
+  # Wallet selection. [documented from FluidTokens/ft-aquarium-node#57] → WALLET_ACCOUNT_INDEX
+  # CIP-1852 account index of the mnemonic: m/1852'/1815'/N'/0/0. One seed can
+  # drive several nodes, each on its own account ("Account #N" in Eternl/Lace),
+  # with its OWN payment address AND its OWN stake key. A plain value, never a
+  # secret: the seed lives only in the Secret named by `secret.mnemonic`, and a
+  # `wallet.mnemonic` key here is refused at render.
+  #
+  # Empty = the chart emits nothing = account 0, the wallet every node used
+  # before this setting existed. `0` is emitted and selects the same wallet.
+  # Anything but a whole number 0..2147483647 fails the boot, naming the setting.
+  #
+  # ⛔ NODES SHARING A SEED NEED DIFFERENT INDEXES — two left empty are both
+  # account 0, one wallet signing from two pods: the race `replicaCount` refuses,
+  # reached across releases where no guard can see it. And IMAGES BUILT BEFORE
+  # #57 IGNORE THIS ENTIRELY, including this chart's default `appVersion`, which
+  # produces the same race while the values say otherwise. The boot log tells
+  # the two apart in one line — check it, and the addresses, before arming:
+  #   honoured: INIT - Aquarium Node wallet: account index N, address …, stake address …
+  #   ignored:  INIT - Aquarium Node base address: …
+  #
+  # ⚠ CHANGING IT ON A NODE THAT HAS ALREADY SYNCED hides the new account's
+  # existing coins, and a new account's stake key does not hold the FLDT stake.
+  # Both are in README, "One mnemonic, several nodes".
+  accountIndex: ""
+
 scheduling:
   # Safety gate. [documented] → SCHEDULING_TRANSACTION_PROCESSOR_ENABLED
   # ⛔ THE TRANSACTION PROCESSOR IS OFF UNLESS YOU SET THIS TO "true".

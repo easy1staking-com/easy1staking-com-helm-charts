@@ -645,6 +645,75 @@ chart ships it set** — same rule as the liquidation flags: a stranger's
 
 ---
 
+## One mnemonic, several nodes: `wallet.accountIndex`
+
+`wallet.accountIndex` → `WALLET_ACCOUNT_INDEX` → the application's
+`wallet.account-index`: the CIP-1852 account of the mnemonic,
+`m/1852'/1815'/N'/0/0`. Each account is a different wallet — "Account #N" in
+Eternl or Lace — with its own payment address **and its own stake key**, so one
+seed can drive several nodes without them sharing funds. Added in chart 0.11.0;
+the application side is FluidTokens/ft-aquarium-node#57.
+
+It is a plain value, not a secret. The seed still comes only from the Secret
+named by `secret.mnemonic`. A `wallet.mnemonic` key is **refused at render**:
+Helm would discard it silently, so it would do nothing except leave the seed in
+plaintext wherever the values live.
+
+| set to | the container gets | wallet |
+|---|---|---|
+| unset or `""` | no variable | account 0 — the wallet every node used before this setting |
+| `0` | `WALLET_ACCOUNT_INDEX=0` | account 0, the same wallet |
+| `N` | `WALLET_ACCOUNT_INDEX=N` | account N |
+| anything else | passed through | **boot fails**, naming `wallet.account-index` |
+
+The chart does not range-check it. The application's parser is the authority:
+it fails loud, and it accepts forms (`+3`, `007`) that a template regex would
+refuse — a chart stricter than the thing it configures is a defect this chart
+has already had to retract once, for `liquidation.mode`. A large index written
+in a values file reaches the container as digits, not `2.147483647e+09`; see
+"Numbers in a values file were being mangled".
+
+### ⛔ Nodes sharing a seed need different indexes — and an image that reads them
+
+Two nodes on one seed both left at the default are both account 0: **one wallet
+signing from two pods**, the race `replicaCount` refuses, reached across two
+releases where no guard can see it.
+
+The same race happens *while the values say otherwise* on an image built before
+#57, which ignores the variable entirely — and this chart's default `appVersion`
+(`2026.09.17`) is one. The render is identical either way. The boot log is not:
+
+```
+honoured:  INIT - Aquarium Node wallet: account index N, address …, stake address …
+ignored:   INIT - Aquarium Node base address: …
+```
+
+Check that line, and the two addresses against the wallet app, before arming.
+
+### Switching the index on a node that has already synced
+
+The node indexes wallet UTxOs only for the wallet configured **at boot**,
+filtering as it writes. After a switch, coins already sitting at the new account
+are invisible — not stored, not counted, not reported as missing. Only what
+arrives after the restart is seen. Nothing repairs this automatically; the
+node's own `docs/upgrading.md` §9 gives two ways out:
+
+- **wipe the database and re-sync** from the start point, which indexes the new
+  account's whole history (§7 on where that database lives);
+- **switch, restart, then self-send** — confirm the boot line above, then send
+  the new account's whole balance to itself from the wallet app, so it lands in
+  fresh UTxOs the node does index.
+
+### A new account has a new stake key
+
+The 30,000 FLDT stake is looked up by the wallet's **stake** key, and a new
+account has a new one. Tank processing stays disabled until the FLDT is
+re-delegated to it. The node logs one WARN naming the stake address it is
+looking for —
+`No 30k FLDT stake found for this wallet's stake key stake… — tank processing is DISABLED …`
+— and everything else keeps running. The probes hit `/actuator/health` and are
+unaffected, so a green pod says nothing about this.
+
 ## One margin, since 0.9.0
 
 **A conversion is a liquidation.** It repays the loan by routing the collateral
@@ -1290,6 +1359,7 @@ someone fixed is filed.**
 | `secret.keys.*` | `wallet-mnemonic`, `blockfrost-key`, `db-password` | keys within that Secret |
 | `secret.mountPath` | `/etc/aquarium-secrets` | `file` mode only |
 | `liquidation.mode` | `""` | `disabled\|shadow\|live`; empty → image default. **§5** |
+| `wallet.accountIndex` | `""` | CIP-1852 account of the seed; empty → account 0. **Needs an image with #57** — see "One mnemonic, several nodes" |
 | `extraEnv` | `{}` | Spring property passthrough — **read §4 first** |
 | `waitForPostgres.enabled` | `false` | optional tcp-wait init container |
 | `serviceMonitor.enabled` | `false` | **off**: a ServiceMonitor against absent CRDs fails the install |
