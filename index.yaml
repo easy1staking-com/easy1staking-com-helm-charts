@@ -626,6 +626,16 @@ entries:
     version: 0.0.1-alpha.1
   ft-aquarium-node:
   - apiVersion: v2
+    appVersion: 2026.10.15-a51259ff148b
+    created: "2026-10-15T20:39:14.951996273Z"
+    description: A Helm chart for the FluidTokens Aquarium node (preview)
+    digest: d4771c50bced166bc2501a02f42bf92d16f739ff770e5dc1991de1eb330e90da
+    name: ft-aquarium-node
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ft-aquarium-node-0.11.0/ft-aquarium-node-0.11.0.tgz
+    version: 0.11.0
+  - apiVersion: v2
     appVersion: 2026.09.17
     created: "2026-10-15T20:28:18.360708458Z"
     description: A Helm chart for the FluidTokens Aquarium node (preview)
@@ -1380,4 +1390,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/sundae-scooper-v2-0.1.0-alpha.1/sundae-scooper-v2-0.1.0-alpha.1.tgz
     version: 0.1.0-alpha.1
-generated: "2026-10-15T20:28:18.361090688Z"
+generated: "2026-10-15T20:39:14.952694067Z"
