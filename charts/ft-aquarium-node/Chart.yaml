@@ -7,20 +7,24 @@ type: application
 # Chart version — this chart's own semver. Bump on every chart change.
 # NOTE: bumping this in a commit to `main` publishes the chart immediately via
 # chart-releaser. That bump is the release gate and belongs to Giovanni.
-version: 0.10.2
+version: 0.11.0
 
 # Upstream image tag. This is FluidTokens' published build, NOT one we produce.
-# See README.md — this tag does not contain the Lending v4 liquidation work.
+# What each tag contains — liquidation code, WALLET_ACCOUNT_INDEX — is tabled in
+# README §1, read from each image's jar rather than from any document.
 # ⛔ appVersion TRACKS THE REGISTRY, AND THE CHART FALLS BACK TO IT WHEN NO
 # image.tag IS SET — so this value IS the default image.
 #
-# 2026.09.17, verified on Docker Hub today:
-#   fluidtokens/ft-aquarium-node:2026.09.17
-#   sha256:da105d5649655a0a207388cf40349ca99afab154ae9332bd0409d3575d1a1d84
-# Built from main at 61b3e6d. Was 2026.07.13 — two months and six releases stale.
+# 2026.10.15-a51259ff148b, verified on Docker Hub 2026-10-15:
+#   fluidtokens/ft-aquarium-node:2026.10.15-a51259ff148b
+#   sha256:a1eaf4c26e7060ac27e9061c3eb87ad746b5690e97f83fd2fc86eca5f8fd8cdd
+#   linux/amd64, user `aquarium` = uid 10001
+# Built by FluidTokens CI from main at a51259ff, the merge of their PR #57
+# (WALLET_ACCOUNT_INDEX). The tag format changed to <date>-<commit> in October.
+# History: 2026.07.13 → 2026.09.17 (chart 0.10.0) → 2026.10.15-a51259ff148b (chart 0.11.0).
 #
-# ⚠⚠ BUMPING THIS PAST 2026.09.17 ALSO SWITCHES OPERATORS TO A NON-ROOT IMAGE.
-# THAT IS NO LONGER A FORWARD-DATED WARNING — IT HAS HAPPENED.
+# ⚠⚠ CHART 0.11.0 IS THE BUMP THAT SWITCHES OPERATORS ON THE DEFAULT IMAGE TO
+# NON-ROOT. Everything below about uid 10001 applies to the default from here on.
 #
 #   2026.09.17 and earlier   runs as ROOT (verified: no `User` field in the config blob)
 #   2026.09.19 and later     runs as uid 10001
@@ -42,4 +46,4 @@ version: 0.10.2
 # visible rather than overwritten: a forward-dated warning becomes a stale claim
 # the moment the thing it predicts happens, and that is the same defect it was
 # written to prevent.
-appVersion: "2026.09.17"
+appVersion: "2026.10.15-a51259ff148b"

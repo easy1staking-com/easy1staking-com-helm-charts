@@ -15,11 +15,12 @@
   inspect an image. Whether runAsUser is set is only a PROXY for it, and a guard
   that can see only a proxy is wrong in both directions.
 
-  ⇒ It was already wrong in one: EVERY PUBLISHED IMAGE TODAY RUNS AS ROOT.
-  Verified on the registry — fluidtokens/ft-aquarium-node:2026.09.17 has no `User`
-  field — and root reads a root-owned mount with no securityContext at all. So the
-  fail refused a working configuration, and would have pushed an operator into
-  declaring a uid their image does not have.
+  ⇒ It was wrong in one direction when written: every image up to 2026.09.17 ran
+  as ROOT (no `User` field), and root reads a root-owned mount with no
+  securityContext at all — so the fail refused a working configuration. From
+  2026.09.19 the image runs as uid 10001 (the chart default since 0.11.0), and
+  the fail was blind there too: it checked that runAsUser was SET, not that it
+  MATCHED the image.
 
   ⇒ Same reasoning as sundae-scooper-v2's `network`-vs-`config.files` and
   heimdall's removed storageClass refusal. GUARD THE PROPERTY, DOCUMENT THE PROXY.
@@ -74,6 +75,14 @@
 {{- end -}}
 {{- if .Values.secrets -}}
 {{- fail "values set a top-level `secrets:` key, but this chart's key is `secret:` (singular). Helm ignores unknown top-level keys silently, so `secrets:` mounts NOTHING and the application fails at startup with \"Invalid mnemonic phrase\" — a message about the value, caused by the key. Rename `secrets:` to `secret:`." -}}
+{{- end -}}
+{{- if not (kindIs "invalid" (.Values.liquidation | default dict).quarantineMinutes) -}}
+{{- if ne (toString .Values.liquidation.quarantineMinutes) "" -}}
+{{- fail "values set `liquidation.quarantineMinutes`, REMOVED in 0.11.0: the default image (see Chart.yaml) no longer declares AQUARIUM_LIQUIDATION_QUARANTINE_MINUTES, so the setting would be emitted to an application that ignores it. Delete it. If you pin an older image.tag that still reads it, pass it through extraEnv and own that choice explicitly." -}}
+{{- end -}}
+{{- end -}}
+{{- if (.Values.wallet | default dict).mnemonic -}}
+{{- fail "values set `wallet.mnemonic`. `wallet:` holds only `accountIndex`; the seed is never a values key in this chart and comes only from the Secret named by `secret.mnemonic`. Helm discards unknown keys silently, so this one does nothing — and the seed now sits in plaintext in whatever values file or Argo Application set it. Move it into a Secret and delete it from the values." -}}
 {{- end -}}
 {{- /*
   ⛔ REMOVED IN 0.6.0, AND THE APPLICATION NO LONGER READS EITHER.
@@ -431,6 +440,7 @@ spec:
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_STAKING_TOKEN_NAME" "value" (($A.staking | default dict).token | default dict).name) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_TANK_REF_INPUT_TXHASH" "value" (($A.tank | default dict).refInput | default dict).txHash) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_TANK_REF_INPUT_OUTPUTINDEX" "value" (($A.tank | default dict).refInput | default dict).outputIndex) }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_SYNCING_THRESHOLD_MINUTES" "value" $A.syncingThresholdMinutes) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_MODE" "value" $L.mode) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_IGNORE_PROFIT_CHECK" "value" $L.ignoreProfitCheck) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_CHECK_PROFITABILITY" "value" $L.checkProfitability) }}
@@ -440,7 +450,6 @@ spec:
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_DELAY_SECONDS" "value" $L.delaySeconds) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_VALIDITY_WINDOW_SECONDS" "value" $L.validityWindowSeconds) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_ORACLE_MARGIN_SECONDS" "value" $L.oracleWindowMarginSeconds) }}
-            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_QUARANTINE_MINUTES" "value" $L.quarantineMinutes) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_DECISION_LOG_SIZE" "value" $L.decisionLogSize) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LOAN" "value" $R.loan) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_LIQUIDATION_REF_LOAN_SPEND" "value" $R.loanSpend) }}
@@ -500,6 +509,16 @@ spec:
             {{- include "ft-aquarium-node.env" (dict "name" (printf "LOANS_LIQUIDATION_MARKETS_%d_CAP" $i) "value" $m.cap) }}
             {{- end }}
             {{- include "ft-aquarium-node.env" (dict "name" "LOANS_UI_ENABLED" "value" ($N.ui | default dict).enabled) }}
+            {{- /*
+              The rebalancer SUBMITS in shadow and the image defaults it ON, so a
+              typo is validated for the reason compound.enabled is: an unrecognised
+              value would silently leave it on.
+            */}}
+            {{- $rebal := toString (((($N.wallet | default dict).rebalance) | default dict).enabled) }}
+            {{- if and (ne $rebal "") (ne $rebal "<nil>") (not (has $rebal (list "true" "false"))) }}
+            {{- fail (printf "loans.wallet.rebalance.enabled must be true or false, got %q" $rebal) }}
+            {{- end }}
+            {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_WALLET_REBALANCE_ENABLED" "value" ((($N.wallet | default dict).rebalance) | default dict).enabled) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_COMPOUND_ENABLED" "value" $C.enabled) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_COMPOUND_DELAY_SECONDS" "value" $C.delaySeconds) }}
             {{- include "ft-aquarium-node.env" (dict "name" "AQUARIUM_COMPOUND_PROFIT_MARGIN_LOVELACE" "value" $C.profitMarginLovelace) }}
@@ -507,6 +526,13 @@ spec:
             {{- include "ft-aquarium-node.env" (dict "name" "SCHEDULING_TRANSACTION_PROCESSOR_ENABLED" "value" (.Values.scheduling | default dict).transactionProcessorEnabled) }}
             {{- include "ft-aquarium-node.env" (dict "name" "SCHEDULING_TRANSACTION_PROCESSOR_DELAY_MINUTES" "value" (.Values.scheduling | default dict).transactionProcessorDelayMinutes) }}
             {{- include "ft-aquarium-node.env" (dict "name" "SPRING_TASK_SCHEDULING_POOL_SIZE" "value" (.Values.scheduling | default dict).taskPoolSize) }}
+            {{- /*
+              Emitted only when set. `0` IS emitted — the helper tests the string,
+              not truthiness. No range check here: the application's parser is the
+              authority, fails the boot naming the setting, and accepts forms
+              (`+3`, `007`) a template regex would refuse.
+            */}}
+            {{- include "ft-aquarium-node.env" (dict "name" "WALLET_ACCOUNT_INDEX" "value" (.Values.wallet | default dict).accountIndex) }}
             {{- /*
               extraEnv stays permissive for anything the chart does not emit — the
               38th parameter arrives with the next application release and an
