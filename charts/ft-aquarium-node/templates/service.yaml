@@ -4,6 +4,13 @@ metadata:
   name: {{ include "ft-aquarium-node.fullname" . }}
   labels:
     {{- include "ft-aquarium-node.labels" . | nindent 4 }}
+    {{- /*
+      What the ServiceMonitor selects. The headless Service carries the same
+      selector labels, so the selector labels alone match both Services and
+      Prometheus would scrape the pod once through each. This label is on this
+      Service only. See service-monitor.yaml.
+    */}}
+    ft-aquarium-node/scrape: "true"
 spec:
   {{- /*
     ClusterIP by DEFAULT. The node dials out to everything it needs — the

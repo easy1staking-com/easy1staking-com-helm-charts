@@ -8,6 +8,10 @@
   Nothing depends on the per-pod name today — this workload is a singleton with
   no peers — but the StatefulSet references a governing Service by name and it
   should be one that actually exists and is the right kind.
+
+  Deliberately NOT scraped: it lacks the `ft-aquarium-node/scrape` label the
+  ServiceMonitor selects, so Prometheus reaches the pod through the main
+  Service alone. Do not add that label here.
 */}}
 apiVersion: v1
 kind: Service
