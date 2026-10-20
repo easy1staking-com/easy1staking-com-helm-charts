@@ -9,18 +9,26 @@ Expand the name of the chart.
 Create a default fully qualified app name.
 We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
 If release name contains chart name it will be used as a full name.
+Every object name derives from it, and Services must be DNS-1035 labels (start
+with a letter). Helm accepts a release name starting with a digit, so that is
+refused here, at render, rather than by the API server mid-install.
 */}}
 {{- define "blockfrost.fullname" -}}
+{{- $full := "" }}
 {{- if .Values.fullnameOverride }}
-{{- .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- $full = .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
 {{- else }}
 {{- $name := default .Chart.Name .Values.nameOverride }}
 {{- if contains $name .Release.Name }}
-{{- .Release.Name | trunc 63 | trimSuffix "-" }}
+{{- $full = .Release.Name | trunc 63 | trimSuffix "-" }}
 {{- else }}
-{{- printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
+{{- $full = printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
 {{- end }}
 {{- end }}
+{{- if regexMatch "^[0-9]" $full }}
+{{- fail (printf "release name %q gives object names starting with a digit (%q), which Kubernetes rejects for Services: set fullnameOverride (or nameOverride) to a name starting with a letter" .Release.Name $full) }}
+{{- end }}
+{{- $full }}
 {{- end }}
 
 {{/*
@@ -56,9 +64,13 @@ other, so they are defined once here.
 The base is truncated to leave room for the suffix BEFORE the suffix is appended:
 truncating after would cut the suffix off a long fullname and give Dolos and the
 Platform the same name (colliding Services, workloads and alert jobs).
+The Dolos name is also the StatefulSet's, so it is capped at 52, not 63: the
+controller labels each pod statefulset.kubernetes.io/pod-name=<sts>-<ordinal> and
+controller-revision-hash=<sts>-<hash, up to 10 chars>, and a label value over 63
+characters means the pods are never created. 46 + "-dolos" = 52.
 */}}
 {{- define "blockfrost.dolosName" -}}
-{{- printf "%s-dolos" (include "blockfrost.fullname" . | trunc 57 | trimSuffix "-") }}
+{{- printf "%s-dolos" (include "blockfrost.fullname" . | trunc 46 | trimSuffix "-") }}
 {{- end }}
 
 {{- define "blockfrost.platformName" -}}
