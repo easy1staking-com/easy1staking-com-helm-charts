@@ -9,14 +9,22 @@ Expand the name of the chart.
 Create a default fully qualified app name.
 We truncate at 63 chars because some Kubernetes name fields are limited to this (by the DNS naming spec).
 If release name contains chart name it will be used as a full name.
-Every object name derives from it, and Services must be DNS-1035 labels (start
-with a letter). Helm accepts a release name starting with a digit, so that is
-refused here, at render, rather than by the API server mid-install.
+Every object name derives from it, and Services must be DNS-1035 labels
+(lowercase letters, digits and '-', starting with a letter). Helm accepts release
+names starting with a digit or containing a dot, and fullnameOverride is free
+text, so any fullname that is not a DNS-1035 label is refused here, at render,
+rather than by the API server mid-install. One message per cause: a bad override
+names the override, a bad release name names the release. The release message
+offers only fullnameOverride on purpose: nameOverride is appended after the
+release name, so it can neither change the first character nor remove a dot.
 */}}
 {{- define "blockfrost.fullname" -}}
 {{- $full := "" }}
 {{- if .Values.fullnameOverride }}
-{{- $full = .Values.fullnameOverride | trunc 63 | trimSuffix "-" }}
+{{- $full = .Values.fullnameOverride | toString | trunc 63 | trimSuffix "-" }}
+{{- if not (regexMatch "^[a-z]([-a-z0-9]*[a-z0-9])?$" $full) }}
+{{- fail (printf "fullnameOverride %q is not a valid Kubernetes Service name: use lowercase letters, digits and '-', starting with a letter and ending with a letter or digit" (toString .Values.fullnameOverride)) }}
+{{- end }}
 {{- else }}
 {{- $name := default .Chart.Name .Values.nameOverride }}
 {{- if contains $name .Release.Name }}
@@ -24,9 +32,9 @@ refused here, at render, rather than by the API server mid-install.
 {{- else }}
 {{- $full = printf "%s-%s" .Release.Name $name | trunc 63 | trimSuffix "-" }}
 {{- end }}
+{{- if not (regexMatch "^[a-z]([-a-z0-9]*[a-z0-9])?$" $full) }}
+{{- fail (printf "release name %q gives the object name %q, which is not a valid Kubernetes Service name: set fullnameOverride to a name of lowercase letters, digits and '-', starting with a letter and ending with a letter or digit" .Release.Name $full) }}
 {{- end }}
-{{- if regexMatch "^[0-9]" $full }}
-{{- fail (printf "release name %q gives object names starting with a digit (%q), which Kubernetes rejects for Services: set fullnameOverride (or nameOverride) to a name starting with a letter" .Release.Name $full) }}
 {{- end }}
 {{- $full }}
 {{- end }}
