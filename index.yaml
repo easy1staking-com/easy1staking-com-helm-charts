@@ -392,6 +392,21 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/amaru-monitoring-0.1.0/amaru-monitoring-0.1.0.tgz
     version: 0.1.0
+  blockfrost:
+  - apiVersion: v2
+    appVersion: 1.0.0
+    created: "2026-10-20T07:22:54.018063691Z"
+    description: 'A Blockfrost API stack that needs no Cardano node of its own: blockfrost-platform
+      in solitary mode, backed by a Dolos data node, attached to an existing node
+      over two coordinates (n2n for Dolos sync, n2c via a socat TCP bridge for the
+      Platform).'
+    digest: 18277d32eeca650f5581ff2d46833e9ada3cac69c1feb55f1b4af4f08dc89a91
+    kubeVersion: '>=1.29.0-0'
+    name: blockfrost
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/blockfrost-0.1.0-alpha.1/blockfrost-0.1.0-alpha.1.tgz
+    version: 0.1.0-alpha.1
   cardano-db-sync:
   - apiVersion: v2
     appVersion: 13.6.0.4
@@ -1390,4 +1405,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/sundae-scooper-v2-0.1.0-alpha.1/sundae-scooper-v2-0.1.0-alpha.1.tgz
     version: 0.1.0-alpha.1
-generated: "2026-10-15T20:39:14.952694067Z"
+generated: "2026-10-20T07:22:54.018296101Z"
