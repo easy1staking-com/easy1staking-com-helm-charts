@@ -1,0 +1,89 @@
+{{- if .Values.prometheusRule.enabled }}
+{{- $plat := printf `job="%s",namespace="%s"` (include "blockfrost.platformName" .) .Release.Namespace }}
+{{- $dolos := printf `job="%s",namespace="%s"` (include "blockfrost.dolosName" .) .Release.Namespace }}
+{{- $r := .Values.prometheusRule.rules }}
+{{- $dolosPod := printf `namespace="%s",pod="%s-0"` .Release.Namespace (include "blockfrost.dolosName" .) }}
+{{- /*
+  All six alerts render regardless of platform.metrics. With metrics off the
+  Platform series are absent, so its three alerts stay silent rather than misfire.
+  No expr aggregates: each alert keeps exactly the job and namespace labels of its
+  input series.
+*/}}
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: {{ include "blockfrost.fullname" . }}
+  labels:
+    {{- include "blockfrost.labels" . | nindent 4 }}
+    release: {{ .Values.prometheusRule.releaseName }}
+spec:
+  groups:
+    - name: {{ include "blockfrost.fullname" . }}
+      rules:
+        - alert: BlockfrostPlatformDown
+          expr: up{ {{- $plat -}} } == 0
+          for: {{ $r.platformDown.for }}
+          labels:
+            severity: critical
+          annotations:
+            summary: Blockfrost Platform metrics target is down
+            description: 'Prometheus cannot scrape {{ "{{ $labels.job }}" }} in {{ "{{ $labels.namespace }}" }}.'
+        # health_errors_total is a gauge despite its name; the Platform's own
+        # GET / lists the errors behind it.
+        - alert: BlockfrostPlatformUnhealthy
+          expr: health_errors_total{ {{- $plat -}} } > 0
+          for: {{ $r.platformUnhealthy.for }}
+          labels:
+            severity: warning
+          annotations:
+            summary: Blockfrost Platform reports health errors
+            description: '{{ "{{ $labels.job }}" }} in {{ "{{ $labels.namespace }}" }} reports health errors; GET / on the Platform lists them.'
+        - alert: BlockfrostNodeDisconnected
+          expr: cardano_node_connections{ {{- $plat -}} } == 0
+          for: {{ $r.nodeDisconnected.for }}
+          labels:
+            severity: critical
+          annotations:
+            summary: Blockfrost Platform has no cardano-node connection
+            description: '{{ "{{ $labels.job }}" }} in {{ "{{ $labels.namespace }}" }} has no open connection to its cardano-node.'
+        # During the Mithril bootstrap (~2h) the Dolos pod is a not-ready endpoint:
+        # Prometheus scrapes it and up == 0 (measured live, 2026-10-20), so the
+        # `unless` silences this alert while kube-state-metrics reports the
+        # `bootstrap` init container running. The container filter is defence in
+        # depth: `pod=` already pins the Dolos pod, whose only init container is
+        # `bootstrap`; the socat sidecar runs in the Platform pod.
+        # While the bootstrap init container keeps RUNNING (a hang, no restart),
+        # this alert stays suppressed with no upper bound and no alert covers it.
+        # Needs kube-state-metrics (part of kube-prometheus-stack); without it the
+        # `unless` matches nothing and this alert fires through every bootstrap.
+        - alert: BlockfrostDolosDown
+          expr: up{ {{- $dolos -}} } == 0 unless on(namespace, pod) kube_pod_init_container_status_running{ {{- $dolosPod -}},container="bootstrap" } == 1
+          for: {{ $r.dolosDown.for }}
+          labels:
+            severity: critical
+          annotations:
+            summary: Dolos MiniBF metrics target is down
+            description: 'Prometheus cannot scrape {{ "{{ $labels.job }}" }} in {{ "{{ $labels.namespace }}" }}.'
+        - alert: BlockfrostDolosStalled
+          expr: changes(dolos_slot{ {{- $dolos -}} }[15m]) == 0
+          for: {{ $r.dolosStalled.for }}
+          labels:
+            severity: warning
+          annotations:
+            summary: Dolos has not advanced its slot in 15 minutes
+            description: '{{ "{{ $labels.job }}" }} in {{ "{{ $labels.namespace }}" }} reports an unchanged dolos_slot over 15m.'
+        # Keyed on restarts, not on the CrashLoopBackOff waiting reason: the kubelet
+        # caps the back-off at 5m, so for a bootstrap that runs for minutes before
+        # crashing the waiting state never lasts a `for:` of 5m in a row and the
+        # alert would never fire, while DolosDown is suppressed during every run
+        # phase. A successful bootstrap runs exactly once, so any restart within
+        # the last 30m means it is failing.
+        - alert: BlockfrostDolosBootstrapCrashLooping
+          expr: increase(kube_pod_init_container_status_restarts_total{ {{- $dolosPod -}},container="bootstrap" }[30m]) > 0
+          for: {{ $r.dolosBootstrapCrashLooping.for }}
+          labels:
+            severity: critical
+          annotations:
+            summary: Dolos bootstrap init container restarted
+            description: 'The bootstrap init container of {{ "{{ $labels.pod }}" }} in {{ "{{ $labels.namespace }}" }} restarted in the last 30 minutes.'
+{{- end }}

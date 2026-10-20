@@ -1,0 +1,19 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "blockfrost.dolosName" . }}
+  labels:
+    {{- include "blockfrost.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dolos
+spec:
+  # ClusterIP only, with no value to change it: MiniBF is the Platform's data
+  # backend, not a public API. Expose the Platform instead.
+  type: ClusterIP
+  ports:
+    - name: minibf
+      port: 3010
+      targetPort: minibf
+      protocol: TCP
+  selector:
+    {{- include "blockfrost.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: dolos

@@ -1,0 +1,56 @@
+{{- if .Values.platform.ingress.enabled -}}
+{{- $ing := .Values.platform.ingress -}}
+{{- if not $ing.host -}}
+{{- fail "platform.ingress.host is required when platform.ingress.enabled is true" -}}
+{{- end -}}
+{{- $svcName := include "blockfrost.platformName" . -}}
+{{- $svcPort := include "blockfrost.port" (dict "port" .Values.platform.service.port "key" "platform.service.port") -}}
+{{- /*
+  ONLY the Blockfrost API paths are routed. Never `Prefix /` and never anything
+  under /metrics: the Platform serves /metrics AND /metrics/ (trailing slash), so
+  an Exact exclusion of /metrics would still leak the other. An allowlist is the
+  only shape that cannot leak a path nobody thought of.
+*/ -}}
+{{- $prefixes := list "/accounts" "/addresses" "/assets" "/blocks" "/epochs" "/genesis" "/governance" "/health" "/metadata" "/network" "/pools" "/scripts" "/tx" "/txs" "/utils" -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "blockfrost.platformName" . }}
+  labels:
+    {{- include "blockfrost.labels" . | nindent 4 }}
+    app.kubernetes.io/component: platform
+  {{- with $ing.annotations }}
+  annotations:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+spec:
+  {{- with $ing.className }}
+  ingressClassName: {{ . | quote }}
+  {{- end }}
+  {{- with $ing.tls }}
+  tls:
+    {{- toYaml . | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ $ing.host | quote }}
+      http:
+        paths:
+          # The root answers with node info (slot, sync state); Exact, so it admits
+          # nothing beneath it.
+          - path: /
+            pathType: Exact
+            backend:
+              service:
+                name: {{ $svcName }}
+                port:
+                  number: {{ $svcPort }}
+          {{- range $prefixes }}
+          - path: {{ . }}
+            pathType: Prefix
+            backend:
+              service:
+                name: {{ $svcName }}
+                port:
+                  number: {{ $svcPort }}
+          {{- end }}
+{{- end }}

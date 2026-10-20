@@ -1,0 +1,93 @@
+{{- $net := include "blockfrost.net" . | fromYaml -}}
+{{- $dataPath := include "blockfrost.dolosDataPath" . -}}
+{{- $configDir := include "blockfrost.dolosConfigDir" . -}}
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: {{ include "blockfrost.dolosName" . }}
+  labels:
+    {{- include "blockfrost.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dolos
+spec:
+  # Hard-coded, with no value to change it: Dolos is a SINGLE WRITER over its
+  # store. A second replica would be a second, independent node bootstrapping its
+  # own volume, not a scale-out. Scale the Platform instead.
+  replicas: 1
+  serviceName: {{ include "blockfrost.dolosName" . }}
+  selector:
+    matchLabels:
+      {{- include "blockfrost.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: dolos
+  template:
+    metadata:
+      annotations:
+        # Roll the pod when dolos.toml or bootstrap.sh changes.
+        checksum/config: {{ include (print $.Template.BasePath "/configmap.yaml") . | sha256sum }}
+      labels:
+        {{- include "blockfrost.labels" . | nindent 8 }}
+        app.kubernetes.io/component: dolos
+    spec:
+      initContainers:
+        # Mithril bootstrap behind a marker guard; see bootstrap.sh in configmap.yaml.
+        - name: bootstrap
+          image: {{ include "blockfrost.image" (dict "image" .Values.dolos.image) | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["sh", "{{ $configDir }}/bootstrap.sh"]
+          env:
+            - name: DATA_DIR
+              value: {{ $dataPath | quote }}
+            - name: BOOTSTRAP_MARKER_CONTENT
+              value: {{ include "blockfrost.markerContent" . | quote }}
+            - name: DOWNLOAD_DIR
+              value: {{ include "blockfrost.downloadDir" . | quote }}
+          resources:
+            {{- toYaml .Values.dolos.bootstrap.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ $dataPath }}
+            - name: config
+              mountPath: {{ $configDir }}
+              readOnly: true
+      containers:
+        - name: dolos
+          image: {{ include "blockfrost.image" (dict "image" .Values.dolos.image) | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["dolos"]
+          args: ["-c", "{{ $configDir }}/dolos.toml", "daemon"]
+          workingDir: {{ $dataPath }}
+          ports:
+            - name: minibf
+              containerPort: 3010
+              protocol: TCP
+          # Process liveness only. There is deliberately no startup or readiness
+          # probe tied to sync: readiness is deferred by decision until real data
+          # exists to set it from.
+          livenessProbe:
+            tcpSocket:
+              port: 3010
+            initialDelaySeconds: 30
+            periodSeconds: 20
+            failureThreshold: 6
+          resources:
+            {{- toYaml .Values.dolos.resources | nindent 12 }}
+          volumeMounts:
+            - name: data
+              mountPath: {{ $dataPath }}
+            - name: config
+              mountPath: {{ $configDir }}
+              readOnly: true
+      volumes:
+        - name: config
+          configMap:
+            name: {{ include "blockfrost.dolosName" . }}
+  volumeClaimTemplates:
+    - metadata:
+        name: data
+      spec:
+        accessModes: [ {{ .Values.dolos.storage.accessMode | quote }} ]
+        {{- with .Values.dolos.storage.storageClassName }}
+        storageClassName: {{ . | quote }}
+        {{- end }}
+        resources:
+          requests:
+            storage: {{ default $net.volumeSize .Values.dolos.storage.size | quote }}

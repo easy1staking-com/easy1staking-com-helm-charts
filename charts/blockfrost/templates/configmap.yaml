@@ -1,0 +1,122 @@
+{{- $net := include "blockfrost.net" . | fromYaml -}}
+{{- $genesis := printf "/etc/genesis/%s" (toString .Values.network) -}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "blockfrost.dolosName" . }}
+  labels:
+    {{- include "blockfrost.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dolos
+data:
+  {{- /*
+    Rendered from Blockfrost's docker/dolos-config.toml.tpl (blockfrost-platform@19530a2),
+    same sections and order. String values go through toJson: a JSON string is a
+    valid TOML basic string, so a value cannot break out of its quotes.
+    Genesis files are baked into the Dolos image under /etc/genesis/<network>/.
+  */}}
+  dolos.toml: |
+    [chain]
+    is_testnet = {{ $net.isTestnet }}
+    magic = {{ $net.magic }}
+    type = "cardano"
+
+    [genesis]
+    alonzo_path = {{ printf "%s/alonzo.json" $genesis | toJson }}
+    byron_path = {{ printf "%s/byron.json" $genesis | toJson }}
+    conway_path = {{ printf "%s/conway.json" $genesis | toJson }}
+    {{- if $net.forceProtocol }}
+    force_protocol = {{ $net.forceProtocol }}
+    {{- end }}
+    shelley_path = {{ printf "%s/shelley.json" $genesis | toJson }}
+
+    [logging]
+    include_grpc = false
+    include_pallas = false
+    include_tokio = false
+    include_trp = false
+    max_level = {{ toString .Values.dolos.logLevel | toJson }}
+
+    [mithril]
+    aggregator = {{ default $net.aggregator .Values.dolos.mithril.aggregator | toJson }}
+    ancillary_key = {{ default $net.ancillaryKey .Values.dolos.mithril.ancillaryKey | toJson }}
+    genesis_key = {{ default $net.genesisKey .Values.dolos.mithril.genesisKey | toJson }}
+
+    # Only MiniBF is served. Inside the cluster only: the Dolos Service is ClusterIP.
+    [serve.minibf]
+    listen_address = "[::]:3010"
+    token_registry_url = {{ default $net.tokenRegistryUrl .Values.dolos.tokenRegistryUrl | toJson }}
+
+    [storage]
+    path = {{ include "blockfrost.dolosDataPath" . | toJson }}
+    version = "v3"
+
+    [submit]
+
+    [sync]
+    {{- /*
+      Upstream Blockfrost writes `[storage] max_wal_history = 25920`. No Dolos version
+      reads that key (Dolos ignores unknown keys silently), so it never had an effect.
+      WAL pruning is `[sync] max_rollback`; this is the value upstream intended, under
+      the key Dolos actually reads. (Kept as a template comment: the rendered file must
+      not contain the dead key's name at all.)
+      There is deliberately NO `[sync] max_history`: absent means a full archive, as
+      upstream runs it.
+    */}}
+    max_rollback = {{ int .Values.dolos.sync.maxRollback }}
+    pull_batch_size = {{ int .Values.dolos.sync.pullBatchSize }}
+
+    [upstream]
+    peer_address = {{ include "blockfrost.n2nAddress" . | toJson }}
+  {{- /*
+    Bootstrap init container script. POSIX sh: the Dolos image's /bin/sh is dash.
+  */}}
+  bootstrap.sh: |
+    set -eu
+
+    MARKER="$DATA_DIR/.blockfrost-bootstrap-complete"
+
+    # a. DATA_DIR must be its own mounted volume. If the volume failed to mount,
+    #    DATA_DIR is a plain directory on the container's root filesystem — i.e. the
+    #    node's root disk — and a Mithril restore there fills it. A missing DATA_DIR
+    #    is refused too: stat would fail inside the test and compare as "different".
+    if ! { [ -d "$DATA_DIR" ] && [ "$(stat -c %d "$DATA_DIR")" != "$(stat -c %d /)" ]; }; then
+      echo "bootstrap: $DATA_DIR is not a mounted volume (missing, or on the same device as /); refusing to bootstrap onto the root filesystem" >&2
+      exit 1
+    fi
+
+    # b./c. The marker is written ONLY after `dolos bootstrap` exits 0, and records
+    #    which store it describes. When it is present, nothing below ever deletes.
+    if [ -e "$MARKER" ]; then
+      found="$(cat "$MARKER")"
+      if [ "$found" != "$BOOTSTRAP_MARKER_CONTENT" ]; then
+        echo "bootstrap: marker holds '$found' but this release expects '$BOOTSTRAP_MARKER_CONTENT' (another network or storage version?); refusing to start, nothing deleted" >&2
+        exit 1
+      fi
+      if [ ! -d "$DATA_DIR/state" ] || [ -z "$(ls -A "$DATA_DIR/state")" ]; then
+        echo "bootstrap: marked but empty: marker is present but $DATA_DIR/state is missing or empty; refusing to start, nothing deleted" >&2
+        exit 1
+      fi
+      echo "bootstrap: already complete ($found), nothing to do"
+      exit 0
+    fi
+
+    # d. No marker: anything here (lost+found aside) is the residue of a bootstrap
+    #    that never finished.
+    if [ -n "$(ls -A "$DATA_DIR" | grep -vxF 'lost+found' || true)" ]; then
+      echo "bootstrap: no completion marker and $DATA_DIR is not empty: clearing an interrupted bootstrap"
+      # DELIBERATE DIVERGENCE from charts/amaru (amaru-init-cm.yaml), which ADOPTS
+      # unmarked data. Here it is wiped: Giovanni ruled 2026-10-19 that a
+      # half-finished Mithril restore is unusable. Accepted residue: a leftover disk
+      # from an earlier install with no marker is wiped too, and there is no retry
+      # bound. Deletes the volume's CONTENTS, never the mount root itself.
+      find "$DATA_DIR" -mindepth 1 -maxdepth 1 ! -name lost+found -exec rm -rf {} +
+    fi
+
+    # e. Bootstrap. On failure: no marker, so the next start clears and retries.
+    if ! dolos -c {{ include "blockfrost.dolosConfigDir" . }}/dolos.toml bootstrap mithril --download-dir "$DATA_DIR/$DOWNLOAD_DIR"; then
+      echo "bootstrap: dolos bootstrap mithril failed; no marker written" >&2
+      exit 1
+    fi
+    printf '%s' "$BOOTSTRAP_MARKER_CONTENT" > "$MARKER.tmp"
+    mv "$MARKER.tmp" "$MARKER"
+    echo "bootstrap: complete ($BOOTSTRAP_MARKER_CONTENT)"

@@ -1,0 +1,52 @@
+{{- if .Values.serviceMonitor.enabled }}
+{{- /*
+  Selectors use the selector labels plus the component label only, never the full
+  label set: helm.sh/chart and app.kubernetes.io/version change on every chart
+  bump and would silently stop matching the Service.
+*/}}
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "blockfrost.dolosName" . }}
+  labels:
+    {{- include "blockfrost.labels" . | nindent 4 }}
+    app.kubernetes.io/component: dolos
+    release: {{ .Values.serviceMonitor.releaseName }}
+spec:
+  endpoints:
+    - port: minibf
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      {{- include "blockfrost.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: dolos
+{{- if .Values.platform.metrics }}
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: {{ include "blockfrost.platformName" . }}
+  labels:
+    {{- include "blockfrost.labels" . | nindent 4 }}
+    app.kubernetes.io/component: platform
+    release: {{ .Values.serviceMonitor.releaseName }}
+spec:
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: {{ .Values.serviceMonitor.interval }}
+      scrapeTimeout: {{ .Values.serviceMonitor.scrapeTimeout }}
+  namespaceSelector:
+    matchNames:
+      - {{ .Release.Namespace }}
+  selector:
+    matchLabels:
+      {{- include "blockfrost.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: platform
+{{- end }}
+{{- end }}

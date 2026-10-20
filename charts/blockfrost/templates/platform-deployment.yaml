@@ -1,0 +1,91 @@
+{{- $sock := include "blockfrost.nodeSocketPath" . -}}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "blockfrost.platformName" . }}
+  labels:
+    {{- include "blockfrost.labels" . | nindent 4 }}
+    app.kubernetes.io/component: platform
+spec:
+  {{- /* kindIs "invalid", not `default`: 0 is a legitimate replica count. */}}
+  replicas: {{ if kindIs "invalid" .Values.platform.replicas }}1{{ else }}{{ int .Values.platform.replicas }}{{ end }}
+  selector:
+    matchLabels:
+      {{- include "blockfrost.selectorLabels" . | nindent 6 }}
+      app.kubernetes.io/component: platform
+  template:
+    metadata:
+      labels:
+        {{- include "blockfrost.labels" . | nindent 8 }}
+        app.kubernetes.io/component: platform
+    spec:
+      # The Platform reads EVERY BLOCKFROST_* environment variable as config.
+      # Kubernetes service links inject <SERVICE>_PORT/_HOST variables for every
+      # Service in the namespace — including this chart's own, whose names start
+      # with the release name and may well start with BLOCKFROST. Turned off so the
+      # argv below is the whole configuration.
+      enableServiceLinks: false
+      initContainers:
+        # socat as a NATIVE sidecar (restartPolicy: Always): it starts before the
+        # Platform, stays up for the pod's life, and the startupProbe holds the
+        # Platform back until the socket exists. It bridges a local UNIX socket to
+        # upstream.n2c, which must itself be a socat TCP bridge to a node socket.
+        # The image entrypoint is socat, so only args are given.
+        - name: socat
+          image: {{ include "blockfrost.image" (dict "image" .Values.socat.image) | quote }}
+          imagePullPolicy: IfNotPresent
+          restartPolicy: Always
+          args:
+            - "UNIX-LISTEN:{{ $sock }},fork,reuseaddr,unlink-early"
+            - {{ printf "TCP:%s,ignoreeof" (include "blockfrost.n2cAddress" .) | quote }}
+          startupProbe:
+            exec:
+              command: ["test", "-S", "{{ $sock }}"]
+            periodSeconds: 2
+            failureThreshold: 30
+          resources:
+            {{- toYaml .Values.socat.resources | nindent 12 }}
+          volumeMounts:
+            - name: node-ipc
+              mountPath: {{ dir $sock }}
+      containers:
+        - name: platform
+          image: {{ include "blockfrost.image" (dict "image" .Values.platform.image) | quote }}
+          imagePullPolicy: IfNotPresent
+          # The image entrypoint is kept; this argv is the entire configuration.
+          # Solitary mode only: no Icebreakers registration, so no secret, reward
+          # address, mode, hydra or gateway flags exist in this chart at all.
+          args:
+            - --solitary
+            - --node-socket-path
+            - {{ $sock | quote }}
+            - --data-node
+            - {{ printf "http://%s:3010" (include "blockfrost.dolosName" .) | quote }}
+            - --data-node-timeout-sec
+            - {{ int .Values.platform.dataNodeTimeoutSec | quote }}
+            - --log-level
+            - {{ toString .Values.platform.logLevel | quote }}
+            {{- if not .Values.platform.metrics }}
+            - --no-metrics
+            {{- end }}
+          ports:
+            - name: http
+              containerPort: 3000
+              protocol: TCP
+          # /health/clock answers while the process lives. /health is deliberately
+          # NOT a probe: it returns 200 even when unhealthy (`"is_healthy": false`).
+          # No readiness probe: deferred by decision until real data exists.
+          livenessProbe:
+            httpGet:
+              path: /health/clock
+              port: http
+            periodSeconds: 20
+            failureThreshold: 3
+          resources:
+            {{- toYaml .Values.platform.resources | nindent 12 }}
+          volumeMounts:
+            - name: node-ipc
+              mountPath: {{ dir $sock }}
+      volumes:
+        - name: node-ipc
+          emptyDir: {}
