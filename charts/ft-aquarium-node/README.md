@@ -430,15 +430,19 @@ whatever the heap looks like. Every other panel exists to explain that one line.
 **Read peaks, over the right window.** The window must include the initial or a
 catch-up sync and at least one `CursorCleanupScheduler` run (§9). The node
 evaluates no Plutus script itself, armed or not: script evaluation is remote, at
-Blockfrost. What else the window holds depends on `liquidation.mode`. With
-`disabled` the node runs no loan scan and builds no transactions, so a
-measurement taken in `disabled` covers sync, cursor clean-up, pruning and steady
-state only. `shadow` — the chart's preview default — is not armed, yet it runs
-the loan scan and builds transactions without submitting them, so a default
-install's measurement includes that work. `live` is the armed mode (§5). Shadow's
-scan can stay idle while the lending gate is closed — for example when the
-Blockfrost key is not a working one — so check the boot log before assuming the
-scan ran inside the window. **Steady-state and
+Blockfrost. Every spending path your configuration enables must also run inside
+the window:
+
+| Switch | What it adds to the window | Defined in |
+|---|---|---|
+| `liquidation.mode` | `disabled`: no loan scan. `shadow` — the image's preview-profile default — is **not armed**: the loan scan runs and liquidation transactions are built but not submitted. `live` is **armed** — the arming act — and the same transactions are submitted | §5 |
+| `compound.enabled` | The repayment-escrow path — collect a repaid loan's principal and deliver it into the lender's pool — built, signed and submitted, in **any** `liquidation.mode`. Arming one does not arm the other | "Compounding is a second arming switch" |
+| `scheduling.transactionProcessorEnabled` | The transaction processor, which builds and submits Scheduled Transactions from the operator wallet, in **any** `liquidation.mode`. Off unless this is `"true"` | "The application's parameter surface", *Timing and behaviour* |
+| `loans.wallet.rebalance.enabled` | **Default `true` in the image.** On every block, once the node is not syncing, one self-send that moves the bot wallet into the shape `ANTICIPATE` liquidations need — signed and submitted in `shadow` as well as `live`. It acts only when an `action: ANTICIPATE` market has an effective mode of `shadow` or `live`, so `markets: []` or `liquidation.mode: disabled` never triggers it, and neither do this chart's defaults or `values-preview.yaml` | "The wallet rebalancer submits in shadow" |
+
+All of these stay idle while the lending gate is closed — for example when the
+Blockfrost key is not a working one. `aquarium_lending_gate_closed` reads `1`
+then, and a measurement taken with the gate closed excludes them. **Steady-state and
 sync-time limits are different numbers, and a limit sized on steady state OOMs on
 the next re-sync.** A node that has only ever been watched at tip has not been
 measured for the case that kills it.

@@ -103,7 +103,7 @@
       "type": "timeseries",
       "id": 2,
       "title": "Working set and RSS vs limit vs request",
-      "description": "Answers: how close is the app container to its memory limit, and how much of the request does it use? container_memory_working_set_bytes is the number the kernel's OOM killer acts on — when it reaches the limit (dashed red) the container is killed, whatever the JVM thinks of its heap. RSS is shown for comparison; the working set also counts active page cache. The request (dashed orange) is what the scheduler reserves, not a cap. Size the limit from the PEAK working set over a window that includes a sync, a cursor-cleanup run and, in `shadow` or `live`, the loan scan — see README §8. Container is the app container, named after the chart.",
+      "description": "Answers: how close is the app container to its memory limit, and how much of the request does it use? container_memory_working_set_bytes is the number the kernel's OOM killer acts on — when it reaches the limit (dashed red) the container is killed, whatever the JVM thinks of its heap. RSS is shown for comparison; the working set also counts active page cache. The request (dashed orange) is what the scheduler reserves, not a cap. Size the limit from the PEAK working set over a window that includes a sync, a cursor-cleanup run and a run of every spending path your configuration enables — see README §8. Container is the app container, named after the chart.",
       "datasource": {
         "type": "prometheus",
         "uid": "${datasource}"
