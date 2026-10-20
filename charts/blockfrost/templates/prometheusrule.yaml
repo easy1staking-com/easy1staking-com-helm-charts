@@ -49,8 +49,11 @@ spec:
         # During the Mithril bootstrap (~2h) the Dolos pod is a not-ready endpoint:
         # Prometheus scrapes it and up == 0 (measured live, 2026-10-20), so the
         # `unless` silences this alert while kube-state-metrics reports the
-        # `bootstrap` init container running. The container filter is required: the
-        # Platform's socat sidecar also reports as a running init container.
+        # `bootstrap` init container running. The container filter is defence in
+        # depth: `pod=` already pins the Dolos pod, whose only init container is
+        # `bootstrap`; the socat sidecar runs in the Platform pod.
+        # While the bootstrap init container keeps RUNNING (a hang, no restart),
+        # this alert stays suppressed with no upper bound and no alert covers it.
         # Needs kube-state-metrics (part of kube-prometheus-stack); without it the
         # `unless` matches nothing and this alert fires through every bootstrap.
         - alert: BlockfrostDolosDown
@@ -69,12 +72,18 @@ spec:
           annotations:
             summary: Dolos has not advanced its slot in 15 minutes
             description: '{{ "{{ $labels.job }}" }} in {{ "{{ $labels.namespace }}" }} reports an unchanged dolos_slot over 15m.'
+        # Keyed on restarts, not on the CrashLoopBackOff waiting reason: the kubelet
+        # caps the back-off at 5m, so for a bootstrap that runs for minutes before
+        # crashing the waiting state never lasts a `for:` of 5m in a row and the
+        # alert would never fire, while DolosDown is suppressed during every run
+        # phase. A successful bootstrap runs exactly once, so any restart within
+        # the last 30m means it is failing.
         - alert: BlockfrostDolosBootstrapCrashLooping
-          expr: kube_pod_init_container_status_waiting_reason{ {{- $dolosPod -}},container="bootstrap",reason="CrashLoopBackOff" } == 1
+          expr: increase(kube_pod_init_container_status_restarts_total{ {{- $dolosPod -}},container="bootstrap" }[30m]) > 0
           for: {{ $r.dolosBootstrapCrashLooping.for }}
           labels:
             severity: critical
           annotations:
-            summary: Dolos bootstrap init container is crash-looping
-            description: 'The bootstrap init container of {{ "{{ $labels.pod }}" }} in {{ "{{ $labels.namespace }}" }} is in CrashLoopBackOff.'
+            summary: Dolos bootstrap init container restarted
+            description: 'The bootstrap init container of {{ "{{ $labels.pod }}" }} in {{ "{{ $labels.namespace }}" }} restarted in the last 30 minutes.'
 {{- end }}
