@@ -1,7 +1,7 @@
 {
   "uid": "ft-aquarium-jvm-memory",
   "title": "ft-aquarium-node — JVM memory",
-  "description": "How small can this node's memory go: the kernel's view beside the JVM's. Needs serviceMonitor.enabled. The method that reads it is in the chart README, §8. The pod may be scraped through more than one Service (the chart's ServiceMonitor matches both the Service and the headless one), so every query over a jvm_* series collapses the duplicate scrape targets first and counts the pod once.",
+  "description": "How small can this node's memory go: the kernel's view beside the JVM's. Needs serviceMonitor.enabled. The method that reads it is in the chart README, §8. The pod may be scraped through more than one Service (for instance through a second ServiceMonitor), so every query over a jvm_* series collapses the duplicate scrape targets first and counts the pod once.",
   "tags": [
     "ft-aquarium-node",
     "jvm",

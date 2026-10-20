@@ -19,8 +19,14 @@ spec:
     Selector on the selector labels only, not on the full label set: the common
     labels carry helm.sh/chart and app.kubernetes.io/version, so matching on
     them would silently stop matching the Service on the next chart bump.
+
+    Plus one fixed label, `ft-aquarium-node/scrape`, carried by the main
+    Service only. The headless Service has the same selector labels, so without
+    it this selects both Services and Prometheus scrapes the pod once through
+    each, doubling every summed query. That was the case before 0.12.0.
   */}}
   selector:
     matchLabels:
       {{- include "ft-aquarium-node.selectorLabels" . | nindent 6 }}
+      ft-aquarium-node/scrape: "true"
 {{- end }}

@@ -390,12 +390,17 @@ The dashboard picks its Prometheus through a `datasource` variable, and its
 `namespace` / `pod` variables from `jvm_info`. Its default range is 7 days, so a
 sync and its aftermath fit on one screen.
 
-**Each pod is scraped twice.** The chart's ServiceMonitor currently matches both
-the Service and the headless Service, so Prometheus scrapes the pod through each
-and every `jvm_*` series arrives twice, differing only in `instance`, `job`,
-`service` and `endpoint`. The dashboard collapses the duplicates before it
-aggregates. A query you write by hand must do the same, or every `sum` doubles —
-and for a `rate()` or `increase()`, wrap the function, not the selector inside it:
+**The chart's ServiceMonitor selects only the main Service**, through the
+`ft-aquarium-node/scrape` label that the headless Service does not carry, so the
+chart itself scrapes each pod once. (Before 0.12.0 it selected both Services and
+every `jvm_*` series arrived once through each.) The dashboard still collapses
+duplicate scrape targets before it aggregates, because another ServiceMonitor or
+a PodMonitor that reaches the same pod brings every series back a second time. A
+query you write by hand should do the same, or every `sum` doubles the moment
+that happens — and for a `rate()` or `increase()`, wrap the function, not the
+selector inside it. The `without` list is deliberately a superset: which of these
+labels differ between duplicate targets depends on how they are scraped, so it
+drops every one that identifies a target rather than guessing:
 
 ```promql
 sum by (namespace, pod) (max without (instance, job, service, endpoint) (jvm_memory_used_bytes{area="heap"}))
@@ -423,8 +428,12 @@ whatever the heap looks like. Every other panel exists to explain that one line.
 #### The method: from readings to `resources.limits.memory` and `jvm.opts`
 
 **Read peaks, over the right window.** The window must include the initial or a
-catch-up sync, at least one `CursorCleanupScheduler` run (§9), and liquidation and
-compound runs — those evaluate PlutusV3 scripts in-process. **Steady-state and
+catch-up sync and at least one `CursorCleanupScheduler` run (§9). The node
+evaluates no Plutus script itself, armed or not: script evaluation is remote, at
+Blockfrost. An unarmed node does not run the loan scan or build transactions at
+all, so a measurement taken unarmed covers sync, cursor clean-up, pruning and
+steady state, and excludes the loan scan and transaction building, which only an
+armed or shadow-mode node adds. **Steady-state and
 sync-time limits are different numbers, and a limit sized on steady state OOMs on
 the next re-sync.** A node that has only ever been watched at tip has not been
 measured for the case that kills it.
