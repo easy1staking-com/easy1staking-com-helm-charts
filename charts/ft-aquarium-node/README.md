@@ -430,10 +430,15 @@ whatever the heap looks like. Every other panel exists to explain that one line.
 **Read peaks, over the right window.** The window must include the initial or a
 catch-up sync and at least one `CursorCleanupScheduler` run (§9). The node
 evaluates no Plutus script itself, armed or not: script evaluation is remote, at
-Blockfrost. An unarmed node does not run the loan scan or build transactions at
-all, so a measurement taken unarmed covers sync, cursor clean-up, pruning and
-steady state, and excludes the loan scan and transaction building, which only an
-armed or shadow-mode node adds. **Steady-state and
+Blockfrost. What else the window holds depends on `liquidation.mode`. With
+`disabled` the node runs no loan scan and builds no transactions, so a
+measurement taken in `disabled` covers sync, cursor clean-up, pruning and steady
+state only. `shadow` — the chart's preview default — is not armed, yet it runs
+the loan scan and builds transactions without submitting them, so a default
+install's measurement includes that work. `live` is the armed mode (§5). Shadow's
+scan can stay idle while the lending gate is closed — for example when the
+Blockfrost key is not a working one — so check the boot log before assuming the
+scan ran inside the window. **Steady-state and
 sync-time limits are different numbers, and a limit sized on steady state OOMs on
 the next re-sync.** A node that has only ever been watched at tip has not been
 measured for the case that kills it.
