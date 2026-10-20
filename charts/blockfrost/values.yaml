@@ -1,0 +1,167 @@
+# Default values for blockfrost.
+#
+# Two workloads:
+#   - Dolos: a single-writer data node (StatefulSet) that syncs from an existing
+#     Cardano node over n2n and serves its MiniBF API on :3010, inside the
+#     cluster only.
+#   - blockfrost-platform: a stateless API server (Deployment) in SOLITARY mode on
+#     :3000. It reads chain data from Dolos and submits transactions to the node
+#     over n2c, through a socat sidecar.
+#
+# The chart runs no Cardano node of its own. It needs the two upstream coordinates
+# below and refuses to render without them.
+#
+# Per-network settings (magic, Mithril aggregator and keys, token registry,
+# default volume size) are DERIVED from `network` in templates/_helpers.tpl, so
+# setting `network` inline is enough. There are deliberately no
+# values-<network>.yaml presets.
+
+nameOverride: ""
+fullnameOverride: ""
+
+# One of: mainnet | preprod | preview. Anything else fails the render.
+network: preview
+
+upstream:
+  # Node-to-node (chain-sync) endpoint of an existing Cardano node. Dolos syncs
+  # from it; rendered into dolos.toml as `peer_address = "<host>:<port>"`.
+  n2n:
+    host: ""   # required — the render fails naming `upstream.n2n.host`
+    port: 3001
+  # Node-to-client endpoint. This MUST be a socat TCP bridge to the node's local
+  # socket (e.g. `socat TCP-LISTEN:<port>,fork UNIX-CONNECT:<node.socket>` next to
+  # the node), and that node must support LocalTxSubmission: the Platform submits
+  # transactions over it. The Platform pod runs the reverse bridge as a sidecar
+  # (UNIX-LISTEN → TCP), so the Platform itself sees an ordinary node socket.
+  # Note: the Platform auto-detects the network by trying every magic, so pointing
+  # this at a node on a different network is NOT refused at handshake.
+  n2c:
+    host: ""   # required — the render fails naming `upstream.n2c.host`
+    port: 3001
+
+platform:
+  image:
+    repository: ghcr.io/blockfrost/blockfrost-platform
+    tag: "1.0.0"
+    # Multi-arch index digest of ghcr.io/blockfrost/blockfrost-platform:1.0.0.
+    digest: sha256:be2f8ef118e85f9fcc5f2b213640e6b7715e3aad6cf4b37fde881991e101f2f8
+  # The Platform is stateless; scale freely. 0 is honoured and renders 0.
+  replicas: 1
+  # One of: debug | info | warn | error | trace.
+  logLevel: info
+  # Serve Prometheus metrics on :3000/metrics. false adds `--no-metrics`.
+  metrics: true
+  # How long the Platform waits for Dolos before failing a request.
+  dataNodeTimeoutSec: 30
+  # Measured (preview): anon 4.5 MiB, peak 25 MiB. No CPU limit by design.
+  resources:
+    requests:
+      cpu: 100m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+  service:
+    # ClusterIP | NodePort.
+    type: ClusterIP
+    port: 3000
+    # Only rendered when type is NodePort AND this is set. No default on purpose:
+    # nodePorts already claimed by default in this repo are 30000 (amaru AND
+    # cardano-node), 30080 (ft-aquarium-node preview) and 31337/31347/31357
+    # (ogmios). Pick one that is free in your cluster.
+    nodePort: null
+  # Routes ONLY the Blockfrost API paths (see templates/platform-ingress.yaml);
+  # /metrics is never exposed through it.
+  ingress:
+    enabled: false
+    className: ""
+    host: ""   # required when enabled — the render fails otherwise
+    annotations: {}
+    tls: []
+    #  - secretName: blockfrost-tls
+    #    hosts:
+    #      - api.example.invalid
+
+socat:
+  image:
+    repository: alpine/socat
+    tag: "1.8.1.1"
+    # Multi-arch index digest of alpine/socat:1.8.1.1.
+    digest: sha256:7f9a06753033f2b7de18edc2353f2c15153413d95a039163c6db270fc7a6c3b0
+  # Measured (preview): anon 0.9 MiB, peak 5.4 MiB.
+  resources:
+    requests:
+      cpu: 10m
+      memory: 16Mi
+    limits:
+      memory: 64Mi
+
+dolos:
+  image:
+    repository: ghcr.io/txpipe/dolos
+    # v1.6.1, not the v1.4.0 Blockfrost's own compose file pins: v1.4.0 can no
+    # longer Mithril-bootstrap (the aggregators dropped the Cardano-DB v1 backend
+    # it uses). v1.5.0 moved to Cardano DB v2; v1.6.1 is the first with the rustls
+    # fix.
+    tag: "v1.6.1"
+    # Multi-arch index digest of ghcr.io/txpipe/dolos:v1.6.1.
+    digest: sha256:b183db86adce91d389153f046101d1dba8e79909fa25384095580b3a8af37c31
+  # Daemon, measured (preview): anon 777 MiB at tip, peak 1047 MiB in the first
+  # minutes. Epoch-boundary peak on mainnet is UNMEASURED. No CPU limit: sync is
+  # CPU-bursty and a CPU limit only throttles it.
+  resources:
+    requests:
+      cpu: 500m
+      memory: 1Gi
+    limits:
+      memory: 3Gi
+  bootstrap:
+    # Mithril bootstrap init container, measured (preview): anon peak 3.11 GiB
+    # (8.76 GiB including reclaimable page cache), wall time 2h01m.
+    resources:
+      requests:
+        cpu: "1"
+        memory: 3Gi
+      limits:
+        memory: 5Gi
+    # Where the Mithril snapshot is downloaded, RELATIVE to the data volume. Dolos
+    # deletes it once the bootstrap succeeds (the chart does not pass
+    # --retain-snapshot), but it is on disk at the peak, so it must be on the
+    # data volume. Must be a plain relative path: not empty, no "." or ".."
+    # components (Dolos deletes this directory, so it must never resolve to the
+    # data volume itself), and not archive, index, state or wal — the store
+    # directories Dolos writes beside it.
+    downloadDir: snapshot
+  storage:
+    # Empty ⇒ the per-network default from templates/_helpers.tpl:
+    #   preview  60Gi   MEASURED: bootstrap peak 37.11 GiB (settles at 20.01 GiB
+    #                   once the snapshot is removed), + headroom for growth.
+    #   preprod  80Gi   DERIVED, not measured: preview scaled by Mithril snapshot
+    #                   size (20.13 GB / 16.04 GB) ≈ 46.6 GiB peak, + headroom.
+    #   mainnet 250Gi   UNMEASURED (Giovanni's ruling, "250 for now, refine later",
+    #                   T-408). ⚠ Probably TOO SMALL: scaling preview's ratios to the
+    #                   236.71 GB mainnet Mithril snapshot gives ≈550 GiB bootstrap
+    #                   peak and ≈295 GiB settled — a low-confidence derived figure,
+    #                   but it points one way. See T-408 before a mainnet install.
+    # ⛔ PUBLISHED DEFAULTS ARE FROZEN. volumeClaimTemplates are immutable, so
+    # changing a default here is a breaking chart-version bump for every existing
+    # install that relied on it. Set an explicit size instead of waiting for one.
+    size: ""
+    # Empty ⇒ the cluster's default StorageClass.
+    storageClassName: ""
+    accessMode: ReadWriteOnce
+  sync:
+    # WAL pruning depth, written as `[sync] max_rollback`. Blockfrost's upstream
+    # template writes `[storage] max_wal_history = 25920`, a key no Dolos version
+    # reads; this is the value it intended, under the key Dolos actually reads.
+    maxRollback: 25920
+    pullBatchSize: 100
+  # Empty ⇒ the per-network default (templates/_helpers.tpl). The keys are PUBLIC
+  # Mithril verification keys, not secrets.
+  mithril:
+    aggregator: ""
+    genesisKey: ""
+    ancillaryKey: ""
+  # Empty ⇒ the per-network default (templates/_helpers.tpl).
+  tokenRegistryUrl: ""
+  # Dolos `[logging] max_level`: ERROR | WARN | INFO | DEBUG | TRACE.
+  logLevel: INFO

@@ -1,0 +1,25 @@
+{{- $svc := .Values.platform.service -}}
+{{- if not (has (toString $svc.type) (list "ClusterIP" "NodePort")) -}}
+{{- fail (printf "platform.service.type must be ClusterIP or NodePort, got %q" (toString $svc.type)) -}}
+{{- end -}}
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "blockfrost.platformName" . }}
+  labels:
+    {{- include "blockfrost.labels" . | nindent 4 }}
+    app.kubernetes.io/component: platform
+spec:
+  type: {{ $svc.type }}
+  ports:
+    - name: http
+      port: {{ include "blockfrost.port" (dict "port" $svc.port "key" "platform.service.port") }}
+      targetPort: http
+      protocol: TCP
+      {{- /* Only when NodePort AND a value is set; kindIs, so no falsy-value surprises. */}}
+      {{- if and (eq (toString $svc.type) "NodePort") (not (kindIs "invalid" $svc.nodePort)) (ne (toString $svc.nodePort) "") }}
+      nodePort: {{ include "blockfrost.port" (dict "port" $svc.nodePort "key" "platform.service.nodePort") }}
+      {{- end }}
+  selector:
+    {{- include "blockfrost.selectorLabels" . | nindent 4 }}
+    app.kubernetes.io/component: platform
