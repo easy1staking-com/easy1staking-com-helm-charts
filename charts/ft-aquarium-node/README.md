@@ -440,9 +440,11 @@ the window:
 | `scheduling.transactionProcessorEnabled` | The transaction processor, which builds and submits Scheduled Transactions from the operator wallet, in **any** `liquidation.mode`. Off unless this is `"true"` | "The application's parameter surface", *Timing and behaviour* |
 | `loans.wallet.rebalance.enabled` | **Default `true` in the image.** On every block, once the node is not syncing, one self-send that moves the bot wallet into the shape `ANTICIPATE` liquidations need — signed and submitted in `shadow` as well as `live`. It acts only when an `action: ANTICIPATE` market has an effective mode of `shadow` or `live`, so `markets: []` or `liquidation.mode: disabled` never triggers it, and neither do this chart's defaults or `values-preview.yaml` | "The wallet rebalancer submits in shadow" |
 
-All of these stay idle while the lending gate is closed — for example when the
-Blockfrost key is not a working one. `aquarium_lending_gate_closed` reads `1`
-then, and a measurement taken with the gate closed excludes them. **Steady-state and
+Only liquidation — in every mode, `shadow` included — and compounding check the
+lending gate. While it is closed — for example when the Blockfrost key is not a
+working one — `aquarium_lending_gate_closed` reads `1` and both refuse, so a
+measurement taken then leaves out rows 1–2 of the table. The transaction
+processor and the wallet rebalancer do not check it. **Steady-state and
 sync-time limits are different numbers, and a limit sized on steady state OOMs on
 the next re-sync.** A node that has only ever been watched at tip has not been
 measured for the case that kills it.
