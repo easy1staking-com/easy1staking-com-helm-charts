@@ -165,3 +165,32 @@ dolos:
   tokenRegistryUrl: ""
   # Dolos `[logging] max_level`: ERROR | WARN | INFO | DEBUG | TRACE.
   logLevel: INFO
+
+# Monitoring. Both default OFF: ServiceMonitor and PrometheusRule are
+# prometheus-operator CRDs, an installer's cluster may not have them, and an
+# unknown kind fails the whole install.
+serviceMonitor:
+  # One ServiceMonitor for Dolos MiniBF (:3010/metrics, always) and one for the
+  # Platform (:3000/metrics, only while platform.metrics is true).
+  enabled: false
+  # The `release` label kube-prometheus-stack's Prometheus selects on.
+  releaseName: kube-prometheus-stack
+  interval: 30s
+  scrapeTimeout: 10s
+
+prometheusRule:
+  # One PrometheusRule with five alerts, each scoped to its Service's job and
+  # this release's namespace.
+  enabled: false
+  releaseName: kube-prometheus-stack
+  rules:
+    platformDown:
+      for: 5m
+    platformUnhealthy:
+      for: 10m
+    nodeDisconnected:
+      for: 5m
+    dolosDown:
+      for: 10m
+    dolosStalled:
+      for: 5m
