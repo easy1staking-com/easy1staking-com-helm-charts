@@ -20,8 +20,15 @@ helm install blockfrost ./charts/blockfrost \
   --namespace blockfrost \
   --set network=preview \
   --set upstream.n2n.host=node.example.invalid \
-  --set upstream.n2c.host=node.example.invalid
+  --set upstream.n2c.host=node.example.invalid \
+  --set upstream.n2c.port=<bridge-port>
 ```
+
+`<bridge-port>` is the port of the socat bridge you run next to your node (see
+"What it needs from your node"). It is **not** the node's own n2n port, and both
+`upstream.*.port` values default to `3001`, so leaving `upstream.n2c.port` unset
+on a node that serves n2n on `3001` wires the Platform to the n2n port, which
+does not speak node-to-client.
 
 Release names whose full name starts with a digit are refused; see "Naming".
 
@@ -42,8 +49,18 @@ be a DNS name, an IPv4 address or a bracketed IPv6 address.
 **The n2c bridge is yours to run.** Next to your node, something like:
 
 ```bash
-socat TCP-LISTEN:<port>,fork UNIX-CONNECT:<path-to-node.socket>
+socat TCP-LISTEN:<bridge-port>,bind=<private-address>,fork,reuseaddr UNIX-CONNECT:<path-to-node.socket>
 ```
+
+**The bridge listens on its OWN port.** When it runs on the same host as the
+node's n2n listener, it must use a different port from it (both
+`upstream.n2n.port` and `upstream.n2c.port` default to `3001`, so set
+`upstream.n2c.port` explicitly).
+
+**Warning: the bridge is unauthenticated.** Anyone who can reach it can use
+LocalStateQuery and LocalTxSubmission against your node. Bind it to a private
+address (`bind=` above), never expose it publicly, and firewall it so that only
+the cluster can reach it.
 
 The Platform pod runs the reverse bridge itself, as a socat sidecar
 (UNIX-LISTEN to TCP), so the Platform sees an ordinary node socket.
@@ -62,8 +79,9 @@ n2c the Platform exits with "Could not detect network".
 
 Dolos Mithril-bootstraps in an init container before it serves anything.
 Measured on **preview**: **2h01m** wall time. Until it finishes, the Dolos pod is
-in `Init` and its Service has no endpoints. See "Bootstrap guard" for what every
-volume state does, and "Monitoring" for what stays silent meanwhile.
+in `Init` and is a not-ready endpoint of its Service (Prometheus still scrapes
+it, and it reads `up == 0`). See "Bootstrap guard" for what every
+volume state does, and "Monitoring" for how the alerts treat the bootstrap.
 
 During that window the Platform logs
 `ERROR ... Data node root check failed` every 2 seconds (observed in the
@@ -86,6 +104,8 @@ sets `kubeVersion: ">=1.29.0-0"`, so Helm refuses an older cluster instead.
 | Platform | `ghcr.io/blockfrost/blockfrost-platform:1.0.0` | distroless, runs as **root** upstream |
 | Dolos | `ghcr.io/txpipe/dolos:v1.6.1` | runs as **root** upstream |
 | socat | `alpine/socat:1.8.1.1` | runs as **root** upstream |
+
+All three images run as root upstream; the chart does not change the user.
 
 All three are pinned by multi-arch index digest in `values.yaml`. `appVersion`
 tracks the Platform; Dolos is pinned independently, so a Dolos bump does not move
@@ -147,10 +167,12 @@ who would then inherit every default the preset existed to override.
 | `platform.ingress.annotations` | `{}` | Ingress annotations |
 | `platform.ingress.tls` | `[]` | standard Ingress `tls` list |
 
-**A digest is not repository-independent.** If you point `platform.image.repository`
-(or the Dolos or socat equivalent) at your own mirror, clear or replace the
-`digest` with one resolved from *that* repository; the pinned values identify
-manifests inside the upstream repositories only.
+**Digests and mirrors.** The pinned values are multi-arch *index* digests. If you
+point `platform.image.repository` (or the Dolos or socat equivalent) at your own
+mirror that copies the multi-arch index unchanged, the pinned digest stays valid.
+Re-resolve the digest from the mirror only if the mirror re-pushes the image
+(a re-push changes the digest); clear or replace it with one resolved from
+*that* repository in that case.
 
 ### socat sidecar
 
@@ -214,6 +236,7 @@ peak.
 | `prometheusRule.rules.nodeDisconnected.for` | `5m` | `BlockfrostNodeDisconnected` |
 | `prometheusRule.rules.dolosDown.for` | `10m` | `BlockfrostDolosDown` |
 | `prometheusRule.rules.dolosStalled.for` | `5m` | `BlockfrostDolosStalled` |
+| `prometheusRule.rules.dolosBootstrapCrashLooping.for` | `5m` | `BlockfrostDolosBootstrapCrashLooping` |
 
 ---
 
@@ -265,7 +288,7 @@ listener, not a separate port: `dolos_slot`, `dolos_block_number`. Platform
 metrics include `cardano_node_connections`, `health_errors_total`,
 `http_requests_total`, `tx_submit_success` and `tx_submit_failure`.
 
-`prometheusRule.enabled` renders one PrometheusRule with five alerts, each scoped
+`prometheusRule.enabled` renders one PrometheusRule with six alerts, each scoped
 to its Service's job and this release's namespace:
 
 | Alert | Fires when | Default `for` |
@@ -273,19 +296,35 @@ to its Service's job and this release's namespace:
 | `BlockfrostPlatformDown` | the Platform scrape target is down | 5m |
 | `BlockfrostPlatformUnhealthy` | `health_errors_total` is above 0 | 10m |
 | `BlockfrostNodeDisconnected` | `cardano_node_connections` is 0 | 5m |
-| `BlockfrostDolosDown` | the Dolos scrape target is down | 10m |
+| `BlockfrostDolosDown` | the Dolos scrape target is down, unless the bootstrap init container is running | 10m |
 | `BlockfrostDolosStalled` | `dolos_slot` has not changed over 15 minutes | 5m |
+| `BlockfrostDolosBootstrapCrashLooping` | the Dolos pod's `bootstrap` init container restarted within the last 30 minutes | 5m |
 
-**`BlockfrostDolosDown` is silent during the bootstrap, by design.** While Dolos
-is in its init container the Service has no endpoints, so the target is *absent*
-rather than *down*, and `up == 0` has nothing to match.
+**During the bootstrap the Dolos pod is a not-ready endpoint, and it is scraped
+with `up == 0`** (measured on a live deploy). `BlockfrostDolosDown` is suppressed
+only through **kube-state-metrics**: it is silenced while
+`kube_pod_init_container_status_running` reports the `bootstrap` init container
+running. kube-state-metrics ships with kube-prometheus-stack; **without it the
+suppression matches nothing and `BlockfrostDolosDown` fires during every
+bootstrap** (about two hours).
 
-**The alert set has blind spots, and they share one cause: every "down" alert
-needs the target to exist.** None of these raises anything:
+**`BlockfrostDolosBootstrapCrashLooping` keys on restarts**, not on the
+`CrashLoopBackOff` waiting reason (the kubelet caps the back-off at 5 minutes, so
+a bootstrap that runs for a long time before crashing would never hold that state
+for a `for:` of 5 minutes). A successful bootstrap runs once, so any restart
+within the last 30 minutes means it is failing.
 
-- a bootstrap crash-looping in its init container (the target never appears);
-- a Platform scaled to 0 (`platform.replicas: 0`);
-- a deleted workload.
+**Accepted limits of the alert set:**
+
+- A node reboot that re-runs the init container on a healthy, already-bootstrapped
+  pod can page `BlockfrostDolosBootstrapCrashLooping` for about 25 minutes.
+  Whether the kubelet does this is **unverified**.
+- A bootstrap that fails late in its roughly two-hour run pages in pulses: the
+  alert resolves between crashes.
+- A **hung** bootstrap (running, never restarting) keeps `BlockfrostDolosDown`
+  suppressed with no upper bound, and no alert covers it.
+- A Platform scaled to 0 (`platform.replicas: 0`) or a deleted workload raises
+  nothing: the "down" alerts need a target to exist.
 
 `BlockfrostPlatformUnhealthy` may also fire while Dolos is still bootstrapping,
 since the Platform's health depends on its data node. That is **unmeasured**.
@@ -338,14 +377,14 @@ the per-network default:
 |---|---|---|
 | preview | `60Gi` | **MEASURED**: bootstrap peak 37.11 GiB, settling at 20.01 GiB once the download directory is removed, plus headroom for growth |
 | preprod | `80Gi` | **DERIVED**, not measured: preview scaled by Mithril snapshot size (20.13 GB / 16.04 GB) gives about 46.6 GiB peak, plus headroom |
-| mainnet | `250Gi` | **UNMEASURED**: Giovanni's ruling on 2026-10-19, "250 for now, refine later" (T-408) |
+| mainnet | `250Gi` | **UNMEASURED** placeholder: no mainnet bootstrap has been run, and the derived estimate below says it is probably too small |
 
 **Mainnet: 250Gi is probably too small.** The mainnet Mithril cardano-db is
 236.71 GB uncompressed (aggregator, epoch 662, read 2026-10-20). Scaling preview's
 ratios gives about **550 GiB** at the bootstrap peak and about **295 GiB** settled.
 That is a derived, low-confidence figure (mainnet ledger state and index do not
 scale linearly with immutable size), but it points one way. **Set
-`dolos.storage.size` explicitly for mainnet, and read T-408, before you install.**
+`dolos.storage.size` explicitly for mainnet before you install.**
 
 Preview, measured after bootstrap: `archive` 17G, `index` 3.1G, `snapshot` 15G
 (the download directory, removed afterwards), `state` 915M, `wal` 64K. The disk
@@ -357,14 +396,19 @@ settled figure.
   install that relied on it. Set an explicit size rather than waiting for one.
 - **Under-sizing is a destroy-and-restore**, not a resize: a size change on a
   running StatefulSet is rejected, and many provisioners cannot expand volumes.
-  Err generous; most provisioners do not preallocate.
+  Err generous where claims are cheap: `local-path` does not preallocate, so an
+  oversized claim consumes nothing, but cloud block storage allocates and bills
+  the full request.
 - **The PVC survives `helm uninstall`.** StatefulSet claims are not garbage
   collected by Helm. A reinstall finds the old volume and its marker (see "Bootstrap
   guard"); delete the PVC yourself if you want a clean start.
-- **A breaking Dolos upgrade needs a manual storage-format migration.** The
-  marker records `storage=v3`; a Dolos release that changes the storage format
-  will refuse the old volume. Migrate or re-bootstrap by hand (delete the PVC);
-  the chart does not do it for you.
+- **A breaking Dolos upgrade needs a manual storage-format migration, and the
+  guard will not tell you.** The marker's `storage=v3` is hard-coded in the
+  chart (and in the `storage` section of the rendered `dolos.toml`), so
+  overriding `dolos.image.tag` does **not** change it: the guard does **not**
+  protect against a newer Dolos storage format. How Dolos treats an old store is
+  **unmeasured**. If an upgrade changes the format, migrate or re-bootstrap by
+  hand (delete the PVC); the chart does not do it for you.
 
 ---
 
@@ -406,16 +450,16 @@ Each of these reads like an omission. None is.
   reads, `[sync] max_rollback`. The dead key's name is not in the rendered config
   at all. Do not "restore" it.
 - **No `[sync] max_history`.** Absent means a full archive, as upstream runs it.
-- **No readiness probes yet.** Readiness is deferred until real data exists to
-  base it on. The Platform's `/health` always answers 200, with
+- **No readiness probes yet.** Readiness is deferred by decision until real data
+  exists to base it on. The Platform's `/health` always answers 200, with
   `{"is_healthy": bool}` in the body, so a status code alone cannot say whether it
-  is ready; and a probe tied to Dolos' sync state would restart a pod that is
-  merely syncing. The Platform has a liveness probe; the Dolos daemon too.
+  is ready. The Platform has a liveness probe (`/health/clock`); the Dolos daemon
+  has a process-liveness TCP probe on `:3010`.
 - **No `--retain-snapshot`.** Dolos removes the Mithril download directory after a
   successful bootstrap.
 - **No Mithril or network presets file.** Per-network values are derived from
   `network` (see "Parameters").
-- **Both images run as root upstream.** The chart does not change the user.
+- **All three images run as root upstream.** The chart does not change the user.
 - **`enableServiceLinks: false` on the Platform.** Every `BLOCKFROST_*` environment
   variable is read as configuration, and Kubernetes service links would inject
   look-alikes.
