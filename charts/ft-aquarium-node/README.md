@@ -327,19 +327,28 @@ accepts tcp. It is **off by default** so the chart declares no image it does not
 need; with it off, an unreachable database means Flyway fails and Kubernetes
 restarts the pod with backoff — noisy but self-healing and correct.
 
-### 8. There is no measured memory figure for this application
+### 8. Memory: steady state reported adequate, a healthy sync peak unmeasured
 
 Defaults are `512Mi` request / `1Gi` limit, `250m` / `1` CPU.
 
-Not "not tuned" — **none exists.** The image's entrypoint is the exec form
-`["java","-jar","app.jar"]`, with no shell, so the `JAVA_OPTS` the application's
-compose file sets **has never been read by anything**. Every number derived from
-it — including the application repo's own suggestion — carries no weight, and
-nobody has started this node to measure a steady-state RSS or a sync peak.
+**What is known.** A real preview deployment that reached tip reported these
+defaults adequate for steady state — the first evidence this chart has had. The
+same deployment peaked at **~2.8Gi during its initial sync, and that peak is not
+a requirement**: it was the cursor-cleanup defect of §9, whose fix is the cleanup
+interval, not the limit. Sizing the limit to fit an unbounded delete only buys a
+larger sync before the same failure returns — a number taken from a pathology
+looks exactly like a measurement.
 
-So treat these as a deliberate starting point. **The initial sync is the peak**,
-and it is ~49 million slots: measure there, on the first real run, and correct
-them.
+**What is not.** The peak of a *healthy* initial sync — cleanup interval at 60 —
+has never been measured. Nor does any upstream figure count: the image's
+entrypoint is the exec form `["java","-jar","app.jar"]`, with no shell, so the
+`JAVA_OPTS` the application's compose file sets **has never been read by
+anything**, and every number derived from it — including the application repo's
+own suggestion — carries no weight.
+
+So the defaults remain a deliberate starting point. The sync is ~49 million
+slots; the dashboard and method below are how to replace the starting point with
+a measurement.
 
 This chart passes JVM flags through **`JAVA_TOOL_OPTIONS`**, which the JVM reads
 itself. `jvm.opts` defaults to `-XX:MaxRAMPercentage=75` rather than a fixed
@@ -356,6 +365,92 @@ most memory is already reserved, a request larger than the remaining headroom
 leaves the pod `Pending` no matter how much memory is actually free — and **a
 namespace is an authorisation boundary, not a resource boundary on a single
 node.** Raise `resources.requests.memory` against the target node's real headroom.
+
+#### Measuring it: the JVM memory dashboard
+
+The chart ships an opt-in Grafana dashboard for exactly this question — how small
+can this node's memory go. It is **off by default** and needs two things the chart
+cannot verify:
+
+```bash
+--set serviceMonitor.enabled=true \
+--set grafanaDashboard.enabled=true
+```
+
+- **`serviceMonitor.enabled`** — the panels read the metrics Prometheus scrapes
+  from `/actuator/prometheus`. Without the scrape the variables are empty and
+  every panel says "No data".
+- **A Grafana sidecar watching ConfigMaps labelled `grafana_dashboard: "1"`** in
+  the release namespace (kube-prometheus-stack's sidecar does, when it searches
+  that namespace). `grafanaDashboard.enabled` renders one ConfigMap,
+  `<fullname>-jvm-memory-dashboard`, carrying that label; with no sidecar it is a
+  ConfigMap nobody reads.
+
+The dashboard picks its Prometheus through a `datasource` variable, and its
+`namespace` / `pod` variables from `jvm_info`. Its default range is 7 days, so a
+sync and its aftermath fit on one screen.
+
+**The number the OOM killer acts on is `container_memory_working_set_bytes`** —
+not heap used, not anything the JVM reports. When it reaches
+`resources.limits.memory` the container is killed with no Java stack trace,
+whatever the heap looks like. Every other panel exists to explain that one line.
+
+| Panel | What it answers |
+|---|---|
+| Working set and RSS vs limit vs request | How close the app container is to the limit the kernel enforces, and how much of the request it uses |
+| Heap: used / committed / max | What the JVM has reserved and what `MaxRAMPercentage` let it have. `used` is a sawtooth of garbage — do not size from it |
+| Live set after major GC | `jvm_gc_live_data_size_bytes`: what survives a full collection — **the** sizing input. Updated only after a *major* GC, so it is stale between them |
+| Heap usage after GC (long-lived pool) | `jvm_memory_usage_after_gc`, a 0–1 ratio: how full the old generation stays after collecting |
+| Collections by action | Whether major collections actually happened in the window — i.e. whether the live set is fresh |
+| Non-heap by pool | Metaspace, compressed class space, code heaps — memory outside the heap that does not shrink with it |
+| Direct and mapped buffers | NIO buffers, outside the heap |
+| Live threads | Each thread's native stack lives outside the heap |
+| Unaccounted native memory | Working set − (heap committed + non-heap committed + buffers): thread stacks, malloc arenas, anything the JVM metrics do not show |
+| GC overhead / pause rate / longest pause | What a smaller heap is paid for with; the `gc` label also shows which collector is running |
+| Last termination was OOMKilled / container restarts | The only evidence of an OOMKill — it leaves no Java stack trace |
+
+#### The method: from readings to `resources.limits.memory` and `jvm.opts`
+
+**Read peaks, over the right window.** The window must include the initial or a
+catch-up sync, at least one `CursorCleanupScheduler` run (§9), and liquidation and
+compound runs — those evaluate PlutusV3 scripts in-process. **Steady-state and
+sync-time limits are different numbers, and a limit sized on steady state OOMs on
+the next re-sync.** A node that has only ever been watched at tip has not been
+measured for the case that kills it.
+
+1. **Heap ≈ peak live set × 2–3.** Take the peak of `jvm_gc_live_data_size_bytes`
+   over that window — after checking "Collections by action" shows major
+   collections in it, or the figure is stale. The multiplier is the room the
+   collector needs to work without collecting continuously.
+2. **Limit ≈ (heap + measured non-heap committed + buffers + the unaccounted
+   native gap) + ~25% margin.** Take each term at its peak from its own panel.
+3. **`MaxRAMPercentage` = heap ÷ limit × 100**, set through `jvm.opts`. Keeping the
+   percentage form rather than `-Xmx` keeps the heap tracking the limit.
+4. **Check the result under load**: GC overhead stays low, the working set peaks
+   below the limit with the margin intact, and no OOMKilled appears.
+
+#### ⚠ Measure under the collector you will run
+
+**At the chart's default limits the JVM runs the Serial collector, not G1.** The
+JVM chooses its collector from the container's limits, and the threshold sits
+right where this chart's defaults are. Measured 2026-10-20 on image
+`fluidtokens/ft-aquarium-node:2026.10.15-a51259ff148b` (JDK 21.0.12.1), with
+`-XX:MaxRAMPercentage=75` and `-XX:+PrintFlagsFinal`:
+
+| CPU limit | Memory limit | Collector |
+|---|---|---|
+| 1 | 1g | **Serial**, MaxHeapSize 768 MiB — the chart's defaults |
+| 2 | 1g | Serial |
+| 2 | 2g | **G1** |
+
+JVM ergonomics pick Serial below 2 CPUs or below ~1792 MiB. So **shrinking keeps
+Serial, but raising the memory limit or the CPU limit can flip it to G1** — a
+different heap layout and different native overhead, which invalidates every
+reading taken under Serial. If both the measurement and the production setting
+must hold, pin the collector in `jvm.opts`, e.g.
+`-XX:MaxRAMPercentage=75 -XX:+UseSerialGC` or `... -XX:+UseG1GC`, and measure with
+the same pin. The GC panels' `gc` label tells you which one a reading was taken
+under; check it before trusting any figure.
 
 ### 9. Cursor cleanup — undocumented upstream, and the reason a fresh sync OOMs
 

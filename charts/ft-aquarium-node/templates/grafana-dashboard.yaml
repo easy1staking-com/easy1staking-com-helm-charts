@@ -1,0 +1,31 @@
+{{- if .Values.grafanaDashboard.enabled }}
+{{- /*
+  A Grafana dashboard for sizing this pod's memory: the kernel's view (working
+  set vs limit vs request) beside the JVM's (heap, live set after GC, non-heap
+  pools, buffers, threads, GC cost). README §8 is the method that reads it.
+
+  OPT-IN, and inert on its own. It shows nothing unless BOTH hold:
+  - `serviceMonitor.enabled` is true, so Prometheus scrapes the actuator. The
+    dashboard's variables are populated from `jvm_info`; without the scrape
+    they are empty and every panel says "No data".
+  - a Grafana sidecar watches ConfigMaps labelled `grafana_dashboard: "1"` in
+    THIS namespace (kube-prometheus-stack's does, when configured to). Without
+    one, this is a ConfigMap nobody reads.
+  Whether either exists on the target cluster is the deployer's knowledge, not
+  the chart's — the same reason `serviceMonitor` defaults to off.
+
+  The JSON is shipped VERBATIM from dashboards/, the same pattern as the
+  midnight-node chart: no `tpl`, so no value ever reaches it and Grafana's own
+  `$variable` syntax needs no escaping. The datasource is a dashboard variable,
+  never a uid, so nothing cluster-specific is baked in.
+*/}}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "ft-aquarium-node.fullname" . }}-jvm-memory-dashboard
+  labels:
+    {{- include "ft-aquarium-node.labels" . | nindent 4 }}
+    grafana_dashboard: "1"
+data:
+{{ (.Files.Glob "dashboards/*.json").AsConfig | indent 2 }}
+{{- end }}

@@ -191,6 +191,11 @@ ingress:
 # resource boundary on a single node — so a request that exceeds that headroom
 # leaves the pod Pending regardless of which namespace it lands in. 512Mi is
 # comfortably inside it; raise it deliberately, not reflexively.
+#
+# Measure before shrinking. `grafanaDashboard.enabled` (with serviceMonitor)
+# ships a dashboard that puts the container's working set beside the JVM's
+# heap, live set, non-heap and GC cost; README §8 turns those readings into
+# this limit and jvm.opts — including which garbage collector the limit picks.
 resources:
   requests:
     memory: 512Mi
@@ -1370,6 +1375,17 @@ serviceMonitor:
   path: /actuator/prometheus
   interval: 30s
   scrapeTimeout: 10s
+
+## Grafana dashboard: JVM memory, for sizing `resources` and `jvm.opts`.
+#
+# Default OFF, for the same reason as serviceMonitor: it is a ConfigMap
+# labelled `grafana_dashboard: "1"` that only a Grafana sidecar watching that
+# label in this namespace will pick up, and whether one exists on the target
+# cluster is the deployer's knowledge, not the chart's. It is also inert
+# without the scrape — its panels read the metrics serviceMonitor collects —
+# so enable both together. See README §8 for what each panel answers.
+grafanaDashboard:
+  enabled: false
 
 nodeSelector: {}
 tolerations: []
