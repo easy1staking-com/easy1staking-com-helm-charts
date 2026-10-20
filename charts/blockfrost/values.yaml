@@ -128,8 +128,10 @@ dolos:
     # --retain-snapshot), but it is on disk at the peak, so it must be on the
     # data volume. Must be a plain relative path: not empty, no "." or ".."
     # components (Dolos deletes this directory, so it must never resolve to the
-    # data volume itself), and not archive, index, state or wal — the store
-    # directories Dolos writes beside it.
+    # data volume itself), not archive, index, state or wal — the store
+    # directories Dolos writes beside it — and its first component must not
+    # start with "." (it could alias the bootstrap marker
+    # .blockfrost-bootstrap-complete, which would crashloop every later start).
     downloadDir: snapshot
   storage:
     # Empty ⇒ the per-network default from templates/_helpers.tpl:

@@ -17,3 +17,8 @@ version: 0.1.0-alpha.1
 # values.yaml at `dolos.image` — ghcr.io/txpipe/dolos v1.6.1 — and a Dolos bump
 # does not move appVersion. Both images are pinned by digest in values.yaml.
 appVersion: "1.0.0"
+
+# Native sidecars (initContainers[].restartPolicy: Always, used for socat) are on
+# by default from Kubernetes 1.29. On an older API server socat would run as a
+# blocking init container that never exits, and the Platform pod would never start.
+kubeVersion: ">=1.29.0-0"

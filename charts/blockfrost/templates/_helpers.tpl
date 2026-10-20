@@ -53,13 +53,16 @@ app.kubernetes.io/instance: {{ .Release.Name }}
 {{/*
 Object names. The two Services are the coordinates the workloads use to find each
 other, so they are defined once here.
+The base is truncated to leave room for the suffix BEFORE the suffix is appended:
+truncating after would cut the suffix off a long fullname and give Dolos and the
+Platform the same name (colliding Services, workloads and alert jobs).
 */}}
 {{- define "blockfrost.dolosName" -}}
-{{- printf "%s-dolos" (include "blockfrost.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- printf "%s-dolos" (include "blockfrost.fullname" . | trunc 57 | trimSuffix "-") }}
 {{- end }}
 
 {{- define "blockfrost.platformName" -}}
-{{- printf "%s-platform" (include "blockfrost.fullname" .) | trunc 63 | trimSuffix "-" }}
+{{- printf "%s-platform" (include "blockfrost.fullname" . | trunc 54 | trimSuffix "-") }}
 {{- end }}
 
 {{/*
@@ -195,11 +198,17 @@ DELETES the download dir after a successful bootstrap, so "", "." or anything
 escaping with ".." would point that deletion at the data itself. Nor may it sit
 inside one of the store directories Dolos itself writes on the same volume
 (archive, index, state, wal — the layout measured after a v1.6.1 bootstrap).
+Nor may its first component start with "." — it could then alias the bootstrap
+marker (.blockfrost-bootstrap-complete) at the data root: a download directory
+left there would read as a mismatched marker and crashloop every later start.
 */}}
 {{- define "blockfrost.downloadDir" -}}
 {{- $d := toString .Values.dolos.bootstrap.downloadDir -}}
 {{- if or (eq $d "") (hasPrefix "/" $d) (regexMatch "(^|/)\\.\\.?(/|$)" $d) (not (regexMatch "^[A-Za-z0-9._/-]+$" $d)) -}}
 {{- fail (printf "dolos.bootstrap.downloadDir must be a plain relative path inside the data volume (not empty, no \".\" or \"..\" components), got %q" $d) -}}
+{{- end -}}
+{{- if hasPrefix "." $d -}}
+{{- fail (printf "dolos.bootstrap.downloadDir must not have a first path component starting with \".\": it could alias the bootstrap marker .blockfrost-bootstrap-complete, which would crashloop every later start, got %q" $d) -}}
 {{- end -}}
 {{- if regexMatch "^(archive|index|state|wal)(/|$)" $d -}}
 {{- fail (printf "dolos.bootstrap.downloadDir must not be, or be inside, a Dolos store directory (archive, index, state, wal): Dolos deletes the download dir after bootstrap, got %q" $d) -}}
