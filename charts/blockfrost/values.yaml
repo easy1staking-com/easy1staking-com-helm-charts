@@ -181,7 +181,7 @@ serviceMonitor:
   scrapeTimeout: 10s
 
 prometheusRule:
-  # One PrometheusRule with five alerts, each scoped to its Service's job and
+  # One PrometheusRule with six alerts, each scoped to its Service's job and
   # this release's namespace.
   enabled: false
   releaseName: kube-prometheus-stack
@@ -195,4 +195,6 @@ prometheusRule:
     dolosDown:
       for: 10m
     dolosStalled:
+      for: 5m
+    dolosBootstrapCrashLooping:
       for: 5m

@@ -2,8 +2,9 @@
 {{- $plat := printf `job="%s",namespace="%s"` (include "blockfrost.platformName" .) .Release.Namespace }}
 {{- $dolos := printf `job="%s",namespace="%s"` (include "blockfrost.dolosName" .) .Release.Namespace }}
 {{- $r := .Values.prometheusRule.rules }}
+{{- $dolosPod := printf `namespace="%s",pod="%s-0"` .Release.Namespace (include "blockfrost.dolosName" .) }}
 {{- /*
-  All five alerts render regardless of platform.metrics. With metrics off the
+  All six alerts render regardless of platform.metrics. With metrics off the
   Platform series are absent, so its three alerts stay silent rather than misfire.
   No expr aggregates: each alert keeps exactly the job and namespace labels of its
   input series.
@@ -45,11 +46,15 @@ spec:
           annotations:
             summary: Blockfrost Platform has no cardano-node connection
             description: '{{ "{{ $labels.job }}" }} in {{ "{{ $labels.namespace }}" }} has no open connection to its cardano-node.'
-        # During the Mithril bootstrap the Dolos pod is in its init container and
-        # the Service has no endpoints, so the target is ABSENT rather than down and
-        # this alert stays silent by design (ruled at intake).
+        # During the Mithril bootstrap (~2h) the Dolos pod is a not-ready endpoint:
+        # Prometheus scrapes it and up == 0 (measured live, 2026-10-20), so the
+        # `unless` silences this alert while kube-state-metrics reports the
+        # `bootstrap` init container running. The container filter is required: the
+        # Platform's socat sidecar also reports as a running init container.
+        # Needs kube-state-metrics (part of kube-prometheus-stack); without it the
+        # `unless` matches nothing and this alert fires through every bootstrap.
         - alert: BlockfrostDolosDown
-          expr: up{ {{- $dolos -}} } == 0
+          expr: up{ {{- $dolos -}} } == 0 unless on(namespace, pod) kube_pod_init_container_status_running{ {{- $dolosPod -}},container="bootstrap" } == 1
           for: {{ $r.dolosDown.for }}
           labels:
             severity: critical
@@ -64,4 +69,12 @@ spec:
           annotations:
             summary: Dolos has not advanced its slot in 15 minutes
             description: '{{ "{{ $labels.job }}" }} in {{ "{{ $labels.namespace }}" }} reports an unchanged dolos_slot over 15m.'
+        - alert: BlockfrostDolosBootstrapCrashLooping
+          expr: kube_pod_init_container_status_waiting_reason{ {{- $dolosPod -}},container="bootstrap",reason="CrashLoopBackOff" } == 1
+          for: {{ $r.dolosBootstrapCrashLooping.for }}
+          labels:
+            severity: critical
+          annotations:
+            summary: Dolos bootstrap init container is crash-looping
+            description: 'The bootstrap init container of {{ "{{ $labels.pod }}" }} in {{ "{{ $labels.namespace }}" }} is in CrashLoopBackOff.'
 {{- end }}
