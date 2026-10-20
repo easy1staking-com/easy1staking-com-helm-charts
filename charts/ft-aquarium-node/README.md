@@ -11,7 +11,7 @@ inbound access from outside the cluster**.
 ```bash
 helm install aquarium ./charts/ft-aquarium-node \
   -f ./charts/ft-aquarium-node/values-preview.yaml \
-  --namespace cardano-pv \
+  --namespace <namespace> \
   --set config.db.host=<postgres-host> \
   --set config.store.cardano.host=<relay-host> \
   --set secret.mnemonic.name=<secret-name> \
@@ -389,6 +389,17 @@ cannot verify:
 The dashboard picks its Prometheus through a `datasource` variable, and its
 `namespace` / `pod` variables from `jvm_info`. Its default range is 7 days, so a
 sync and its aftermath fit on one screen.
+
+**Each pod is scraped twice.** The chart's ServiceMonitor currently matches both
+the Service and the headless Service, so Prometheus scrapes the pod through each
+and every `jvm_*` series arrives twice, differing only in `instance`, `job`,
+`service` and `endpoint`. The dashboard collapses the duplicates before it
+aggregates. A query you write by hand must do the same, or every `sum` doubles —
+and for a `rate()` or `increase()`, wrap the function, not the selector inside it:
+
+```promql
+sum by (namespace, pod) (max without (instance, job, service, endpoint) (jvm_memory_used_bytes{area="heap"}))
+```
 
 **The number the OOM killer acts on is `container_memory_working_set_bytes`** —
 not heap used, not anything the JVM reports. When it reaches

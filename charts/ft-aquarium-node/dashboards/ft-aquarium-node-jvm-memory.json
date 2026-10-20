@@ -1,7 +1,7 @@
 {
   "uid": "ft-aquarium-jvm-memory",
   "title": "ft-aquarium-node — JVM memory",
-  "description": "How small can this node's memory go: the kernel's view beside the JVM's. Needs serviceMonitor.enabled. The method that reads it is in the chart README, §8.",
+  "description": "How small can this node's memory go: the kernel's view beside the JVM's. Needs serviceMonitor.enabled. The method that reads it is in the chart README, §8. The pod may be scraped through more than one Service (the chart's ServiceMonitor matches both the Service and the headless one), so every query over a jvm_* series collapses the duplicate scrape targets first and counts the pod once.",
   "tags": [
     "ft-aquarium-node",
     "jvm",
@@ -359,7 +359,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (namespace, pod) (jvm_memory_used_bytes{namespace=\"$namespace\", pod=~\"$pod\", area=\"heap\"})",
+          "expr": "sum by (namespace, pod) (max without (instance, job, service, endpoint) (jvm_memory_used_bytes{namespace=\"$namespace\", pod=~\"$pod\", area=\"heap\"}))",
           "legendFormat": "{{pod}} used",
           "range": true
         },
@@ -369,7 +369,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (namespace, pod) (jvm_memory_committed_bytes{namespace=\"$namespace\", pod=~\"$pod\", area=\"heap\"})",
+          "expr": "sum by (namespace, pod) (max without (instance, job, service, endpoint) (jvm_memory_committed_bytes{namespace=\"$namespace\", pod=~\"$pod\", area=\"heap\"}))",
           "legendFormat": "{{pod}} committed",
           "range": true
         },
@@ -379,7 +379,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (namespace, pod) (jvm_memory_max_bytes{namespace=\"$namespace\", pod=~\"$pod\", area=\"heap\"} > 0)",
+          "expr": "sum by (namespace, pod) (max without (instance, job, service, endpoint) (jvm_memory_max_bytes{namespace=\"$namespace\", pod=~\"$pod\", area=\"heap\"} > 0))",
           "legendFormat": "{{pod}} max",
           "range": true
         }
@@ -474,7 +474,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (namespace, pod) (jvm_gc_live_data_size_bytes{namespace=\"$namespace\", pod=~\"$pod\"})",
+          "expr": "sum by (namespace, pod) (max without (instance, job, service, endpoint) (jvm_gc_live_data_size_bytes{namespace=\"$namespace\", pod=~\"$pod\"}))",
           "legendFormat": "{{pod}} live data after major GC",
           "range": true
         },
@@ -484,7 +484,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (namespace, pod) (jvm_gc_max_data_size_bytes{namespace=\"$namespace\", pod=~\"$pod\"})",
+          "expr": "sum by (namespace, pod) (max without (instance, job, service, endpoint) (jvm_gc_max_data_size_bytes{namespace=\"$namespace\", pod=~\"$pod\"}))",
           "legendFormat": "{{pod}} old generation max",
           "range": true
         }
@@ -607,7 +607,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (namespace, pod, action) (increase(jvm_gc_pause_seconds_count{namespace=\"$namespace\", pod=~\"$pod\"}[$__rate_interval]))",
+          "expr": "sum by (namespace, pod, action) (max without (instance, job, service, endpoint) (increase(jvm_gc_pause_seconds_count{namespace=\"$namespace\", pod=~\"$pod\"}[$__rate_interval])))",
           "legendFormat": "{{pod}} {{action}}",
           "range": true
         }
@@ -681,7 +681,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (namespace, pod, id) (jvm_memory_used_bytes{namespace=\"$namespace\", pod=~\"$pod\", area=\"nonheap\"})",
+          "expr": "sum by (namespace, pod, id) (max without (instance, job, service, endpoint) (jvm_memory_used_bytes{namespace=\"$namespace\", pod=~\"$pod\", area=\"nonheap\"}))",
           "legendFormat": "{{id}}",
           "range": true
         },
@@ -691,7 +691,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (namespace, pod) (jvm_memory_committed_bytes{namespace=\"$namespace\", pod=~\"$pod\", area=\"nonheap\"})",
+          "expr": "sum by (namespace, pod) (max without (instance, job, service, endpoint) (jvm_memory_committed_bytes{namespace=\"$namespace\", pod=~\"$pod\", area=\"nonheap\"}))",
           "legendFormat": "committed (total)",
           "range": true
         }
@@ -752,7 +752,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (namespace, pod, id) (jvm_buffer_memory_used_bytes{namespace=\"$namespace\", pod=~\"$pod\"})",
+          "expr": "sum by (namespace, pod, id) (max without (instance, job, service, endpoint) (jvm_buffer_memory_used_bytes{namespace=\"$namespace\", pod=~\"$pod\"}))",
           "legendFormat": "{{pod}} {{id}}",
           "range": true
         }
@@ -813,7 +813,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (namespace, pod) (jvm_threads_live_threads{namespace=\"$namespace\", pod=~\"$pod\"})",
+          "expr": "sum by (namespace, pod) (max without (instance, job, service, endpoint) (jvm_threads_live_threads{namespace=\"$namespace\", pod=~\"$pod\"}))",
           "legendFormat": "{{pod}} live threads",
           "range": true
         }
@@ -873,7 +873,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (namespace, pod) (container_memory_working_set_bytes{namespace=\"$namespace\", pod=~\"$pod\", container=\"ft-aquarium-node\"}) - sum by (namespace, pod) (jvm_memory_committed_bytes{namespace=\"$namespace\", pod=~\"$pod\", area=~\"heap|nonheap\"}) - sum by (namespace, pod) (jvm_buffer_memory_used_bytes{namespace=\"$namespace\", pod=~\"$pod\"})",
+          "expr": "sum by (namespace, pod) (container_memory_working_set_bytes{namespace=\"$namespace\", pod=~\"$pod\", container=\"ft-aquarium-node\"}) - sum by (namespace, pod) (max without (instance, job, service, endpoint) (jvm_memory_committed_bytes{namespace=\"$namespace\", pod=~\"$pod\", area=~\"heap|nonheap\"})) - sum by (namespace, pod) (max without (instance, job, service, endpoint) (jvm_buffer_memory_used_bytes{namespace=\"$namespace\", pod=~\"$pod\"}))",
           "legendFormat": "{{pod}} unaccounted",
           "range": true
         }
@@ -1009,7 +1009,7 @@
             "type": "prometheus",
             "uid": "${datasource}"
           },
-          "expr": "sum by (namespace, pod, gc, action) (rate(jvm_gc_pause_seconds_count{namespace=\"$namespace\", pod=~\"$pod\"}[$__rate_interval]))",
+          "expr": "sum by (namespace, pod, gc, action) (max without (instance, job, service, endpoint) (rate(jvm_gc_pause_seconds_count{namespace=\"$namespace\", pod=~\"$pod\"}[$__rate_interval])))",
           "legendFormat": "{{pod}} {{gc}} {{action}}",
           "range": true
         }
