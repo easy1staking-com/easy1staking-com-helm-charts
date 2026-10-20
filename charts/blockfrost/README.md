@@ -111,6 +111,13 @@ All three are pinned by multi-arch index digest in `values.yaml`. `appVersion`
 tracks the Platform; Dolos is pinned independently, so a Dolos bump does not move
 `appVersion`.
 
+**While `*.image.digest` is set, the digest alone decides what runs; the tag is
+only a label.** The chart renders `repository:tag@digest`, and the container
+runtime resolves the digest and ignores the tag. Setting only a new
+`dolos.image.tag` (or `platform.image.tag`, `socat.image.tag`) therefore changes
+the label and keeps running the old binary. To change a version, set the new tag
+**and** its digest, or set `digest: ""` to run by tag alone.
+
 **Dolos is v1.6.1, not the v1.4.0 that Blockfrost's own compose file pins.**
 v1.4.0 can no longer Mithril-bootstrap: the aggregators dropped the Cardano-DB v1
 backend it uses. v1.5.0 moved to Cardano DB v2; v1.6.1 is the first with the
@@ -149,13 +156,13 @@ who would then inherit every default the preset existed to override.
 | Key | Default | Meaning |
 |---|---|---|
 | `platform.image.repository` | `ghcr.io/blockfrost/blockfrost-platform` | image repository |
-| `platform.image.tag` | `1.0.0` | image tag |
-| `platform.image.digest` | pinned index digest | pins the image; see the warning below |
+| `platform.image.tag` | `1.0.0` | image tag; only a label while the digest is set (see "What the images are") |
+| `platform.image.digest` | pinned index digest | decides what runs while set; `digest: ""` runs by tag (see "What the images are") |
 | `platform.replicas` | `1` | stateless, scale freely; `0` is honoured and renders 0 |
 | `platform.logLevel` | `info` | `debug`, `info`, `warn`, `error` or `trace` |
 | `platform.metrics` | `true` | serve Prometheus metrics on `:3000/metrics`; `false` adds `--no-metrics` |
 | `platform.dataNodeTimeoutSec` | `30` | how long the Platform waits for Dolos before failing a request |
-| `platform.resources.requests.cpu` | `100m` | measured on preview: anon 4.5 MiB, peak 25 MiB |
+| `platform.resources.requests.cpu` | `100m` | see "Resources" for the measurements |
 | `platform.resources.requests.memory` | `64Mi` | |
 | `platform.resources.limits.memory` | `256Mi` | no CPU limit, by design |
 | `platform.service.type` | `ClusterIP` | `ClusterIP` or `NodePort` |
@@ -171,17 +178,17 @@ who would then inherit every default the preset existed to override.
 point `platform.image.repository` (or the Dolos or socat equivalent) at your own
 mirror that copies the multi-arch index unchanged, the pinned digest stays valid.
 Re-resolve the digest from the mirror only if the mirror re-pushes the image
-(a re-push changes the digest); clear or replace it with one resolved from
-*that* repository in that case.
+(a re-push changes the digest); in that case set `digest: ""` or replace it with
+one resolved from *that* repository.
 
 ### socat sidecar
 
 | Key | Default | Meaning |
 |---|---|---|
 | `socat.image.repository` | `alpine/socat` | image repository |
-| `socat.image.tag` | `1.8.1.1` | image tag |
-| `socat.image.digest` | pinned index digest | pins the image |
-| `socat.resources.requests.cpu` | `10m` | measured on preview: anon 0.9 MiB, peak 5.4 MiB |
+| `socat.image.tag` | `1.8.1.1` | image tag; only a label while the digest is set |
+| `socat.image.digest` | pinned index digest | decides what runs while set; `digest: ""` runs by tag |
+| `socat.resources.requests.cpu` | `10m` | see "Resources" for the measurements |
 | `socat.resources.requests.memory` | `16Mi` | |
 | `socat.resources.limits.memory` | `64Mi` | |
 
@@ -190,12 +197,12 @@ Re-resolve the digest from the mirror only if the mirror re-pushes the image
 | Key | Default | Meaning |
 |---|---|---|
 | `dolos.image.repository` | `ghcr.io/txpipe/dolos` | image repository |
-| `dolos.image.tag` | `v1.6.1` | image tag; see "What the images are" |
-| `dolos.image.digest` | pinned index digest | pins the image |
-| `dolos.resources.requests.cpu` | `500m` | daemon; preview: anon 777 MiB at tip, peak 1047 MiB in the first minutes |
+| `dolos.image.tag` | `v1.6.1` | image tag; only a label while the digest is set (see "What the images are") |
+| `dolos.image.digest` | pinned index digest | decides what runs while set; `digest: ""` runs by tag |
+| `dolos.resources.requests.cpu` | `500m` | daemon; see "Resources" for the measurements |
 | `dolos.resources.requests.memory` | `1Gi` | |
 | `dolos.resources.limits.memory` | `3Gi` | the mainnet epoch-boundary peak is **unmeasured** |
-| `dolos.bootstrap.resources.requests.cpu` | `1` | Mithril init container; preview: anon peak 3.11 GiB |
+| `dolos.bootstrap.resources.requests.cpu` | `1` | Mithril init container; see "Resources" for the measurements |
 | `dolos.bootstrap.resources.requests.memory` | `3Gi` | |
 | `dolos.bootstrap.resources.limits.memory` | `5Gi` | the 8.76 GiB `memory.peak` included reclaimable page cache |
 | `dolos.bootstrap.downloadDir` | `snapshot` | where the Mithril snapshot lands, relative to the data volume; see below |
@@ -268,8 +275,8 @@ other. An allowlist is the only shape that cannot leak a path nobody thought of;
 there is no `Prefix /`. If you add a path to the Ingress by hand, check
 `/metrics/` first.
 
-**`/epochs/latest` is a 404 from Dolos MiniBF.** The Platform passes it through,
-so a client hitting it through this chart gets the 404. That is Dolos' MiniBF
+**`/epochs/latest` is a 404 from Dolos MiniBF.** The Ingress routes `/epochs`,
+and MiniBF answers 404 for this route. That is Dolos' MiniBF
 route coverage, not a chart or Ingress fault, so do not go looking for a missing
 path in the allowlist.
 
@@ -289,7 +296,9 @@ metrics include `cardano_node_connections`, `health_errors_total`,
 `http_requests_total`, `tx_submit_success` and `tx_submit_failure`.
 
 `prometheusRule.enabled` renders one PrometheusRule with six alerts, each scoped
-to its Service's job and this release's namespace:
+to its Service's job and this release's namespace, except
+`BlockfrostDolosBootstrapCrashLooping`, which is scoped to the namespace and the
+Dolos pod (its metric belongs to kube-state-metrics, not to a Service's job):
 
 | Alert | Fires when | Default `for` |
 |---|---|---|
@@ -364,7 +373,7 @@ cleared rather than adopted. Two consequences to know about:
   wipes and retries forever.
 
 `lost+found` is kept because filesystems such as ext4 create it at the volume
-root, and it cannot be removed meaningfully.
+root.
 
 ---
 
@@ -394,9 +403,10 @@ settled figure.
 - **Published defaults are frozen.** `volumeClaimTemplates` are immutable, so
   changing a default here would be a breaking chart-version bump for every
   install that relied on it. Set an explicit size rather than waiting for one.
-- **Under-sizing is a destroy-and-restore**, not a resize: a size change on a
-  running StatefulSet is rejected, and many provisioners cannot expand volumes.
-  Err generous where claims are cheap: `local-path` does not preallocate, so an
+- **Under-sizing can be a destroy-and-restore**, not a resize: a size change on a
+  running StatefulSet's `volumeClaimTemplates` is rejected, and where the
+  StorageClass does not allow expansion (`local-path`) the claim cannot grow. With
+  a StorageClass that allows expansion, patch the existing PVC instead. Err generous where claims are cheap: `local-path` does not preallocate, so an
   oversized claim consumes nothing, but cloud block storage allocates and bills
   the full request.
 - **The PVC survives `helm uninstall`.** StatefulSet claims are not garbage
@@ -405,7 +415,7 @@ settled figure.
 - **A breaking Dolos upgrade needs a manual storage-format migration, and the
   guard will not tell you.** The marker's `storage=v3` is hard-coded in the
   chart (and in the `storage` section of the rendered `dolos.toml`), so
-  overriding `dolos.image.tag` does **not** change it: the guard does **not**
+  changing the Dolos image (tag and digest) does **not** change it: the guard does **not**
   protect against a newer Dolos storage format. How Dolos treats an old store is
   **unmeasured**. If an upgrade changes the format, migrate or re-bootstrap by
   hand (delete the PVC); the chart does not do it for you.
@@ -455,6 +465,8 @@ Each of these reads like an omission. None is.
   `{"is_healthy": bool}` in the body, so a status code alone cannot say whether it
   is ready. The Platform has a liveness probe (`/health/clock`); the Dolos daemon
   has a process-liveness TCP probe on `:3010`.
+- **Dolos `replicas: 1` is hard-coded, with no value.** Dolos is a single writer
+  on its `ReadWriteOnce` volume, so the chart offers no knob for more.
 - **No `--retain-snapshot`.** Dolos removes the Mithril download directory after a
   successful bootstrap.
 - **No Mithril or network presets file.** Per-network values are derived from

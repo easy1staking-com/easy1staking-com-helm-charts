@@ -42,6 +42,10 @@ upstream:
 platform:
   image:
     repository: ghcr.io/blockfrost/blockfrost-platform
+    # While `digest` is set it alone decides what runs: the chart renders
+    # repository:tag@digest and the container runtime ignores the tag, so a new
+    # tag on its own relabels the old binary. To change a version set the new tag
+    # AND its digest, or set `digest: ""` to run by tag. Same for socat and dolos.
     tag: "1.0.0"
     # Multi-arch index digest of ghcr.io/blockfrost/blockfrost-platform:1.0.0.
     digest: sha256:be2f8ef118e85f9fcc5f2b213640e6b7715e3aad6cf4b37fde881991e101f2f8
@@ -83,6 +87,7 @@ platform:
 
 socat:
   image:
+    # Tag/digest semantics: see platform.image.
     repository: alpine/socat
     tag: "1.8.1.1"
     # Multi-arch index digest of alpine/socat:1.8.1.1.
@@ -97,6 +102,7 @@ socat:
 
 dolos:
   image:
+    # Tag/digest semantics: see platform.image (set `digest: ""` to run by tag).
     repository: ghcr.io/txpipe/dolos
     # v1.6.1, not the v1.4.0 Blockfrost's own compose file pins: v1.4.0 can no
     # longer Mithril-bootstrap (the aggregators dropped the Cardano-DB v1 backend
@@ -139,11 +145,11 @@ dolos:
     #                   once the snapshot is removed), + headroom for growth.
     #   preprod  80Gi   DERIVED, not measured: preview scaled by Mithril snapshot
     #                   size (20.13 GB / 16.04 GB) ≈ 46.6 GiB peak, + headroom.
-    #   mainnet 250Gi   UNMEASURED (Giovanni's ruling, "250 for now, refine later",
-    #                   T-408). ⚠ Probably TOO SMALL: scaling preview's ratios to the
+    #   mainnet 250Gi   UNMEASURED placeholder (no mainnet bootstrap has been
+    #                   run). ⚠ Probably TOO SMALL: scaling preview's ratios to the
     #                   236.71 GB mainnet Mithril snapshot gives ≈550 GiB bootstrap
     #                   peak and ≈295 GiB settled — a low-confidence derived figure,
-    #                   but it points one way. See T-408 before a mainnet install.
+    #                   but it points one way. Set `size` explicitly before a mainnet install.
     # ⛔ PUBLISHED DEFAULTS ARE FROZEN. volumeClaimTemplates are immutable, so
     # changing a default here is a breaking chart-version bump for every existing
     # install that relied on it. Set an explicit size instead of waiting for one.
@@ -182,7 +188,8 @@ serviceMonitor:
 
 prometheusRule:
   # One PrometheusRule with six alerts, each scoped to its Service's job and
-  # this release's namespace.
+  # this release's namespace, except BlockfrostDolosBootstrapCrashLooping, which is
+  # scoped to the namespace and the Dolos pod.
   enabled: false
   releaseName: kube-prometheus-stack
   rules:

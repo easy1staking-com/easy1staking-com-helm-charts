@@ -132,7 +132,7 @@ mainnet:
   ancillaryKey: 5b32332c37312c39362c3133332c34372c3235332c3232362c3133362c3233352c35372c3136342c3130362c3138362c322c32312c32392c3132302c3136332c38392c3132312c3137372c3133382c3230382c3133382c3231342c39392c35382c32322c302c35382c332c36395d
   tokenRegistryUrl: https://tokens.cardano.org
   forceProtocol: ""
-  # UNMEASURED — Giovanni's ruling, probably too small; see values.yaml and T-408.
+  # UNMEASURED placeholder, probably too small; see the derived estimate in values.yaml.
   volumeSize: 250Gi
 preprod:
   magic: "1"
