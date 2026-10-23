@@ -113,7 +113,19 @@ data:
     fi
 
     # e. Bootstrap. On failure: no marker, so the next start clears and retries.
-    if ! dolos -c {{ include "blockfrost.dolosConfigDir" . }}/dolos.toml bootstrap mithril --download-dir "$DATA_DIR/$DOWNLOAD_DIR"; then
+    #    Without --verbose Dolos logs errors only, and its progress bars are hidden when
+    #    stderr is not a terminal, so a healthy bootstrap would print nothing for hours.
+    #    --verbose adds Dolos' INFO lines; the heartbeat reports data-volume growth.
+    echo "bootstrap: starting Mithril bootstrap ($BOOTSTRAP_MARKER_CONTENT); progress is reported every 5 minutes"
+    size() { s="$(du -sh "$1" 2>/dev/null | cut -f1)"; echo "${s:-none}"; }
+    (
+      while sleep 300; do
+        echo "bootstrap: still running, download $(size "$DATA_DIR/$DOWNLOAD_DIR"), data volume $(size "$DATA_DIR")"
+      done
+    ) &
+    HEARTBEAT=$!
+    trap 'kill "$HEARTBEAT" 2>/dev/null || true' EXIT
+    if ! dolos -c {{ include "blockfrost.dolosConfigDir" . }}/dolos.toml bootstrap mithril --verbose --download-dir "$DATA_DIR/$DOWNLOAD_DIR"; then
       echo "bootstrap: dolos bootstrap mithril failed; no marker written" >&2
       exit 1
     fi

@@ -83,6 +83,21 @@ in `Init` and is a not-ready endpoint of its Service (Prometheus still scrapes
 it, and it reads `up == 0`). See "Bootstrap guard" for what every
 volume state does, and "Monitoring" for how the alerts treat the bootstrap.
 
+**Following it:** `kubectl logs -f <release>-dolos-0 -c bootstrap`. Dolos' own
+progress bars are hidden when its output is not a terminal, so the script prints
+a start line and then, every 5 minutes, the size of the download and of the data
+volume:
+
+```
+bootstrap: starting Mithril bootstrap (magic=764824073 storage=v3); progress is reported every 5 minutes
+bootstrap: still running, download 41G, data volume 41G
+```
+
+The download grows first; once it stops, Dolos is importing it into its stores.
+Dolos' INFO lines (`--verbose`) appear between the heartbeats. Before
+`0.1.0-alpha.2` the chart passed neither, and a healthy bootstrap printed nothing
+until it finished.
+
 During that window the Platform logs
 `ERROR ... Data node root check failed` every 2 seconds (observed in the
 2026-10-20 dev deploy). That is **expected noise, not a fault**: the Platform is
