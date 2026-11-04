@@ -831,13 +831,47 @@ compound:
 ##   LOANS_LIQUIDATION_MARKETS_0_UNIT / _MODE / _ACTION / _CAP
 ##
 ## ⚠ A MALFORMED ENTRY ABORTS STARTUP, by design — unknown mode, bad unit,
-## duplicate unit, or ANTICIPATE without a cap. That is an answer, not an outage,
-## but it means a typo here is a crash-loop rather than a quiet default.
+## duplicate unit, or ANTICIPATE or CONVERT_BEFORE_ANTICIPATE without a cap. That
+## is an answer, not an outage, but it means a typo here is a crash-loop rather
+## than a quiet default.
 ##
-## ⚠ `cap` is MANDATORY when `action: ANTICIPATE` and meaningless otherwise. It
-## is the most principal the bot may front, in the principal asset's own unit.
-## The chart refuses to render an ANTICIPATE entry without one rather than
-## letting the pod discover it at boot.
+## ⚠ `cap` is MANDATORY when `action: ANTICIPATE` or `action:
+## CONVERT_BEFORE_ANTICIPATE`, and meaningless otherwise (on a CONVERT market the
+## application logs it at WARN and ignores it). It is the most principal the bot
+## may front, per loan, in the principal token's smallest unit: for a 6-decimal
+## token such as USDM, `4000000000` is 4,000. The chart refuses to render an
+## ANTICIPATE or CONVERT_BEFORE_ANTICIPATE entry without one rather than letting
+## the pod discover it at boot.
+##
+## ⚠ `action: CONVERT_BEFORE_ANTICIPATE` CONVERTS FIRST AND PAYS IN ADVANCE ONLY
+## WHEN A CONVERT IS IMPOSSIBLE. Legal actions: CONVERT | ANTICIPATE | CONVERT_BEFORE_ANTICIPATE;
+## an absent action means CONVERT. Such a market converts exactly as a CONVERT
+## market does. It pays the lender in advance — in the same check, under the
+## ANTICIPATE rules (cap, token balance, profitability) — only for one of three
+## causes: no authentic Minswap pool for the pair in the node's index, or a blank
+## pool address (NO_MINSWAP_POOL); a pool too thin to repay the debt
+## (POOL_TOO_THIN); or `liquidation.convert.enabled: false`. Every other convert
+## refusal is refused by name and is never paid in advance.
+##
+## ⇒ WHERE ITS CAPITAL GOES. The image's preview profile ships the Minswap pool
+## address blank, and this chart ships `loans.minswap.poolAddress` empty, so it
+## does not change that: on preview EVERY such loan pays in advance from the
+## bot's own wallet unless you supply a pool address. Its token gets its own
+## shaped wallet UTxO with 10 ADA, as an ANTICIPATE market's does — about 16.2
+## ADA for one such token under current parameters. At boot, a node that cannot
+## convert logs one WARN per such market (`market … is action:
+## CONVERT_BEFORE_ANTICIPATE on a node that cannot convert: …`); with convert
+## switched off it logs one INFO instead (`INIT - market … is action:
+## CONVERT_BEFORE_ANTICIPATE and loans.liquidation.convert.enabled is false: …`).
+##
+## ⛔ IMAGE FLOOR. The first image with CONVERT_BEFORE_ANTICIPATE is
+## fluidtokens/ft-aquarium-node:2026.11.03-c1bcb2d9c03f (digest
+## sha256:4324da9cfe3228feec82834cf30e2836bed4353707af33d5412ec892ea44a886). The
+## chart's default image, 2026.10.15-a51259ff148b, knows only CONVERT and
+## ANTICIPATE, and an unknown action aborts its startup — so on the default image
+## a node with this action refuses to start. The chart cannot see which image
+## runs: set `image.tag` to that tag, or `image.digest` to that digest, alongside
+## the market.
 ##
 ## No values file here sets a market: a market entry is deployment policy about
 ## someone else's capital.
@@ -857,7 +891,7 @@ compound:
 ## pass the guard and then be dropped, handing the pod an ANTICIPATE market with
 ## no cap and a startup abort. Write a real number, or 0 if you mean zero.
 ##
-## A worked example — the three shapes, uncommented into your own values file:
+## A worked example — the four shapes, uncommented into your own values file:
 ##
 ##   markets:
 ##     # 1. CONVERT: route the collateral through Minswap. The bot fronts
@@ -877,6 +911,14 @@ compound:
 ##     #    opposite — an unlisted market converts at the node's own mode.
 ##     - unit: <some other principal unit>
 ##       mode: DISABLED
+##
+##     # 4. CONVERT_BEFORE_ANTICIPATE: converts as shape 1 does, and fronts the
+##     #    principal as shape 2 does only when a convert is impossible. Needs a
+##     #    cap, and the image named under IMAGE FLOOR above.
+##     - unit: <yet another principal unit>
+##       mode: SHADOW
+##       action: CONVERT_BEFORE_ANTICIPATE
+##       cap: "4000000000"   # 4,000 of a 6-decimal token such as USDM
 markets: []
 
 
@@ -1196,10 +1238,14 @@ loans:
       # On every block, once the node is not syncing, it moves the bot wallet into
       # the shape ANTICIPATE liquidations need with one self-send — SIGNED AND
       # SUBMITTED in `shadow` as well as `live`, because upstream classes it as
-      # wallet housekeeping, not a liquidation. It acts only when at least one
-      # `action: ANTICIPATE` market has an EFFECTIVE mode of shadow or live (the
-      # market's own `mode`, capped by `liquidation.mode`). With `markets: []`, or
-      # at `liquidation.mode: disabled`, it does nothing whatever this says.
+      # wallet housekeeping, not a liquidation. On 2026.10.15-a51259ff148b it acts
+      # only when at least one `action: ANTICIPATE` market has an EFFECTIVE mode of
+      # shadow or live (the market's own `mode`, capped by `liquidation.mode`).
+      # With `markets: []`, or at `liquidation.mode: disabled`, it does nothing
+      # there whatever this says.
+      #
+      # ⚠ ON 2026.11.03-c1bcb2d9c03f THAT CONDITION IS GONE: the rebalancer keeps
+      # EVERY `shadow` or `live` node's wallet shaped, whatever its markets.
       #
       # ⇒ "shadow submits nothing" STOPPED BEING TRUE with this image. An
       # ANTICIPATE market trialled in shadow now spends fees on self-sends. Set

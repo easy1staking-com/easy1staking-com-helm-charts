@@ -438,7 +438,7 @@ the window:
 | `liquidation.mode` | `disabled`: no loan scan. `shadow` — the image's preview-profile default — is **not armed**: the loan scan runs and liquidation transactions are built but not submitted. `live` is **armed** — the arming act — and the same transactions are submitted | §5 |
 | `compound.enabled` | The repayment-escrow path — collect a repaid loan's principal and deliver it into the lender's pool — built, signed and submitted, in **any** `liquidation.mode`. Arming one does not arm the other | "Compounding is a second arming switch" |
 | `scheduling.transactionProcessorEnabled` | The transaction processor, which builds and submits Scheduled Transactions from the operator wallet, in **any** `liquidation.mode`. Off unless this is `"true"` | "The application's parameter surface", *Timing and behaviour* |
-| `loans.wallet.rebalance.enabled` | **Default `true` in the image.** On every block, once the node is not syncing, one self-send that moves the bot wallet into the shape `ANTICIPATE` liquidations need — signed and submitted in `shadow` as well as `live`. It acts only when an `action: ANTICIPATE` market has an effective mode of `shadow` or `live`, so `markets: []` or `liquidation.mode: disabled` never triggers it, and neither do this chart's defaults or `values-preview.yaml` | "The wallet rebalancer submits in shadow" |
+| `loans.wallet.rebalance.enabled` | **Default `true` in the image.** On every block, once the node is not syncing, one self-send that moves the bot wallet into the shape `ANTICIPATE` liquidations need — signed and submitted in `shadow` as well as `live`. On `2026.10.15-a51259ff148b` it acts only when an `action: ANTICIPATE` market has an effective mode of `shadow` or `live`, so `markets: []` or `liquidation.mode: disabled` never triggers it, and neither do this chart's defaults or `values-preview.yaml`. On `2026.11.03-c1bcb2d9c03f` it keeps every `shadow` or `live` node's wallet shaped, whatever its markets | "The wallet rebalancer submits in shadow" |
 
 Only liquidation — in every mode, `shadow` included — and compounding check the
 lending gate. While it is closed — for example when the Blockfrost key is not a
@@ -1098,8 +1098,8 @@ environment is Spring's indexed form, which the chart renders for you:
 markets:
   - unit: lovelace
     mode: SHADOW          # DISABLED | SHADOW | LIVE
-    action: ANTICIPATE    # CONVERT | ANTICIPATE
-    cap: 50000000         # MANDATORY for ANTICIPATE, meaningless otherwise
+    action: ANTICIPATE    # CONVERT | ANTICIPATE | CONVERT_BEFORE_ANTICIPATE
+    cap: 50000000         # MANDATORY for ANTICIPATE and CONVERT_BEFORE_ANTICIPATE, meaningless otherwise
 ```
 → `LOANS_LIQUIDATION_MARKETS_0_UNIT`, `_MODE`, `_ACTION`, `_CAP`
 
@@ -1108,8 +1108,48 @@ equal or more restrictive. An unlisted market runs at the node's own mode, so an
 empty list is legal and is the default.
 
 **A malformed entry aborts the application's startup** — unknown mode, bad unit,
-duplicate unit, or `ANTICIPATE` without a cap. The chart validates all of those
-**at render**, so a typo is a refused upgrade rather than a crash-loop.
+duplicate unit, or `ANTICIPATE` or `CONVERT_BEFORE_ANTICIPATE` without a cap. The
+chart validates all of those **at render**, so a typo is a refused upgrade rather
+than a crash-loop.
+
+**`CONVERT_BEFORE_ANTICIPATE` converts first, and pays in advance only when a
+convert is impossible.** A market with this action converts exactly as a
+`CONVERT` market does. It pays the lender in advance — in the same check, under
+the `ANTICIPATE` rules (`cap`, token balance, profitability) — only for one of
+three causes: no authentic Minswap pool for the pair in the node's index, or a
+blank pool address (`NO_MINSWAP_POOL`); a pool too thin to repay the debt
+(`POOL_TOO_THIN`); or `liquidation.convert.enabled: false`. Every other convert
+refusal is refused by name and is never paid in advance. **On preview, that means
+every such loan pays in advance**: the image's preview profile ships the Minswap
+pool address blank, and this chart ships `loans.minswap.poolAddress` empty, so it
+does not change that unless you supply one. As for `ANTICIPATE`, the `cap` is
+mandatory, per loan, in the principal token's smallest unit — for a 6-decimal
+token such as USDM, `4000000000` is 4,000 — and the market's token gets its own
+shaped wallet UTxO with 10 ADA: about 16.2 ADA for one such token under current
+parameters. At boot, a node that cannot convert logs one WARN per such market,
+`market … is action: CONVERT_BEFORE_ANTICIPATE on a node that cannot convert: …`;
+with convert switched off it logs one INFO instead,
+`INIT - market … is action: CONVERT_BEFORE_ANTICIPATE and loans.liquidation.convert.enabled is false: …`.
+
+⛔ **The first image with this action is
+`fluidtokens/ft-aquarium-node:2026.11.03-c1bcb2d9c03f`**
+(`sha256:4324da9cfe3228feec82834cf30e2836bed4353707af33d5412ec892ea44a886`). The
+chart's default image, `2026.10.15-a51259ff148b`, has only `CONVERT` and
+`ANTICIPATE`, and an unknown action aborts its startup — so on the default image
+a node with a `CONVERT_BEFORE_ANTICIPATE` market refuses to start. The chart
+renders it regardless, because it cannot see which image will run: set
+`image.tag` to that tag, or `image.digest` to that digest, alongside the market.
+The default image is deliberately not moved with this chart version; the newer
+image also changes behaviour you did not opt into, described next and in "The
+wallet rebalancer submits in shadow".
+
+⚠ **On `2026.11.03-c1bcb2d9c03f`, on every `shadow` or `live` node whatever its
+actions, an accepted liquidation no longer takes U out of the check.** Later
+candidates funded from U are still built and submitted. Usually the mempool that
+holds the first refuses them, each with one INFO line
+`liquidation of … via … on … not accepted: HTTP …`. **Those lines are mempool
+conflicts, not faults.** A backend can accept both, giving two `SUBMITTED` rows
+for one U, and at most one of them lands.
 
 ### The ninth reference script
 
@@ -1210,6 +1250,14 @@ What *is* fatal is a **typo**: an unrecognised mode or action aborts startup,
 naming the legal set. The chart refuses those at render instead, so the failure
 is an upgrade that does not proceed rather than a pod that will not boot.
 
+`CONVERT_BEFORE_ANTICIPATE` follows the same casing rule —
+`convert_before_anticipate` renders and reaches the pod as written — but **the
+chart requires the underscore spelling.** `convert-before-anticipate` and
+`CONVERTBEFOREANTICIPATE` are refused at render even where the application might
+accept them: no spelling beyond a change of case has been verified to bind, and
+refusing is the safe direction — an upgrade that does not proceed, never a
+crash-loop.
+
 ---
 
 ## Compounding is a second arming switch
@@ -1261,11 +1309,17 @@ block, once the node is not syncing, it moves the bot wallet into the shape
 `shadow` as well as `live`**, because upstream classes it as wallet housekeeping
 rather than a liquidation.
 
-It acts only when at least one `action: ANTICIPATE` market has an *effective*
-mode of `shadow` or `live` — the market's own `mode`, capped by
-`liquidation.mode`. So `markets: []`, or `liquidation.mode: disabled`, does
-nothing whatever this says, and **neither this chart's defaults nor
-`values-preview.yaml` trigger it.**
+On `2026.10.15-a51259ff148b` it acts only when at least one `action: ANTICIPATE`
+market has an *effective* mode of `shadow` or `live` — the market's own `mode`,
+capped by `liquidation.mode`. So there `markets: []`, or `liquidation.mode:
+disabled`, does nothing whatever this says, and **neither this chart's defaults
+nor `values-preview.yaml` trigger it.**
+
+⚠ **On `2026.11.03-c1bcb2d9c03f` that condition is gone.** The rebalancer keeps
+every `shadow` or `live` node's wallet shaped, whatever its markets — so the
+previous paragraph holds only on `2026.10.15-a51259ff148b`. Pinning the newer
+image, which `CONVERT_BEFORE_ANTICIPATE` requires, on a node in `shadow` keeps
+its wallet shaped even with `markets: []`.
 
 ⛔ **"Shadow submits nothing" stopped being true with this image.** An
 `ANTICIPATE` market trialled in shadow now spends fees on self-sends. Set
@@ -1347,7 +1401,7 @@ Two labels on every row, and they are not decoration:
 |---|---|---|
 | `liquidation.mode` | `AQUARIUM_LIQUIDATION_MODE` | `disabled` \| `shadow` \| `live`. **`live` arms the node.** The whole node-level dial |
 | `markets[].mode` | `LOANS_LIQUIDATION_MARKETS_<i>_MODE` | per-market ceiling — can be more restrictive than the node, never less |
-| `markets[].cap` | `..._CAP` | **mandatory on `ANTICIPATE`**, and the only bound on how much principal the bot fronts from its own wallet |
+| `markets[].cap` | `..._CAP` | **mandatory on `ANTICIPATE` and `CONVERT_BEFORE_ANTICIPATE`**, and the only bound on how much principal the bot fronts from its own wallet |
 | `liquidation.ignoreProfitCheck` | `AQUARIUM_LIQUIDATION_IGNORE_PROFIT_CHECK` | disables **both** profit gates. Hard-fails at startup on mainnet |
 
 **Three switches became one on 2026-09-04**, deliberately: `loans.enabled`,
