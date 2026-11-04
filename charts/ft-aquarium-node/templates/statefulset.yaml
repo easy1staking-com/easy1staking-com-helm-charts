@@ -474,10 +474,11 @@ spec:
               A list cannot be expressed as a typed scalar, and the indexed env
               names are the only shape the application binds from the environment.
 
-              Validated HERE rather than at boot: an ANTICIPATE entry with no cap
-              aborts the application's startup by design, so catching it at render
-              turns a crash-loop into a refused upgrade. `cap` may legitimately be
-              0-like, so it is tested with kindIs, never for truthiness.
+              Validated HERE rather than at boot: an ANTICIPATE or
+              CONVERT_BEFORE_ANTICIPATE entry with no cap aborts the application's
+              startup by design, so catching it at render turns a crash-loop into a
+              refused upgrade. `cap` may legitimately be 0-like, so it is tested with
+              kindIs, never for truthiness.
             */}}
             {{- range $i, $m := .Values.markets }}
             {{- if not $m.unit }}
@@ -487,8 +488,18 @@ spec:
             {{- if and $m.mode (not (has (upper (toString $m.mode)) (list "DISABLED" "SHADOW" "LIVE"))) }}
             {{- fail (printf "markets[%d].mode must be DISABLED|SHADOW|LIVE, got %q" $i (toString $m.mode)) }}
             {{- end }}
-            {{- if and $m.action (not (has (upper (toString $m.action)) (list "CONVERT" "ANTICIPATE"))) }}
-            {{- fail (printf "markets[%d].action must be CONVERT|ANTICIPATE, got %q" $i (toString $m.action)) }}
+            {{- /*
+              The action is upper-cased ONCE and both guards below read this one
+              value. Normalised separately, the two could disagree: a lower-case
+              `convert_before_anticipate` would pass the acceptance list and slip
+              past the cap guard. Any casing is accepted, but only the underscore
+              spelling: no other spelling has been verified to bind, and refusing
+              is the safe direction — an upgrade that does not proceed, never a
+              crash-loop.
+            */}}
+            {{- $action := upper (toString $m.action) }}
+            {{- if and $m.action (not (has $action (list "CONVERT" "ANTICIPATE" "CONVERT_BEFORE_ANTICIPATE"))) }}
+            {{- fail (printf "markets[%d].action must be CONVERT|ANTICIPATE|CONVERT_BEFORE_ANTICIPATE, got %q" $i (toString $m.action)) }}
             {{- end }}
             {{- /*
               ⛔ NIL *AND* EMPTY, and the empty case is the one that bit. `kindIs
@@ -497,10 +508,13 @@ spec:
               and was then discarded, handing the pod an ANTICIPATE market with no cap
               and a startup abort. Two mechanisms testing different conditions with a
               gap between them. Measured on published 0.8.0. `cap: 0` still renders.
+
+              Both capital-fronting actions are covered: the application makes the cap
+              mandatory for ANTICIPATE and for CONVERT_BEFORE_ANTICIPATE alike.
             */}}
-            {{- if eq (upper (toString $m.action)) "ANTICIPATE" }}
+            {{- if has $action (list "ANTICIPATE" "CONVERT_BEFORE_ANTICIPATE") }}
             {{- if or (kindIs "invalid" $m.cap) (eq (toString $m.cap) "") }}
-            {{- fail (printf "markets[%d] is action ANTICIPATE and its cap is nil or EMPTY; the application refuses to start without one. `cap: \"\"` is not a way to say \"no cap\" — write a real number, or 0 if you mean zero." $i) }}
+            {{- fail (printf "markets[%d] is action %s and its cap is nil or EMPTY; the application refuses to start without one. `cap: \"\"` is not a way to say \"no cap\" — write a real number, or 0 if you mean zero." $i $action) }}
             {{- end }}
             {{- end }}
             {{- include "ft-aquarium-node.env" (dict "name" (printf "LOANS_LIQUIDATION_MARKETS_%d_UNIT" $i) "value" $m.unit) }}
