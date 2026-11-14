@@ -395,6 +395,20 @@ entries:
   blockfrost:
   - apiVersion: v2
     appVersion: 1.0.0
+    created: "2026-11-14T23:17:57.600758485Z"
+    description: 'A Blockfrost API stack that needs no Cardano node of its own: blockfrost-platform
+      in solitary mode, backed by a Dolos data node, attached to an existing node
+      over two coordinates (n2n for Dolos sync, n2c via a socat TCP bridge for the
+      Platform).'
+    digest: b6af1a249b806cbd4d757758b8e293756740e22299e79eb6b15fa0ff519f925e
+    kubeVersion: '>=1.29.0-0'
+    name: blockfrost
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/blockfrost-0.1.0-alpha.3/blockfrost-0.1.0-alpha.3.tgz
+    version: 0.1.0-alpha.3
+  - apiVersion: v2
+    appVersion: 1.0.0
     created: "2026-10-20T07:22:54.018063691Z"
     description: 'A Blockfrost API stack that needs no Cardano node of its own: blockfrost-platform
       in solitary mode, backed by a Dolos data node, attached to an existing node
@@ -1435,4 +1449,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/sundae-scooper-v2-0.1.0-alpha.1/sundae-scooper-v2-0.1.0-alpha.1.tgz
     version: 0.1.0-alpha.1
-generated: "2026-11-14T23:17:40.879057787Z"
+generated: "2026-11-14T23:17:57.601101834Z"
