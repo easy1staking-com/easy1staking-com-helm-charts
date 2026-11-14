@@ -50,6 +50,9 @@ spec:
       targetPort: socat
     {{- end }}
   type: NodePort
+  {{- with $attributes.externalTrafficPolicy }}
+  externalTrafficPolicy: {{ . }}
+  {{- end }}
 {{ end }}
 ---
 apiVersion: v1
