@@ -173,6 +173,45 @@ dolos:
   tokenRegistryUrl: ""
   # Dolos `[logging] max_level`: ERROR | WARN | INFO | DEBUG | TRACE.
   logLevel: INFO
+  # Thread stack, in bytes, passed as RUST_MIN_STACK to BOTH Dolos containers
+  # (the bootstrap init container and the daemon). RUST_MIN_STACK sets the stack
+  # of threads Rust spawns without an explicit size; Rust's default is 2 MiB. It
+  # is read once at start, and it never applies to the main thread.
+  #
+  # ON by default, on every network. The Dolos v1.6.1 daemon decodes blocks on
+  # spawned pipeline threads that set no stack size, so RUST_MIN_STACK governs
+  # them. A preview block (4821137, slot 127055999) carries transaction metadata
+  # nested about 16,000 levels deep; metadata decoding in the pallas version
+  # v1.6.1 uses (1.3.0) recurses once per nesting level, with no depth limit.
+  # v1.6.1 overflowed the 2 MiB default on that block and crash-looped; with
+  # 268435456 it passed the block and has not restarted since. Any network can
+  # carry such a block: a nesting level costs about one byte, so ~16,000 levels
+  # fit inside the 16,384-byte maximum transaction size.
+  #
+  # The cost is VIRTUAL. Each thread's stack is reserved with mmap, and only pages
+  # actually touched become resident: 256 MiB x N threads is address space, not
+  # memory, and RSS moves only by the depth actually reached.
+  #
+  # The bootstrap is the exception. `dolos bootstrap mithril` imports blocks on
+  # the MAIN thread, whose stack is bounded by the soft RLIMIT_STACK
+  # (`ulimit -s`), not by RUST_MIN_STACK. So bootstrap.sh also runs
+  # `ulimit -s <rustMinStack / 1024>` (KiB) just before it. In the v1.6.1 image
+  # the soft limit is 8 MiB and the hard limit unlimited, so raising it works
+  # there; on a cluster runtime that is UNVERIFIED, so a failure only prints a
+  # warning and the bootstrap continues.
+  #
+  # pallas 1.4.0 decodes metadata without call-stack recursion, and a later Dolos
+  # release uses it. Whether that makes this setting unnecessary is not verified
+  # here, so the default stays.
+  #
+  # A whole number of bytes, at least 2097152 and a multiple of 1024; anything
+  # else fails the render. "" opts out: no RUST_MIN_STACK and no `ulimit` line.
+  rustMinStack: "268435456"
+  # Extra environment for BOTH Dolos containers, as NAME: value. Rendered sorted
+  # by name, every value as a string. The Platform pod gets none of it. Names the
+  # chart sets itself are refused: RUST_MIN_STACK (set rustMinStack instead, even
+  # to opt out), DATA_DIR, BOOTSTRAP_MARKER_CONTENT and DOWNLOAD_DIR.
+  extraEnv: {}
 
 # Monitoring. Both default OFF: ServiceMonitor and PrometheusRule are
 # prometheus-operator CRDs, an installer's cluster may not have them, and an

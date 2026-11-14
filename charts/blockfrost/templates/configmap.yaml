@@ -1,5 +1,6 @@
 {{- $net := include "blockfrost.net" . | fromYaml -}}
 {{- $genesis := printf "/etc/genesis/%s" (toString .Values.network) -}}
+{{- $rms := include "blockfrost.rustMinStack" . -}}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -125,6 +126,13 @@ data:
     ) &
     HEARTBEAT=$!
     trap 'kill "$HEARTBEAT" 2>/dev/null || true' EXIT
+    {{- if $rms }}
+    # RUST_MIN_STACK (dolos.rustMinStack) never applies to the main thread, and the
+    # Mithril import below runs on the main thread, whose stack is bounded by the
+    # soft stack limit instead. Raise that to match. Whether a cluster runtime
+    # allows it is unverified, so a failure warns and the bootstrap continues.
+    ulimit -s {{ div (int64 $rms) 1024 }} || echo "bootstrap: could not raise the stack soft limit to {{ div (int64 $rms) 1024 }} KiB (ulimit -s); continuing with $(ulimit -s)" >&2
+    {{- end }}
     if ! dolos -c {{ include "blockfrost.dolosConfigDir" . }}/dolos.toml bootstrap mithril --verbose --download-dir "$DATA_DIR/$DOWNLOAD_DIR"; then
       echo "bootstrap: dolos bootstrap mithril failed; no marker written" >&2
       exit 1

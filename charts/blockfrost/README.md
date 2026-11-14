@@ -231,6 +231,8 @@ one resolved from *that* repository.
 | `dolos.mithril.ancillaryKey` | `""` | empty means the per-network default |
 | `dolos.tokenRegistryUrl` | `""` | empty means the per-network default |
 | `dolos.logLevel` | `INFO` | Dolos `[logging] max_level`: `ERROR`, `WARN`, `INFO`, `DEBUG` or `TRACE` |
+| `dolos.rustMinStack` | `"268435456"` | `RUST_MIN_STACK` in bytes (256 MiB) on both Dolos containers, plus `ulimit -s` in KiB before the Mithril bootstrap; a whole number, at least `2097152`, a multiple of `1024`; `""` opts out. See "Resources" |
+| `dolos.extraEnv` | `{}` | `NAME: value` map added to both Dolos containers (never the Platform), sorted, values as strings; refused for the names the chart sets: `RUST_MIN_STACK`, `DATA_DIR`, `BOOTSTRAP_MARKER_CONTENT`, `DOWNLOAD_DIR` |
 
 The Mithril keys are **public verification keys, not secrets**. They are
 overridable, but the defaults are the published values for each network.
@@ -452,6 +454,17 @@ cgroup `anon` figure, the one a limit can OOM on.
 **No CPU limits**: sync and import are CPU-bursty, and a CPU limit only throttles
 them. Kubernetes schedules by **requests**, so check `dolos.bootstrap.resources`
 against your node's real headroom: the bootstrap request is the largest.
+
+**Thread stack (`dolos.rustMinStack`, default 256 MiB).** Both Dolos containers
+get `RUST_MIN_STACK=268435456`. `RUST_MIN_STACK` sets the stack of threads Rust
+spawns without an explicit size (default 2 MiB), and it never applies to the main
+thread. Dolos v1.6.1 overflowed the 2 MiB default on a preview block whose
+transaction metadata is nested about 16,000 levels deep, and crash-looped; with
+256 MiB it passed the block. `dolos bootstrap mithril` imports blocks on the main
+thread, which `ulimit -s` bounds instead, so `bootstrap.sh` first raises the soft
+stack limit to 262144 KiB and only warns if it cannot. The cost is **virtual**:
+each stack is reserved address space, only the pages actually touched become
+resident, and memory moves only by the depth actually reached. `""` opts out.
 
 ---
 
