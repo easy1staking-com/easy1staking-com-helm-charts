@@ -457,12 +457,12 @@ against your node's real headroom: the bootstrap request is the largest.
 
 **Thread stack (`dolos.rustMinStack`, default 256 MiB).** Both Dolos containers
 get `RUST_MIN_STACK=268435456`. `RUST_MIN_STACK` sets the stack of threads Rust
-spawns without an explicit size (default 2 MiB), and it never applies to the main
-thread. Dolos v1.6.1 overflowed the 2 MiB default on a preview block whose
+spawns without an explicit size (default 2 MiB), and it never applies to the
+main thread. Dolos v1.6.1 overflowed the 2 MiB default on a preview block whose
 transaction metadata is nested about 16,000 levels deep, and crash-looped; with
-256 MiB it passed the block. `dolos bootstrap mithril` imports blocks on the main
-thread, which `ulimit -s` bounds instead, so `bootstrap.sh` first raises the soft
-stack limit to 262144 KiB and only warns if it cannot. The cost is **virtual**:
+256 MiB it passed the block. `dolos bootstrap mithril` imports blocks on the
+main thread, which `ulimit -s` bounds instead, so `bootstrap.sh` first raises the
+soft stack limit to 262144 KiB and only warns if it cannot. The cost is **virtual**:
 each stack is reserved address space, only the pages actually touched become
 resident, and memory moves only by the depth actually reached. `""` opts out.
 
