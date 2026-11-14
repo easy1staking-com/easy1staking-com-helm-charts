@@ -40,6 +40,9 @@ spec:
               value: {{ include "blockfrost.markerContent" . | quote }}
             - name: DOWNLOAD_DIR
               value: {{ include "blockfrost.downloadDir" . | quote }}
+            {{- with include "blockfrost.dolosEnv" . | trim }}
+            {{- . | nindent 12 }}
+            {{- end }}
           resources:
             {{- toYaml .Values.dolos.bootstrap.resources | nindent 12 }}
           volumeMounts:
@@ -55,6 +58,10 @@ spec:
           command: ["dolos"]
           args: ["-c", "{{ $configDir }}/dolos.toml", "daemon"]
           workingDir: {{ $dataPath }}
+          {{- with include "blockfrost.dolosEnv" . | trim }}
+          env:
+            {{- . | nindent 12 }}
+          {{- end }}
           ports:
             - name: minibf
               containerPort: 3010

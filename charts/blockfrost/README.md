@@ -83,6 +83,21 @@ in `Init` and is a not-ready endpoint of its Service (Prometheus still scrapes
 it, and it reads `up == 0`). See "Bootstrap guard" for what every
 volume state does, and "Monitoring" for how the alerts treat the bootstrap.
 
+**Following it:** `kubectl logs -f <release>-dolos-0 -c bootstrap`. Dolos' own
+progress bars are hidden when its output is not a terminal, so the script prints
+a start line and then, every 5 minutes, the size of the download and of the data
+volume:
+
+```
+bootstrap: starting Mithril bootstrap (magic=764824073 storage=v3); progress is reported every 5 minutes
+bootstrap: still running, download 41G, data volume 41G
+```
+
+The download grows first; once it stops, Dolos is importing it into its stores.
+Dolos' INFO lines (`--verbose`) appear between the heartbeats. Before
+`0.1.0-alpha.2` the chart passed neither, and a healthy bootstrap printed nothing
+until it finished.
+
 During that window the Platform logs
 `ERROR ... Data node root check failed` every 2 seconds (observed in the
 2026-10-20 dev deploy). That is **expected noise, not a fault**: the Platform is
@@ -216,6 +231,8 @@ one resolved from *that* repository.
 | `dolos.mithril.ancillaryKey` | `""` | empty means the per-network default |
 | `dolos.tokenRegistryUrl` | `""` | empty means the per-network default |
 | `dolos.logLevel` | `INFO` | Dolos `[logging] max_level`: `ERROR`, `WARN`, `INFO`, `DEBUG` or `TRACE` |
+| `dolos.rustMinStack` | `"268435456"` | `RUST_MIN_STACK` in bytes (256 MiB) on both Dolos containers, plus a raise-only `ulimit -Ss` in KiB before the Mithril bootstrap; a whole number, at least `2097152`, a multiple of `1024`; `""` opts out. See "Resources" |
+| `dolos.extraEnv` | `{}` | `NAME: value` map added to both Dolos containers (never the Platform), sorted, names quoted, values as strings; a value must be a string, number or boolean (null, maps and lists are refused); a name must be a valid environment variable name (letters, digits, `_`, `-`, `.`, not starting with a digit) and is refused otherwise; refused for the names the chart sets: `RUST_MIN_STACK`, `DATA_DIR`, `BOOTSTRAP_MARKER_CONTENT`, `DOWNLOAD_DIR` |
 
 The Mithril keys are **public verification keys, not secrets**. They are
 overridable, but the defaults are the published values for each network.
@@ -437,6 +454,18 @@ cgroup `anon` figure, the one a limit can OOM on.
 **No CPU limits**: sync and import are CPU-bursty, and a CPU limit only throttles
 them. Kubernetes schedules by **requests**, so check `dolos.bootstrap.resources`
 against your node's real headroom: the bootstrap request is the largest.
+
+**Thread stack (`dolos.rustMinStack`, default 256 MiB).** Both Dolos containers
+get `RUST_MIN_STACK=268435456`. `RUST_MIN_STACK` sets the stack of threads Rust
+spawns without an explicit size (default 2 MiB), and it never applies to the
+main thread. Dolos v1.6.1 overflowed the 2 MiB default on a preview block whose
+transaction metadata is nested about 16,000 levels deep, and crash-looped; with
+256 MiB it passed the block. `dolos bootstrap mithril` imports blocks on the
+main thread, which `ulimit -Ss` bounds instead, so `bootstrap.sh` first raises the
+soft stack limit to 262144 KiB with `ulimit -Ss` when it is lower, never lowers a
+higher (or unlimited) one, and only warns if it cannot. The cost is **virtual**:
+each stack is reserved address space, only the pages actually touched become
+resident, and memory moves only by the depth actually reached. `""` opts out.
 
 ---
 

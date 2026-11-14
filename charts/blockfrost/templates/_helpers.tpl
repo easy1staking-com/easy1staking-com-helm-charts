@@ -244,3 +244,75 @@ volume reused across networks or storage versions is refused instead of served.
 {{- $net := include "blockfrost.net" . | fromYaml -}}
 magic={{ $net.magic }} storage=v3
 {{- end }}
+
+{{/*
+dolos.rustMinStack, validated and rendered as plain digits; "" when off ("" or
+null). An unquoted YAML integer reaches the template as float64 (268435456 would
+print as 2.68435456e+08), so a whole float64 is converted to an integer first.
+Leading zeros are refused: the value is also divided into the bootstrap's
+`ulimit -Ss` (KiB), and both readings must agree on one number.
+*/}}
+{{- define "blockfrost.rustMinStack" -}}
+{{- $v := .Values.dolos.rustMinStack -}}
+{{- if not (or (kindIs "invalid" $v) (eq (toString $v) "")) -}}
+{{- $s := toString $v -}}
+{{- if and (kindIs "float64" $v) (eq $v (floor $v)) -}}
+{{- $s = int64 $v | toString -}}
+{{- end -}}
+{{- if or (not (regexMatch "^[1-9][0-9]{0,17}$" $s)) (lt (int64 $s) 2097152) (ne (mod (int64 $s) 1024) 0) -}}
+{{- fail (printf "dolos.rustMinStack must be a whole number of bytes, at least 2097152 (Rust's 2 MiB default) and a multiple of 1024 (the bootstrap passes it to `ulimit -Ss` in KiB), or \"\" to opt out; got %q" (toString $v)) -}}
+{{- end -}}
+{{ $s }}
+{{- end -}}
+{{- end }}
+
+{{/*
+Environment shared by BOTH Dolos containers (bootstrap init and daemon), as YAML
+list items at column 0: RUST_MIN_STACK, then dolos.extraEnv sorted by name. Empty
+when there is nothing to add, so the caller can omit `env:` altogether.
+Every extraEnv name must be a Kubernetes env name ([-._a-zA-Z][-._a-zA-Z0-9]*),
+and is rendered quoted. Otherwise YAML would trim a padded name (" DATA_DIR")
+after the check below had passed it, and the rendered name would differ from
+the checked one.
+A name the chart sets itself is refused rather than shadowed: Kubernetes takes
+the last duplicate, so an extraEnv entry would silently beat the typed value.
+RUST_MIN_STACK stays refused with rustMinStack "": one place to set it.
+Values must be strings, numbers or booleans, and are rendered as strings; a
+whole float64 (an unquoted YAML integer) is rendered as digits rather than in
+scientific notation. A null, map or list value is refused: it would render as
+"<nil>" or "map[...]" / "[...]".
+*/}}
+{{- define "blockfrost.dolosEnv" -}}
+{{- $extra := .Values.dolos.extraEnv | default dict -}}
+{{- if not (kindIs "map" $extra) -}}
+{{- fail (printf "dolos.extraEnv must be a map of NAME: value, got %s" (kindOf $extra)) -}}
+{{- end -}}
+{{- $managed := list "RUST_MIN_STACK" "DATA_DIR" "BOOTSTRAP_MARKER_CONTENT" "DOWNLOAD_DIR" -}}
+{{- range $k, $v := $extra -}}
+{{- if not (regexMatch "^[-._a-zA-Z][-._a-zA-Z0-9]*$" $k) -}}
+{{- fail (printf "dolos.extraEnv name %q is not a valid environment variable name: use letters, digits, '_', '-' and '.', not starting with a digit" $k) -}}
+{{- end -}}
+{{- if has $k $managed -}}
+{{- fail (printf "dolos.extraEnv sets %s, which this chart sets itself (RUST_MIN_STACK, DATA_DIR, BOOTSTRAP_MARKER_CONTENT, DOWNLOAD_DIR). Use dolos.rustMinStack for RUST_MIN_STACK; the others are fixed." $k) -}}
+{{- end -}}
+{{- if kindIs "invalid" $v -}}
+{{- fail (printf "dolos.extraEnv %s has no value (null): values must be strings, numbers or booleans; use \"\" for an empty value" $k) -}}
+{{- end -}}
+{{- if or (kindIs "map" $v) (kindIs "slice" $v) -}}
+{{- fail (printf "dolos.extraEnv %s must be a string, number or boolean, got a %s" $k (ternary "map" "list" (kindIs "map" $v))) -}}
+{{- end -}}
+{{- end -}}
+{{- $rms := include "blockfrost.rustMinStack" . -}}
+{{- if $rms }}
+- name: "RUST_MIN_STACK"
+  value: {{ $rms | quote }}
+{{- end }}
+{{- range $k, $v := $extra }}
+{{- $s := toString $v }}
+{{- if and (kindIs "float64" $v) (eq $v (floor $v)) }}
+{{- $s = int64 $v | toString }}
+{{- end }}
+- name: {{ $k | quote }}
+  value: {{ $s | quote }}
+{{- end }}
+{{- end }}
