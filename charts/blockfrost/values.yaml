@@ -194,8 +194,10 @@ dolos:
   #
   # The bootstrap is the exception. `dolos bootstrap mithril` imports blocks on
   # the MAIN thread, whose stack is bounded by the soft RLIMIT_STACK
-  # (`ulimit -Ss`), not by RUST_MIN_STACK. So bootstrap.sh also runs
-  # `ulimit -Ss <rustMinStack / 1024>` (KiB) just before it. In the v1.6.1 image
+  # (`ulimit -Ss`), not by RUST_MIN_STACK. So just before it, bootstrap.sh
+  # RAISES the soft limit to rustMinStack / 1024 KiB with `ulimit -Ss` when it is
+  # lower, and never lowers a higher (or unlimited) one: setting the soft limit
+  # lowers it when it was higher, so the script compares first. In the v1.6.1 image
   # the soft limit is 8 MiB and the hard limit unlimited, so raising it works
   # there; on a cluster runtime that is UNVERIFIED, so a failure only prints a
   # warning and the bootstrap continues.
@@ -208,7 +210,8 @@ dolos:
   # else fails the render. "" opts out: no RUST_MIN_STACK and no `ulimit` line.
   rustMinStack: "268435456"
   # Extra environment for BOTH Dolos containers, as NAME: value. Rendered sorted
-  # by name, every value as a string. The Platform pod gets none of it. Names the
+  # by name, every value as a string. Values must be strings, numbers or booleans;
+  # a null, map or list value is refused. The Platform pod gets none of it. Names the
   # chart sets itself are refused: RUST_MIN_STACK (set rustMinStack instead, even
   # to opt out), DATA_DIR, BOOTSTRAP_MARKER_CONTENT and DOWNLOAD_DIR. Names must
   # be valid environment variable names (letters, digits, '_', '-' and '.', not

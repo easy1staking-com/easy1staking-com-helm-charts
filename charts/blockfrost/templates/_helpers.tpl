@@ -277,8 +277,10 @@ the checked one.
 A name the chart sets itself is refused rather than shadowed: Kubernetes takes
 the last duplicate, so an extraEnv entry would silently beat the typed value.
 RUST_MIN_STACK stays refused with rustMinStack "": one place to set it.
-Values are strings; a whole float64 (an unquoted YAML integer) is rendered as
-digits rather than in scientific notation.
+Values must be strings, numbers or booleans, and are rendered as strings; a
+whole float64 (an unquoted YAML integer) is rendered as digits rather than in
+scientific notation. A null, map or list value is refused: it would render as
+"<nil>" or "map[...]" / "[...]".
 */}}
 {{- define "blockfrost.dolosEnv" -}}
 {{- $extra := .Values.dolos.extraEnv | default dict -}}
@@ -292,6 +294,12 @@ digits rather than in scientific notation.
 {{- end -}}
 {{- if has $k $managed -}}
 {{- fail (printf "dolos.extraEnv sets %s, which this chart sets itself (RUST_MIN_STACK, DATA_DIR, BOOTSTRAP_MARKER_CONTENT, DOWNLOAD_DIR). Use dolos.rustMinStack for RUST_MIN_STACK; the others are fixed." $k) -}}
+{{- end -}}
+{{- if kindIs "invalid" $v -}}
+{{- fail (printf "dolos.extraEnv %s has no value (null): values must be strings, numbers or booleans; use \"\" for an empty value" $k) -}}
+{{- end -}}
+{{- if or (kindIs "map" $v) (kindIs "slice" $v) -}}
+{{- fail (printf "dolos.extraEnv %s must be a string, number or boolean, got a %s" $k (ternary "map" "list" (kindIs "map" $v))) -}}
 {{- end -}}
 {{- end -}}
 {{- $rms := include "blockfrost.rustMinStack" . -}}
