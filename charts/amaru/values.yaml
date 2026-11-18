@@ -11,7 +11,7 @@ image:
   repository: ghcr.io/pragma-org/amaru
   pullPolicy: IfNotPresent
   # Overrides the image tag, whose default is the chart appVersion.
-  # Pin a release tag (e.g. v10.11.20260820); ":latest" is a nightly build.
+  # Pin a release tag (e.g. v10.11.20261112); ":latest" is a nightly build.
   tag: ""
 
 # Target network: mainnet | preprod | preview.
@@ -81,9 +81,11 @@ config:
   # that produces unreadable logs, so it is disabled here. Leave this true.
   noTui: true
 
-  # Chain database schema is version 6 as of v10.11.20260820. Version 5
-  # databases migrate automatically only when this is enabled; anything older
-  # must be rebuilt from a bootstrap snapshot (delete the PVC and re-bootstrap).
+  # Chain database schema is version 6 at both v10.11.20260820 and
+  # v10.11.20261112, so upgrading between those two needs no migration. Version 5
+  # databases migrate automatically only when this is enabled
+  # (--db-chain-automatic-migration); anything older must be rebuilt from a
+  # bootstrap snapshot (delete the PVC and re-bootstrap).
   migrateChainDb: false
 
   # Number of upstream peers Amaru maintains connections to.
@@ -95,8 +97,9 @@ config:
   downstreamPeers: null
 
   # Outbound peer source mix formula. Unset uses Amaru's default:
-  #   "static!2@15m, shared~6, snapshot~3@1h, ledger~3@24h"
-  # "static" are the peers you list in a node's peerAddresses.
+  #   "static!2@15m, inbound~6, shared~6, snapshot~3@1h, ledger~3@24h"
+  # "static" are the peers you list in a node's peerAddresses; "inbound"
+  # promotes duplex inbound connections into upstream slots.
   peerMix: ""
 
   # Path to a Cardano ledger peer snapshot JSON (bigLedgerPools), compatible
@@ -127,6 +130,20 @@ config:
     # Optional bounds on how much is ingested. Unset ingests everything available.
     ingestUntilSlot: null
     ingestMaximumBlocks: null
+
+  # OTLP metrics export interval, in milliseconds. Renders
+  # OTEL_METRIC_EXPORT_INTERVAL wherever OTLP export is on.
+  #
+  # Whole milliseconds in 1000..120000 (a YAML integer or a digit-only string);
+  # anything else fails the render naming this key, including 0, an empty
+  # string, a fraction or a unit suffix ("30000ms"). Null renders 30000.
+  #
+  # 30 s rather than Amaru's own default of 1000 ms, which applies when the
+  # variable is unset (the OpenTelemetry SDK's default is 60 s): exporting every
+  # second makes thirty times as many OTLP exports as a 30 s scrape can read.
+  # The range check is not cosmetic: Amaru panics at startup on an empty or
+  # non-numeric value, and takes 0 as a zero interval.
+  otlpMetricExportIntervalMs: 30000
 
   # Optional HTTP Cardano Submit API (POST /api/submit/tx).
   # Amaru has no node-to-client (n2c) socket; this is the nearest equivalent.
@@ -161,16 +178,16 @@ nodes:
     type: relay
     replicas: 1
 
-    # Node-to-node p2p port. Drives --listen-address, the containerPort and every
-    # Service port together, so the advertised port cannot drift from the real
-    # listen port. 3001 matches the cardano-node chart convention (Amaru's own
-    # built-in default is 3000; we always pass it explicitly).
+    # Node-to-node p2p port. Drives --peers-listen-on, the containerPort and
+    # every Service port together, so the advertised port cannot drift from the
+    # real listen port. 3001 matches the cardano-node chart convention (Amaru's
+    # own built-in default is 0.0.0.0:3001 too; we always pass it explicitly).
     port: 3001
 
     # Upstream peers to synchronize from, over the p2p mini-protocol.
-    # Each entry renders one --peer-address. These are the "static" source in
-    # the peer mix. Leave empty to use only Amaru's built-in bootstrap peer,
-    # peer snapshot and ledger-derived peers.
+    # Each entry renders one --peer. These are the "static" source in the peer
+    # mix. Leave empty to use only Amaru's other peer-mix sources: an empty list
+    # no longer falls back to a network bootstrap peer.
     peerAddresses: []
     #  - "cardano-node-relay-1-int:3001"
     #  - "relays.example.com:3001"

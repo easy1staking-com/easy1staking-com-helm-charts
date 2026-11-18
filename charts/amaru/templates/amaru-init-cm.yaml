@@ -36,8 +36,8 @@ data:
 
     ledger_present=false
     chain_present=false
-    if populated "${AMARU_LEDGER_DIR}"; then ledger_present=true; fi
-    if populated "${AMARU_CHAIN_DIR}";  then chain_present=true;  fi
+    if populated "${LEDGER_DIR}"; then ledger_present=true; fi
+    if populated "${CHAIN_DIR}";  then chain_present=true;  fi
 
     if [[ "${ledger_present}" == "true" ]] && [[ "${chain_present}" == "true" ]]; then
       # Both databases are populated but there is no marker: this is a volume
@@ -55,15 +55,15 @@ data:
       # ("use another location or remove it manually"), so the partial state has
       # to go or every subsequent start fails.
       echo "init: partial bootstrap detected (ledger=${ledger_present} chain=${chain_present}), clearing and starting over"
-      rm -rf "${AMARU_LEDGER_DIR}" "${AMARU_CHAIN_DIR}"
+      rm -rf "${LEDGER_DIR}" "${CHAIN_DIR}"
     fi
 
     # Bootstrap imports a ledger snapshot, bootstrap headers and nonces in one
     # step, downloading them from Amaru's snapshot bucket. Needs outbound HTTPS.
     amaru node bootstrap \
       --network="${NETWORK}" \
-      --ledger-dir "${AMARU_LEDGER_DIR}" \
-      --chain-dir "${AMARU_CHAIN_DIR}"
+      --db-ledger "${LEDGER_DIR}" \
+      --db-chain "${CHAIN_DIR}"
 
     # Only reached when bootstrap exited 0 — `set -e` aborts the script otherwise,
     # leaving no marker, so the next start retries instead of running a broken node.

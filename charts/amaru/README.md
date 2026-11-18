@@ -3,7 +3,10 @@
 Helm chart for [Amaru](https://github.com/pragma-org/amaru), the Rust Cardano node
 by pragma. This chart deploys one or more **relays**.
 
-Image: `ghcr.io/pragma-org/amaru` · verified against `v10.11.20260820`.
+Image: `ghcr.io/pragma-org/amaru` · `v10.11.20261112`. Measured against that
+image: it parses every `node run` argv this chart renders up to its database
+check, and accepts the rendered bootstrap and Mithril flags. No node has been run
+to tip on it by this chart.
 
 ---
 
@@ -47,6 +50,27 @@ helm install amaru ./charts/amaru -f ./charts/amaru/values-mainnet.yaml
 The chart renders a complete working relay out of the box. Switching network is
 only the `network` value; the three presets contain nothing else.
 
+## Upgrading from v10.11.20260820
+
+The chart now renders Amaru's current flag and environment variable names. The
+old names are hidden aliases, deprecated in Amaru's CHANGELOG only, with no
+runtime warning. Four behaviour changes arrive with the image itself:
+
+- **An empty peer list no longer falls back to a network bootstrap peer.** With
+  `nodes[].peerAddresses` empty, Amaru uses only its peer-mix sources. The
+  image's own `--peer` help text still says it falls back; that is an upstream
+  documentation bug.
+- **Outbound connections bind to the listen port**, falling back to an ephemeral
+  port if it cannot be reused. `--peers-ephemeral-outbound-port` opts out; this
+  chart does not render it.
+- **A new inbound handshake is refused** once `--peers-max-downstream` live
+  inbound connections exist (default 10, `config.downstreamPeers` here).
+- **The metrics export default became 1 s.** The chart overrides it with
+  `config.otlpMetricExportIntervalMs`, default `30000` — see Monitoring.
+
+The chain database schema is version 6 on both versions, so no chain-DB
+migration is needed for this upgrade.
+
 ## Ports
 
 | Port | Direction | Set by | Exposed on | Purpose |
@@ -59,14 +83,15 @@ only the `network` value; the three presets contain nothing else.
 
 Notes on the p2p port:
 
-- `nodes[].port` is the single source of truth. It drives `--listen-address`,
+- `nodes[].port` is the single source of truth. It drives `--peers-listen-on`,
   the `containerPort`, and every Service port together, so the port Amaru
   actually listens on cannot drift from the port the cluster advertises.
 - **3001** matches the `cardano-node` chart in this repo. Amaru's own built-in
-  default is `3000`; this chart always passes the address explicitly, so the
-  built-in default never applies.
-- Amaru accepts up to `config.downstreamPeers` inbound connections (upstream
-  default 10). That is the relay's serving capacity.
+  default is `0.0.0.0:3001` as well; this chart always passes the address
+  explicitly, so the built-in default never applies.
+- Amaru refuses a new inbound handshake once `config.downstreamPeers` live
+  inbound connections exist (upstream default 10). That is the relay's serving
+  capacity.
 
 ### Services
 
@@ -110,11 +135,12 @@ address to strangers does not, in this topology.
 
 ## Upstream peers
 
-Amaru draws outbound peers from four sources, blended by `config.peerMix`:
+Amaru draws outbound peers from five sources, blended by `config.peerMix`:
 
 | Source | Where it comes from | Configure with |
 |---|---|---|
 | `static` | peers you list explicitly | `nodes[].peerAddresses` |
+| `inbound` | duplex inbound connections, promoted into upstream slots | — |
 | `shared` | discovered via the peer-sharing mini-protocol | — |
 | `snapshot` | a `bigLedgerPools` JSON of stake-weighted big-ledger relays | `config.peerSnapshot`, else the snapshot embedded in the image |
 | `ledger` | relays derived from ledger state | — |
@@ -133,11 +159,11 @@ nodes:
       - "relays.example.com:3001"           # anything reachable
 ```
 
-Each entry renders one `--peer-address`. An **empty list emits no flag at all**,
-which is deliberate: Amaru then falls back to its network bootstrap peer plus
-the embedded peer snapshot (637 mainnet relays as of `v10.11.20260820`) and
-ledger-derived peers. So a relay with zero configured peers still finds the
-network — listing peers constrains it, it is not required to make it work.
+Each entry renders one `--peer`. An **empty list emits no flag at all**, and
+Amaru then uses only its other peer-mix sources (the table above).
+It no longer falls back to a network bootstrap peer, as it did on `v10.11.20260820`;
+the image's `--peer` help text still says it falls back, which is an upstream
+documentation bug.
 
 Related knobs, all optional and omitted from the command line when unset:
 
@@ -145,7 +171,7 @@ Related knobs, all optional and omitted from the command line when unset:
 |---|---|---|
 | `config.upstreamPeers` | 3 | how many upstream peers to hold connections to |
 | `config.downstreamPeers` | 10 | max inbound peers accepted — serving capacity |
-| `config.peerMix` | `static!2@15m, shared~6, snapshot~3@1h, ledger~3@24h` | source blend: floors `!n`, weights `~n`, malus half-lives `@Nd` |
+| `config.peerMix` | `static!2@15m, inbound~6, shared~6, snapshot~3@1h, ledger~3@24h` | source blend: floors `!n`, weights `~n`, malus half-lives `@Nd` |
 | `config.peerSnapshot` | embedded | path to a `bigLedgerPools` JSON, cardano-node compatible |
 
 Leaving a source out of the mix formula **disables** it.
@@ -195,6 +221,10 @@ is the snapshots directory. **Consequence:** if pragma ever rotates an aggregato
 or key, you upgrade the image — the chart cannot override it.
 
 ### Known issue: preview sync halts permanently at block 4,588,007
+
+> **History, scoped to `v10.11.20260820`.** Everything in this section was
+> observed on that version. The operator reports preview sync past 4,588,007 on
+> later releases; this chart has not re-measured it on `v10.11.20261112`.
 
 **On `v10.11.20260820` a preview relay reaches block 4,588,006 and then stops
 forever**, rejecting 4,588,007 and every block after it as *"descends from an
@@ -272,11 +302,11 @@ docker run --rm -u 0 -v amaru-repro:/data --entrypoint sh \
 
 docker run --rm -v amaru-repro:/data ghcr.io/pragma-org/amaru:v10.11.20260820 \
   node bootstrap --network preview \
-  --ledger-dir /data/ledger.db --chain-dir /data/chain.db
+  --ledger-dir /data/ledger.db --chain-dir /data/chain.db  # old names, as run on v10.11.20260820
 
 docker run --rm -v amaru-repro:/data ghcr.io/pragma-org/amaru:v10.11.20260820 \
   node run --network preview \
-  --ledger-dir /data/ledger.db --chain-dir /data/chain.db --no-tui
+  --ledger-dir /data/ledger.db --chain-dir /data/chain.db --no-tui  # old names, as run on v10.11.20260820
 ```
 
 The rejected transaction is `97df1aec…228dc4` at index 0, and the input Amaru
@@ -287,6 +317,9 @@ this, and it is expected** — not a misconfiguration, and not worth investigati
 again.
 
 ### Known issue: Mithril ingest can fail on block validation
+
+> **History, scoped to `v10.11.20260820`.** This was observed on that version and
+> has not been re-measured by this chart on `v10.11.20261112`.
 
 Observed with `v10.11.20260820` on **preview**: after a successful bootstrap at
 epoch 1392, Mithril ingest aborted validating a real on-chain block —
@@ -304,10 +337,9 @@ cost accounting overshoots by ~0.015%. Reproduce with:
 
 ```bash
 docker run --rm -v $pwd/data:/data ghcr.io/pragma-org/amaru:v10.11.20260820 \
-  node bootstrap --network=preview --ledger-dir /data/ledger.db --chain-dir /data/chain.db
+  node bootstrap --network=preview --ledger-dir /data/ledger.db --chain-dir /data/chain.db  # old names, as run on v10.11.20260820
 docker run --rm -v $pwd/data:/data ghcr.io/pragma-org/amaru:v10.11.20260820 \
-  mithril sync --network preview --ledger-dir /data/ledger.db \
-    --chain-dir /data/chain.db --snapshots-dir /data/mithril
+  mithril sync --network preview --ledger-dir /data/ledger.db --chain-dir /data/chain.db --snapshots-dir /data/mithril  # old names, as run on v10.11.20260820
 ```
 
 This is why `config.mithrilSync.failOnError` defaults to **false**: an ingest
@@ -324,10 +356,10 @@ mounts `<network>-config.json` and `<network>-topology.json`.
 
 | Value | Default | Flag |
 |---|---|---|
-| `config.ledgerDir` | `/data/db/ledger.db` | `--ledger-dir` |
-| `config.chainDir` | `/data/db/chain.db` | `--chain-dir` |
-| `config.noTui` | `true` | `--no-tui` |
-| `config.migrateChainDb` | `false` | `--migrate-chain-db` |
+| `config.ledgerDir` | `/data/db/ledger.db` | `--db-ledger` |
+| `config.chainDir` | `/data/db/chain.db` | `--db-chain` |
+| `config.noTui` | `true` | `--tui-off` |
+| `config.migrateChainDb` | `false` | `--db-chain-automatic-migration` |
 
 Both databases live on the per-relay PersistentVolume mounted at `/data/db`,
 sized by `volumeSize`.
@@ -375,29 +407,32 @@ so **under-sizing is not "adjust later", it is destroy the volume, re-bootstrap
 and re-sync**, while over-sizing costs only a nominal claim (`local-path` does not
 preallocate — a 250Gi claim binds instantly and consumes nothing).
 
-**These figures cannot currently be refined, and that is a property of Amaru,
-not of the chart.** Sizing wants the usage of a relay that has reached tip, and on
-`v10.11.20260820` **no preview relay can reach tip** — see *Known issue: preview
-sync halts permanently* below. Both routes out are closed: the pinned image is the
-newest versioned tag `ghcr.io/pragma-org/amaru` publishes (observed), and a newer
-Mithril snapshot cannot help because ingest **replays forward from the ledger's
-current position** rather than relocating it — only `amaru node bootstrap` sets
-the start point, and that snapshot is compiled into the image.
+**History, scoped to `v10.11.20260820`: why these figures were not refined.**
+Sizing wants the usage of a relay that has reached tip, and on
+`v10.11.20260820` **no preview relay could reach tip** — see *Known issue: preview
+sync halts permanently* below. Both routes out were closed: the pinned image was
+then the newest versioned tag `ghcr.io/pragma-org/amaru` published (observed), and
+a newer Mithril snapshot cannot help because ingest **replays forward from the
+ledger's current position** rather than relocating it — only `amaru node bootstrap`
+sets the start point, and that snapshot is compiled into the image.
 
-So `volumeSizeByNetwork` and `resources` are **not merely unmeasured — they are
-unmeasurable until upstream ships a fix.** They are over-estimates justified by
-the asymmetry above, and the first person who *can* measure them should be someone
-running a build that gets past block 4,588,007.
+So `volumeSizeByNetwork` and `resources` were **not merely unmeasured but
+unmeasurable on `v10.11.20260820`.** They are over-estimates justified by the
+asymmetry above. The operator reports preview sync past 4,588,007 on later
+releases; this chart has not re-measured either figure on `v10.11.20261112`, and
+the first person who measures them should be someone running a build that gets
+past block 4,588,007.
 
 > **Resizing a running relay does not work.** A StatefulSet's
 > `volumeClaimTemplates` are immutable, so an upgrade that changes the size is
 > rejected by the API server. Resizing means deleting the StatefulSet
 > (`--cascade=orphan` keeps the pods) and re-applying, or replacing the PVC.
 
-**Chain database v6.** As of `v10.11.20260820` the chain database schema is
-version 6. Version 5 databases migrate automatically **only** with
-`config.migrateChainDb: true`. Anything older must be rebuilt: delete the PVC and
-let the init container bootstrap again.
+**Chain database v6.** The chain database schema is version 6 at both
+`v10.11.20260820` and `v10.11.20261112`, so upgrading between those two needs no
+chain-DB migration. Version 5 databases migrate automatically **only** with
+`config.migrateChainDb: true` (`--db-chain-automatic-migration`). Anything older
+must be rebuilt: delete the PVC and let the init container bootstrap again.
 
 **Filesystem permissions.** The image runs as non-root uid/gid **10000**. The
 chart sets `podSecurityContext.fsGroup: 10000` so the PersistentVolume is
@@ -425,10 +460,22 @@ sidecar, set `otelCollector.enabled: false` and give the node `otlpEndpoint`.
 
 ### How Amaru is pointed at the collector
 
-`AMARU_WITH_OPEN_TELEMETRY` turns export on. **The endpoint is not an `AMARU_`
-variable** — this binary contains no `AMARU_OTLP_*` string at all and reads the
-**standard OpenTelemetry SDK environment**, so the chart sets
+`AMARU_LOG_OTLP=true` turns export on, for all signals (it replaces
+`AMARU_WITH_OPEN_TELEMETRY`, the old name, which Amaru still remaps onto it).
+Unset, Amaru exports nothing over OTLP. Instead of `true` it can name the signals
+to export (metrics, traces, logs); this chart always sets `true`. **The endpoint
+is not an `AMARU_` variable** — this binary contains no `AMARU_OTLP_*` string at
+all and reads the **standard OpenTelemetry SDK environment**, so the chart sets
 `OTEL_EXPORTER_OTLP_ENDPOINT` and `OTEL_SERVICE_NAME`.
+
+**Metrics export interval.** The chart also sets `OTEL_METRIC_EXPORT_INTERVAL`
+from `config.otlpMetricExportIntervalMs`, in milliseconds, default `30000`.
+Unset, Amaru exports metrics every 1000 ms (its own default; the OpenTelemetry
+SDK's is 60 s), thirty times as often as a 30 s scrape reads them. The value must
+be whole milliseconds in 1000..120000, as a YAML integer or a digit-only string;
+anything else fails the render naming the key. That is checked at render time
+because Amaru panics at startup on an empty or non-numeric value, and takes `0` as
+a zero interval.
 
 Until `0.0.1-alpha.22` the chart set `AMARU_OTLP_METRIC_URL`,
 `AMARU_OTLP_SPAN_URL` and `AMARU_OTLP_SERVICE_NAME` instead. Those were
@@ -475,9 +522,13 @@ Traces additionally reach a real backend when `otelCollector.exporters.otlp` is
 enabled. There is no such route for logs — the collector accepts and discards
 them, which is what stops the retry loop.
 
-**If you disable the sidecar entirely**, Amaru has nowhere to push and the same
-error stream returns. Amaru has no `/metrics` endpoint and no way to be told to
-stop exporting, so the sidecar is the only place this can be handled.
+**If you disable the sidecar**, the chart sets no `AMARU_LOG_OTLP` (unless the
+node sets `withOpenTelemetry`), and with it unset Amaru exports nothing over OTLP
+— no metrics, and no error stream either. A node pointed at a central collector
+instead (`withOpenTelemetry` plus `otlpEndpoint`) still exports all three
+signals, so that collector must accept logs and traces for the same reason.
+Amaru can be told to export only some signals (`AMARU_LOG_OTLP` naming them), but
+this chart always sets `true` and does not expose that selection.
 
 ## The `job` label is a contract with `amaru-monitoring`
 
@@ -536,6 +587,7 @@ databases for a network.
 | `network` | `mainnet` | `mainnet` \| `preprod` \| `preview` |
 | `volumeSize` | `""` | explicit PVC size; overrides the derivation |
 | `volumeSizeByNetwork` | mainnet/preprod `250Gi`, preview `50Gi` | PVC size derived from `network` — see Storage |
+| `config.otlpMetricExportIntervalMs` | `30000` | `OTEL_METRIC_EXPORT_INTERVAL` in ms, 1000..120000; anything else fails the render — see Monitoring |
 | `otelCollector.acceptLogsAndTraces` | `true` | give Amaru's log/trace exporters a pipeline — see Logging |
 | `otelCollector.debugVerbosity` | `basic` | verbosity of the exporter terminating those pipelines |
 | `resources` | 1 CPU / 1Gi | chart-level default, overridable per node |

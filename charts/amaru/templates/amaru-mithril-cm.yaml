@@ -37,20 +37,22 @@ data:
     set +e
     amaru mithril sync \
       --network "${NETWORK}" \
-      --ledger-dir "${AMARU_LEDGER_DIR}" \
-      --chain-dir "${AMARU_CHAIN_DIR}" \
-      --snapshots-dir "${MITHRIL_SNAPSHOTS_DIR}" \
+      --db-ledger "${LEDGER_DIR}" \
+      --db-chain "${CHAIN_DIR}" \
+      --snapshots "${MITHRIL_SNAPSHOTS_DIR}" \
       {{- /* kindIs, not `with`: Helm treats 0 as falsy and would drop an
              explicitly configured zero, silently substituting Amaru's own
              default. 0 is not a sensible value for either of these, so this is
              consistency rather than a live defect — but the two peer-count
              flags in the StatefulSet already guard this way, and one chart
-             using both idioms is how the next person picks the wrong one. */}}
+             using both idioms is how the next person picks the wrong one.
+             `int64`, because a value from a values file reaches the template
+             as float64 and would otherwise render as 1.20355272e+08. */}}
       {{- if not (kindIs "invalid" .Values.config.mithrilSync.ingestUntilSlot) }}
-      --ingest-until-slot {{ .Values.config.mithrilSync.ingestUntilSlot }} \
+      --until-slot {{ .Values.config.mithrilSync.ingestUntilSlot | int64 }} \
       {{- end }}
       {{- if not (kindIs "invalid" .Values.config.mithrilSync.ingestMaximumBlocks) }}
-      --ingest-maximum-blocks {{ .Values.config.mithrilSync.ingestMaximumBlocks }} \
+      --max-blocks {{ .Values.config.mithrilSync.ingestMaximumBlocks | int64 }} \
       {{- end }}
       ;
     rc=$?
@@ -68,9 +70,10 @@ data:
     {{- else }}
     # Best-effort by default. A Mithril ingest failure must not brick a relay:
     # the node is already bootstrapped and valid, and can reach tip by pulling
-    # blocks from its upstream peers instead. Amaru v10.11.20260820 is known to
-    # fail block validation partway through ingest on preview (see the chart
-    # README), so a hard failure here would be a common way to never start.
+    # blocks from its upstream peers instead. Amaru v10.11.20260820 was observed
+    # to fail block validation partway through ingest on preview (see the chart
+    # README); this chart has not re-measured that on v10.11.20261112. A hard
+    # failure here would be a common way to never start.
     echo "mithril: sync failed (rc=${rc}); continuing without it — the node will" >&2
     echo "mithril: catch up from its upstream peers instead. Set" >&2
     echo "mithril: config.mithrilSync.failOnError=true to treat this as fatal." >&2

@@ -3,8 +3,9 @@
 {{- /*
   Upstream peers: prefer the peerAddresses list, fall back to the legacy
   singular peerAddress so existing deployment values keep working.
-  An empty list emits no --peer-address at all, which lets Amaru fall back to
-  its built-in bootstrap peer, peer snapshot and ledger-derived peers.
+  An empty list emits no --peer at all, and Amaru then uses only its other
+  peer-mix sources. It no longer falls back to a network bootstrap peer, although
+  the image's own --peer help text still says it does (an upstream doc bug).
 */ -}}
 {{- $peers := list }}
 {{- if $attributes.peerAddresses }}
@@ -13,6 +14,32 @@
 {{- $peers = list $attributes.peerAddress }}
 {{- end }}
 {{- $submitApi := $.Values.config.submitApi | default dict }}
+{{- /*
+  OTEL_METRIC_EXPORT_INTERVAL, in milliseconds. Validated here rather than left
+  to Amaru: it panics at startup on an empty or non-numeric value and takes 0 as
+  a zero interval. Null keeps the chart's 30000. Accepts a YAML integer (Helm
+  hands it over as float64 or int64) or a digit-only string.
+*/ -}}
+{{- $intervalKey := "config.otlpMetricExportIntervalMs" }}
+{{- $intervalMs := $.Values.config.otlpMetricExportIntervalMs }}
+{{- if kindIs "invalid" $intervalMs }}
+{{- $intervalMs = 30000 }}
+{{- else if kindIs "string" $intervalMs }}
+{{- if not (regexMatch "^[0-9]{1,6}$" $intervalMs) }}
+{{- fail (printf "%s must be whole milliseconds in 1000..120000, got %q" $intervalKey $intervalMs) }}
+{{- end }}
+{{- $intervalMs = atoi $intervalMs }}
+{{- else if or (kindIs "float64" $intervalMs) (kindIs "int64" $intervalMs) (kindIs "int" $intervalMs) }}
+{{- if ne (float64 $intervalMs) (float64 (int64 $intervalMs)) }}
+{{- fail (printf "%s must be whole milliseconds in 1000..120000, got %v" $intervalKey $intervalMs) }}
+{{- end }}
+{{- $intervalMs = int64 $intervalMs }}
+{{- else }}
+{{- fail (printf "%s must be whole milliseconds in 1000..120000, got %v (%s)" $intervalKey $intervalMs (kindOf $intervalMs)) }}
+{{- end }}
+{{- if or (lt (int64 $intervalMs) 1000) (gt (int64 $intervalMs) 120000) }}
+{{- fail (printf "%s must be whole milliseconds in 1000..120000, got %v" $intervalKey $intervalMs) }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -53,15 +80,19 @@ spec:
           command: [ "bash", "-x", "/configmap/init.sh" ]
           image: "{{ $attributes.repository | default $.Values.image.repository }}:{{ $attributes.imageTag | default $.Values.image.tag | default $.Chart.AppVersion }}"
           env:
+            {{- /* LEDGER_DIR/CHAIN_DIR here and in mithril-sync are the scripts'
+                   own variables, deliberately not AMARU_-prefixed: Amaru remaps
+                   the legacy AMARU_LEDGER_DIR/AMARU_CHAIN_DIR onto its current
+                   names, so under those names Amaru itself would read them. */}}
             - name: SKIP_BOOTSTRAP
               value: {{ $attributes.sleep | default false | quote }}
             - name: DATA_DIR
               value: {{ $.Values.config.dataDir }}
             - name: NETWORK
               value: {{ $.Values.network }}
-            - name: AMARU_LEDGER_DIR
+            - name: LEDGER_DIR
               value: {{ $.Values.config.ledgerDir }}
-            - name: AMARU_CHAIN_DIR
+            - name: CHAIN_DIR
               value: {{ $.Values.config.chainDir }}
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
           volumeMounts:
@@ -82,9 +113,9 @@ spec:
               value: {{ $.Values.config.dataDir }}
             - name: NETWORK
               value: {{ $.Values.network }}
-            - name: AMARU_LEDGER_DIR
+            - name: LEDGER_DIR
               value: {{ $.Values.config.ledgerDir }}
-            - name: AMARU_CHAIN_DIR
+            - name: CHAIN_DIR
               value: {{ $.Values.config.chainDir }}
             - name: MITHRIL_SNAPSHOTS_DIR
               value: {{ $.Values.config.mithrilSync.snapshotsDir }}
@@ -107,46 +138,46 @@ spec:
             - "run"
             - "--network"
             - {{ $.Values.network | quote }}
-            - "--ledger-dir"
+            - "--db-ledger"
             - {{ $.Values.config.ledgerDir | quote }}
-            - "--chain-dir"
+            - "--db-chain"
             - {{ $.Values.config.chainDir | quote }}
             {{- /* Inbound p2p listener. Bound to the same value that drives the
                    containerPort and every Service port, so the advertised port
                    can never drift from the real listen address. */}}
-            - "--listen-address"
+            - "--peers-listen-on"
             - "0.0.0.0:{{ $attributes.port }}"
             {{- range $p := $peers }}
-            - "--peer-address"
+            - "--peer"
             - {{ $p | quote }}
             {{- end }}
             {{- if $.Values.config.noTui }}
-            - "--no-tui"
+            - "--tui-off"
             {{- end }}
             {{- if $.Values.config.migrateChainDb }}
-            - "--migrate-chain-db"
+            - "--db-chain-automatic-migration"
             {{- end }}
             {{- /* Explicit nil checks, not `with`: 0 is a meaningful value here
                    (0 downstream peers = accept no inbound), and `with` would
                    silently drop it and fall back to Amaru's default. */}}
             {{- if not (kindIs "invalid" $.Values.config.upstreamPeers) }}
-            - "--upstream-peers"
+            - "--peers-max-upstream"
             - {{ $.Values.config.upstreamPeers | quote }}
             {{- end }}
             {{- if not (kindIs "invalid" $.Values.config.downstreamPeers) }}
-            - "--downstream-peers"
+            - "--peers-max-downstream"
             - {{ $.Values.config.downstreamPeers | quote }}
             {{- end }}
             {{- with $.Values.config.peerMix }}
-            - "--peer-mix"
+            - "--peers-mix"
             - {{ . | quote }}
             {{- end }}
             {{- with $.Values.config.peerSnapshot }}
-            - "--peer-snapshot"
+            - "--peers-snapshot"
             - {{ . | quote }}
             {{- end }}
             {{- if $submitApi.enabled }}
-            - "--submit-api-address"
+            - "--submit-api-listen-on"
             - "0.0.0.0:{{ $submitApi.port }}"
             {{- end }}
           {{- end }}
@@ -156,7 +187,9 @@ spec:
               {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
               {{- if or $attributes.withOpenTelemetry $collectorConfig.enabled }}
             {{- /*
-              AMARU_WITH_OPEN_TELEMETRY is real and is what turns export on.
+              AMARU_LOG_OTLP=true is what turns export on, for every signal
+              (it can instead name signals). It replaces
+              AMARU_WITH_OPEN_TELEMETRY, the old name, which Amaru still remaps.
               The endpoint, however, is NOT an AMARU_ variable: this binary
               contains no AMARU_OTLP_* string at all, and reads the standard
               OpenTelemetry SDK environment instead. The three AMARU_OTLP_*
@@ -172,7 +205,7 @@ spec:
               the exporter kept sending to the default, killing telemetry
               silently.
             */}}
-            - name: AMARU_WITH_OPEN_TELEMETRY
+            - name: AMARU_LOG_OTLP
               value: "true"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               {{- if $collectorConfig.enabled }}
@@ -182,6 +215,8 @@ spec:
               {{- end }}
             - name: OTEL_SERVICE_NAME
               value: "amaru"
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: {{ $intervalMs | quote }}
               {{- end }}
           ports:
             - name: node
