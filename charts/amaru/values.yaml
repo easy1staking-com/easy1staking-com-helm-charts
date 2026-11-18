@@ -180,7 +180,17 @@ serviceMonitor:
 nodes:
   - name: relay-1
     enabled: true
+
+    # Node type: relay | block-producer. Unset (null) means relay; any other
+    # value, including a different case or a stray space, fails the render
+    # naming the node. It is a pod label, deliberately kept out of the
+    # StatefulSet selector, so a node can be flipped between the two in place,
+    # keeping its name and its volume.
     type: relay
+
+    # 0 or 1. Unset (null) means 1. 0 pauses the node and keeps its volume.
+    # Anything else fails the render naming the node. Each entry is a single
+    # Amaru with its own databases: scale out by adding entries, not replicas.
     replicas: 1
 
     # Node-to-node p2p port. Drives --peers-listen-on, the containerPort and

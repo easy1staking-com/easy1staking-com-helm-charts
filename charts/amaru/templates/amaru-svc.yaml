@@ -26,7 +26,6 @@ spec:
   selector:
     app: amaru
     name: {{ $attributes.name }}
-    type: {{ $attributes.type }}
     network: {{ $.Values.network }}
   ports:
     - protocol: TCP
@@ -49,7 +48,6 @@ spec:
   selector:
     app: amaru
     name: {{ $attributes.name }}
-    type: {{ $attributes.type }}
     network: {{ $.Values.network }}
   ports:
     - protocol: TCP
@@ -81,10 +79,19 @@ metadata:
     app.kubernetes.io/component: node
     app.kubernetes.io/instance: {{ $.Release.Name }}
 spec:
+  {{- /*
+    Pinned to the literal `type: relay`, not the node's type, unlike the two
+    Services above, which carry no `type` at all. If a relay with a nodePort
+    is flipped to block-producer and its nodePort removed, this Service stops
+    rendering but may survive in the cluster: an Argo app with `prune: false`
+    never deletes it, and neither does a `kubectl apply` of a `helm template`
+    render. Pinned to relay, such a stale Service selects nothing rather than
+    exposing the block producer.
+  */}}
   selector:
     app: amaru
     name: {{ $attributes.name }}
-    type: {{ $attributes.type }}
+    type: relay
     network: {{ $.Values.network }}
   ports:
     - protocol: TCP

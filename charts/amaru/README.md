@@ -20,8 +20,10 @@ says how far it is known to have changed since:
 - **On `v10.11.20260820`, connections were not full-duplex.** Amaru could
   initiate outbound connections and accept inbound ones, but *over two separate
   tcp bearers* — a peer talking to Amaru did not get one bidirectional session
-  the way it does with a Haskell relay. Since `v10.11.20260910` the outbound
-  handshake offers duplex: when both sides agree, responders run on that bearer,
+  the way it does with a Haskell relay. Since `v10.11.20260918`, the first
+  release carrying it (Amaru's `CHANGELOG.md` at `v10.11.20261112` records the
+  change under `v10.11.20260910 _[unreleased]_`), the outbound handshake offers
+  duplex: when both sides agree, responders run on that bearer,
   and peer selection prefers promoting a duplex inbound connection over opening
   a second outbound one. Without `inbound` in `config.peerMix`, duplex inbound
   connections stay downstream-only.
@@ -54,6 +56,40 @@ helm install amaru ./charts/amaru -f ./charts/amaru/values-mainnet.yaml
 
 The chart renders a complete working relay out of the box. Switching network is
 only the `network` value; the three presets contain nothing else.
+
+## Upgrading to 0.0.1-alpha.24: one-time selector migration
+
+**Why.** A StatefulSet's `spec.selector` is immutable. Before `0.0.1-alpha.24`
+it included the node's `type`; from `0.0.1-alpha.24` it is `app`, `name` and
+`network` only, so that a node can be flipped between `relay` and
+`block-producer` in place. An existing StatefulSet still carries the old
+selector, and the API server rejects the upgrade (*field is immutable*) until
+that StatefulSet is gone. The Services' selectors are mutable and need nothing.
+
+**What to run, once per existing StatefulSet:**
+
+```bash
+kubectl -n <namespace> delete statefulset amaru-<name> --cascade=orphan
+```
+
+then sync or `helm upgrade` as usual. **With Argo CD, point the app at the new
+chart version first.** Its sync fails on the immutable selector until the old
+StatefulSet is gone; delete it while the app still points at the old version
+and selfHeal recreates it from the old chart, selector and all.
+
+> **Do not delete the StatefulSet from the Argo CD UI.** Its delete defaults to
+> foreground propagation, which deletes the pod along with it. Use `kubectl`
+> with `--cascade=orphan` as above.
+
+**What survives.** With `--cascade=orphan` the pod and its PersistentVolumeClaim
+survive the delete. The new StatefulSet adopts the pod (its labels still match
+the new selector) and the claim (same name, `amaru-<name>-amaru-<name>-0`), then
+rolls the pod onto its own template: expect one restart, on the same volume. The
+databases are kept, and the restarted pod does not bootstrap again. This sequence
+follows from how StatefulSets adopt orphans; this chart has not measured it on a
+live cluster.
+
+**StatefulSets created on `0.0.1-alpha.24` or later need nothing.**
 
 ## Upgrading from v10.11.20260820
 
@@ -110,6 +146,13 @@ Each relay gets the same three services the `cardano-node` chart uses:
 
 A relay is therefore **always** reachable inside the cluster, and externally
 only when you ask for it.
+
+None of the three selects on the node's `type`, with one exception on purpose:
+the `-ext` Service's selector carries the literal `type: relay`. If a relay with
+a `nodePort` is flipped to `block-producer` and its `nodePort` removed, the `-ext`
+Service stops rendering but can survive in the cluster (an Argo CD app with
+`prune: false` never deletes it). Pinned to `relay`, that stale Service selects
+nothing rather than exposing the block producer.
 
 ### Running several relays on one host
 
@@ -603,8 +646,8 @@ databases for a network.
 | `podSecurityContext.fsGroup` | `10000` | required for PVC write access |
 | `nodes[].name` | `relay-1` | relay name; becomes the object name suffix |
 | `nodes[].enabled` | `true` | render this relay |
-| `nodes[].type` | `relay` | label only |
-| `nodes[].replicas` | `1` | StatefulSet replicas |
+| `nodes[].type` | `relay` | `relay` \| `block-producer`; unset means `relay`, anything else fails the render. A pod label, kept out of the StatefulSet selector so a node can flip in place — see *Upgrading to 0.0.1-alpha.24* |
+| `nodes[].replicas` | `1` | `0` or `1`; unset means `1`, anything else fails the render. `0` pauses the node and keeps its volume; scale out by adding `nodes` entries |
 | `nodes[].port` | `3001` | p2p port: listen address, containerPort and services |
 | `nodes[].peerAddresses` | `[]` | explicit upstream peers |
 | `nodes[].nodePort` | `30000` | external exposure; omit for internal-only |

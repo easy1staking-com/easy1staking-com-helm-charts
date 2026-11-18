@@ -1,6 +1,37 @@
 {{ range $attributes := .Values.nodes }}
 {{ if $attributes.enabled }}
 {{- /*
+  Node type: "relay" or "block-producer". Unset (null) means relay. Anything
+  else fails the render naming the node, rather than reaching a label: a typo
+  such as "bp" or "Relay" would otherwise render a node that is neither.
+  Checked only for enabled nodes, so a disabled entry is never validated.
+*/ -}}
+{{- $type := $attributes.type }}
+{{- if kindIs "invalid" $type }}
+{{- $type = "relay" }}
+{{- else if not (and (kindIs "string" $type) (has $type (list "relay" "block-producer"))) }}
+{{- fail (printf "nodes[] entry %v: type must be \"relay\" or \"block-producer\" (unset means relay), got %s" $attributes.name (toJson $type)) }}
+{{- end }}
+{{- /*
+  Replicas: 0 or 1. Unset (null) means 1; 0 pauses the node and keeps its
+  volume. Each node is one Amaru with its own databases, so more than one
+  replica is never a scale-out: add another nodes[] entry instead. Accepts a
+  YAML number only (Helm hands it over as float64 or int64), never a string or
+  a bool. Explicit nil check, not `default` or `with`: both treat 0 as unset
+  and would silently turn a paused node back on.
+*/ -}}
+{{- $replicas := $attributes.replicas }}
+{{- if kindIs "invalid" $replicas }}
+{{- $replicas = 1 }}
+{{- else if or (kindIs "float64" $replicas) (kindIs "int64" $replicas) (kindIs "int" $replicas) }}
+{{- if not (or (eq (float64 $replicas) 0.0) (eq (float64 $replicas) 1.0)) }}
+{{- fail (printf "nodes[] entry %v: replicas must be 0 or 1 (unset means 1), got %s" $attributes.name (toJson $replicas)) }}
+{{- end }}
+{{- $replicas = int64 $replicas }}
+{{- else }}
+{{- fail (printf "nodes[] entry %v: replicas must be 0 or 1 (unset means 1), got %s (%s)" $attributes.name (toJson $replicas) (kindOf $replicas)) }}
+{{- end }}
+{{- /*
   Upstream peers: prefer the peerAddresses list, fall back to the legacy
   singular peerAddress so existing deployment values keep working.
   An empty list emits no --peer at all, and Amaru then uses only its other
@@ -52,13 +83,23 @@ metadata:
     app.kubernetes.io/instance: {{ $.Release.Name }}
     name: {{ $attributes.name }}
 spec:
-  replicas: {{ $attributes.replicas }}
+  replicas: {{ $replicas }}
   serviceName: "amaru-{{ $attributes.name }}"
+  podManagementPolicy: OrderedReady
+  {{- /*
+    `type` is deliberately NOT in the selector, although it stays a pod label.
+    A StatefulSet's selector is immutable, and a relay is meant to be flipped
+    to block-producer in place, keeping its name and its volume. With `type`
+    in the selector that flip is rejected by the API server and forces a
+    delete. The headless and -int Services drop it for the same reason. The
+    -ext Service is the exception: it pins the literal `type: relay` (see
+    amaru-svc.yaml), so that a stale NodePort Service can never select a
+    block producer.
+  */}}
   selector:
     matchLabels:
       app: amaru
       name: {{ $attributes.name }}
-      type: {{ $attributes.type }}
       network: {{ $.Values.network }}
   template:
     metadata:
@@ -68,7 +109,7 @@ spec:
         app.kubernetes.io/component: node
         app.kubernetes.io/instance: {{ $.Release.Name }}
         name: {{ $attributes.name }}
-        type: {{ $attributes.type }}
+        type: {{ $type }}
         network: {{ $.Values.network }}
     spec:
       {{- with $.Values.podSecurityContext }}
