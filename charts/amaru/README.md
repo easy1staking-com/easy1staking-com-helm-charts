@@ -12,16 +12,21 @@ to tip on it by this chart.
 
 ## Read this first: what Amaru is and is not, today
 
-Amaru gained relay and peer-sharing capability in `v10.11.20260820`. Two limits
-come straight from upstream's own release notes and shape what this chart can
-promise:
+Amaru gained relay and peer-sharing capability in `v10.11.20260820`. Upstream's
+release notes for that version named two limits. They are kept here as history
+of `v10.11.20260820`, because they explain earlier versions of this chart; each
+says how far it is known to have changed since:
 
-- **Connections are not full-duplex yet.** Amaru can initiate outbound
-  connections and accept inbound ones, but *over two separate tcp bearers* — a
-  peer talking to Amaru does not get one bidirectional session the way it does
-  with a Haskell relay. Amaru is relay-**capable**, not yet a drop-in
-  cardano-node relay replacement.
-- **The VRF key uniqueness rule is not yet enforced.**
+- **On `v10.11.20260820`, connections were not full-duplex.** Amaru could
+  initiate outbound connections and accept inbound ones, but *over two separate
+  tcp bearers* — a peer talking to Amaru did not get one bidirectional session
+  the way it does with a Haskell relay. Since `v10.11.20260910` the outbound
+  handshake offers duplex: when both sides agree, responders run on that bearer,
+  and peer selection prefers promoting a duplex inbound connection over opening
+  a second outbound one. Without `inbound` in `config.peerMix`, duplex inbound
+  connections stay downstream-only.
+- **On `v10.11.20260820`, the VRF key uniqueness rule was not yet enforced.**
+  This chart has not checked whether that is still so on `v10.11.20261112`.
 
 Two further facts about the shape of the process, verified from the binary:
 
@@ -135,7 +140,9 @@ address to strangers does not, in this topology.
 
 ## Upstream peers
 
-Amaru draws outbound peers from five sources, blended by `config.peerMix`:
+Amaru fills its **upstream** slots from five sources, blended by
+`config.peerMix`. They are not all pools it dials: `inbound` promotes
+connections that peers opened to Amaru.
 
 | Source | Where it comes from | Configure with |
 |---|---|---|
@@ -471,7 +478,9 @@ all and reads the **standard OpenTelemetry SDK environment**, so the chart sets
 **Metrics export interval.** The chart also sets `OTEL_METRIC_EXPORT_INTERVAL`
 from `config.otlpMetricExportIntervalMs`, in milliseconds, default `30000`.
 Unset, Amaru exports metrics every 1000 ms (its own default; the OpenTelemetry
-SDK's is 60 s), thirty times as often as a 30 s scrape reads them. The value must
+SDK's is 60 s), thirty times as often as Prometheus reads them at a 30 s scrape
+interval. The ServiceMonitor this chart renders sets no interval, so the scrape
+interval is the cluster's Prometheus default, not the chart's. The value must
 be whole milliseconds in 1000..120000, as a YAML integer or a digit-only string;
 anything else fails the render naming the key. That is checked at render time
 because Amaru panics at startup on an empty or non-numeric value, and takes `0` as

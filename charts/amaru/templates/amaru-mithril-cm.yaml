@@ -1,4 +1,32 @@
 {{- if .Values.config.mithrilSync.enabled }}
+{{- /* The two optional ingest bounds are VALIDATED here, never coerced: a
+       coercion such as `int64` turns "abc" into 0 and true into 1, a different
+       valid bound where a typo should fail. A digit-only string renders
+       verbatim (Amaru parses it as decimal); a YAML integer, which reaches the
+       template as float64 or int64, renders as its decimal integer, so a value
+       from a values file never becomes 1.20355272e+08. Anything else (a
+       fraction, a negative number, a bool, a list, a padded or non-digit
+       string) fails the render naming the key. */}}
+{{- $mithrilBounds := dict }}
+{{- range $key := list "ingestUntilSlot" "ingestMaximumBlocks" }}
+{{- $v := index $.Values.config.mithrilSync $key }}
+{{- if not (kindIs "invalid" $v) }}
+{{- $name := printf "config.mithrilSync.%s" $key }}
+{{- if kindIs "string" $v }}
+{{- if not (regexMatch "^[0-9]+$" $v) }}
+{{- fail (printf "%s must be a non-negative whole number (digits only), got %q" $name $v) }}
+{{- end }}
+{{- $_ := set $mithrilBounds $key $v }}
+{{- else if or (kindIs "float64" $v) (kindIs "int64" $v) (kindIs "int" $v) }}
+{{- if or (lt (float64 $v) 0.0) (ne (float64 $v) (float64 (int64 $v))) }}
+{{- fail (printf "%s must be a non-negative whole number, got %v" $name $v) }}
+{{- end }}
+{{- $_ := set $mithrilBounds $key (toString (int64 $v)) }}
+{{- else }}
+{{- fail (printf "%s must be a non-negative whole number, got %v (%s)" $name $v (kindOf $v)) }}
+{{- end }}
+{{- end }}
+{{- end }}
 apiVersion: v1
 kind: ConfigMap
 metadata:
@@ -46,13 +74,13 @@ data:
              consistency rather than a live defect — but the two peer-count
              flags in the StatefulSet already guard this way, and one chart
              using both idioms is how the next person picks the wrong one.
-             `int64`, because a value from a values file reaches the template
-             as float64 and would otherwise render as 1.20355272e+08. */}}
+             The validated decimal text comes from $mithrilBounds, at the top
+             of this file. */}}
       {{- if not (kindIs "invalid" .Values.config.mithrilSync.ingestUntilSlot) }}
-      --until-slot {{ .Values.config.mithrilSync.ingestUntilSlot | int64 }} \
+      --until-slot {{ index $mithrilBounds "ingestUntilSlot" }} \
       {{- end }}
       {{- if not (kindIs "invalid" .Values.config.mithrilSync.ingestMaximumBlocks) }}
-      --max-blocks {{ .Values.config.mithrilSync.ingestMaximumBlocks | int64 }} \
+      --max-blocks {{ index $mithrilBounds "ingestMaximumBlocks" }} \
       {{- end }}
       ;
     rc=$?

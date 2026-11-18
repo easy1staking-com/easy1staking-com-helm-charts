@@ -96,7 +96,8 @@ config:
   # This is the relay's serving capacity. Unset (null) uses Amaru's default of 10.
   downstreamPeers: null
 
-  # Outbound peer source mix formula. Unset uses Amaru's default:
+  # Upstream peer source mix formula: how Amaru fills its upstream slots.
+  # Unset uses Amaru's default:
   #   "static!2@15m, inbound~6, shared~6, snapshot~3@1h, ledger~3@24h"
   # "static" are the peers you list in a node's peerAddresses; "inbound"
   # promotes duplex inbound connections into upstream slots.
@@ -128,6 +129,8 @@ config:
     # preview at the time of writing, far more on mainnet. Lives on the PVC.
     snapshotsDir: /data/db/mithril
     # Optional bounds on how much is ingested. Unset ingests everything available.
+    # A whole number >= 0: a YAML integer (rendered in decimal) or a digit-only
+    # string (rendered verbatim). Anything else fails the render naming the key.
     ingestUntilSlot: null
     ingestMaximumBlocks: null
 
@@ -140,7 +143,9 @@ config:
   #
   # 30 s rather than Amaru's own default of 1000 ms, which applies when the
   # variable is unset (the OpenTelemetry SDK's default is 60 s): exporting every
-  # second makes thirty times as many OTLP exports as a 30 s scrape can read.
+  # second makes thirty times as many OTLP exports as Prometheus can read at a
+  # 30 s scrape interval. The ServiceMonitor sets no interval, so that is the
+  # cluster's Prometheus default, not the chart's.
   # The range check is not cosmetic: Amaru panics at startup on an empty or
   # non-numeric value, and takes 0 as a zero interval.
   otlpMetricExportIntervalMs: 30000
