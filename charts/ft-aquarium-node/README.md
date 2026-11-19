@@ -209,8 +209,10 @@ see it for what it is.
 > **Setting either key restarts the pod, and restart is where the fatal boot
 > verifiers run again (§3).** A node that has been up and quiet may not come back
 > — and that would be the system working, not the arming failing. Read the first
-> thirty seconds of logs and expect a *named* error. `strategy: Recreate` means
-> the old pod is deleted before the new one starts, so expect a brief gap.
+> thirty seconds of logs and expect a *named* error. The StatefulSet means the
+> old pod is deleted before the new one starts, so expect a brief gap. If the new
+> pod never becomes Ready, reverting the keys alone does not bring it back: see
+> §6b.
 
 > **Nothing has ever armed this bot, in any environment.** The rendering above
 > is verified; every step downstream of it — that the app reads these from the
@@ -276,12 +278,28 @@ is per-pod. A claim we did not need would be a liability, since
 `volumeClaimTemplates` are immutable and cannot be resized on a running
 StatefulSet.
 
-The reason is that StatefulSet's default `OrderedReady` management **terminates
-the old pod before starting the new one** on a roll. A Deployment's
+The reason is that a StatefulSet **terminates the old pod before starting the
+new one** on a roll. Its pod has one fixed name, a pod name is unique in its
+namespace, and so the replacement cannot be created until the old pod is gone.
+`podManagementPolicy` plays no part in this. A Deployment's
 `RollingUpdate` can briefly run both — a window in which two armed bots are live
 at once, which is the exact thing §6 exists to prevent. The chart also ships a
 headless Service (`<fullname>-headless`) as the governing Service, separate from
 the main one because that may be a NodePort and a NodePort cannot be headless.
+
+**Never delete this pod with `--force`.** A force delete removes the pod from the
+API before its container has stopped, so the StatefulSet can start a second bot
+while the first is still running. Delete it normally.
+
+**A rollout that never becomes Ready needs the pod deleted by hand.** If a change
+leaves the pod never Ready (a crash loop from a bad image or bad values, or a
+startup probe that never passes), reverting the values is not enough: under the
+StatefulSet's default `podManagementPolicy: OrderedReady` it keeps waiting for
+the broken pod before it applies the reverted template. This is a known
+Kubernetes issue, described under "Forced rollback" in the StatefulSet
+documentation. After reverting, delete the pod with
+`kubectl delete pod <fullname>-0`; the StatefulSet recreates it from the
+reverted template.
 
 > ⛔ **Upgrading from 0.3.x is a delete-and-recreate, not a values change.**
 > Kubernetes will not convert a Deployment into a StatefulSet. The existing
