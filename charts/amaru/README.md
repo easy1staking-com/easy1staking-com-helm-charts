@@ -703,8 +703,8 @@ block-producer entry, and no two enabled block-producer entries on one Secret.
 The first holds because `replicas` is 0 or 1 and a StatefulSet's pod has a
 fixed name, `amaru-<name>-0`: a pod name is unique in its namespace, so the
 StatefulSet cannot create the replacement until the old pod is deleted from
-the API. `podManagementPolicy` plays no part in this; with one replica it has
-nothing to order.
+the API. `podManagementPolicy` plays no part in this guarantee, though it does
+govern the forced-rollback behaviour under "Health checks" below.
 
 What it cannot see: other releases, other namespaces, other clusters, or a
 Haskell block producer using the same keys. A force-deleted pod can also overlap

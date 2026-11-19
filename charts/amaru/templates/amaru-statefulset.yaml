@@ -136,9 +136,10 @@ spec:
   replicas: {{ $replicas }}
   serviceName: "amaru-{{ $attributes.name }}"
   {{- /* podManagementPolicy is the Kubernetes default, written out so nobody
-         changes it casually: it is immutable on a live StatefulSet, and with
-         replicas 0 or 1 it has nothing to order. It is NOT what keeps a block
-         producer to one pod; see the README's "Double forging" section. */}}
+         changes it casually: it is immutable on a live StatefulSet. It is NOT
+         what keeps a block producer to one pod (README, "Double forging"), but
+         it does make a never-Ready rollout wait until the pod is deleted by hand
+         (README, "Health checks"). */}}
   podManagementPolicy: OrderedReady
   {{- /*
     `type` is deliberately NOT in the selector, although it stays a pod label.
