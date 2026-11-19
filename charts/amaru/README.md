@@ -699,8 +699,12 @@ Amaru does not detect two nodes forging with the same keys. RocksDB's lock
 stops two processes only on the **same** volume.
 
 What the chart guarantees, within **one release**: at most one pod per
-block-producer entry (`replicas` is 0 or 1, and the StatefulSet is
-`OrderedReady`), and no two enabled block-producer entries on one Secret.
+block-producer entry, and no two enabled block-producer entries on one Secret.
+The first holds because `replicas` is 0 or 1 and a StatefulSet's pod has a
+fixed name, `amaru-<name>-0`: a pod name is unique in its namespace, so the
+StatefulSet cannot create the replacement until the old pod is deleted from
+the API. `podManagementPolicy` plays no part in this; with one replica it has
+nothing to order.
 
 What it cannot see: other releases, other namespaces, other clusters, or a
 Haskell block producer using the same keys. A force-deleted pod can also overlap
@@ -904,6 +908,17 @@ The chart sets a **readiness** probe (tcp connect on the p2p port) and
 deliberately **no liveness probe**. Amaru has no HTTP health endpoint, and a
 liveness probe would restart-loop a node during a long bootstrap or replay.
 Readiness reports "listening" without ever killing a syncing node.
+
+**A rollout that never becomes Ready needs the pod deleted by hand.** The
+StatefulSet uses the Kubernetes default `podManagementPolicy: OrderedReady` with
+rolling updates. If a change leaves the pod never Ready (a crash loop from a
+bad image or flag, or block-producer keys that fail startup), reverting the
+values is not enough: the StatefulSet keeps waiting for the broken pod before
+it applies the reverted template. This is a known Kubernetes issue, described
+under "Forced rollback" in the StatefulSet documentation. After reverting,
+delete the pod with `kubectl delete pod amaru-<name>-0`; the StatefulSet
+recreates it from the reverted template. On a block producer, delete it
+normally and never with `--force`: see "Double forging" above.
 
 ## Debugging
 
