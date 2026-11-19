@@ -696,6 +696,16 @@ entries:
   ft-aquarium-node:
   - apiVersion: v2
     appVersion: 2026.10.15-a51259ff148b
+    created: "2026-11-19T15:13:51.127221336Z"
+    description: A Helm chart for the FluidTokens Aquarium node (preview)
+    digest: d37828f35941d04fbd7b6497d76eef6163011ba43529b73b93d33e2b0c96fcc5
+    name: ft-aquarium-node
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/ft-aquarium-node-0.13.1/ft-aquarium-node-0.13.1.tgz
+    version: 0.13.1
+  - apiVersion: v2
+    appVersion: 2026.10.15-a51259ff148b
     created: "2026-11-04T10:22:05.149019267Z"
     description: A Helm chart for the FluidTokens Aquarium node (preview)
     digest: 9176c8676a79b4fd67e1f351c77a24de919c7ca5714500faf2d028f466d4c5b7
@@ -1441,6 +1451,16 @@ entries:
   sundae-scooper-v2:
   - apiVersion: v2
     appVersion: 0.7.2
+    created: "2026-11-19T15:13:51.245777832Z"
+    description: SundaeSwap scooper v2 — produces the scoops that execute v4 DEX swaps
+    digest: c0dfa85aa6dd34384cb0a19247f98d78fc8b1fb40d8e9bb95d3c5c8e4809ce45
+    name: sundae-scooper-v2
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/sundae-scooper-v2-0.1.0-alpha.5/sundae-scooper-v2-0.1.0-alpha.5.tgz
+    version: 0.1.0-alpha.5
+  - apiVersion: v2
+    appVersion: 0.7.2
     created: "2026-09-18T23:24:47.248213457Z"
     description: SundaeSwap scooper v2 — produces the scoops that execute v4 DEX swaps
     digest: b1a913b123208b895ccbee95436f84817587881a294c9dc8ea3e52e2bf7de0a6
@@ -1479,4 +1499,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/sundae-scooper-v2-0.1.0-alpha.1/sundae-scooper-v2-0.1.0-alpha.1.tgz
     version: 0.1.0-alpha.1
-generated: "2026-11-19T15:13:15.488110688Z"
+generated: "2026-11-19T15:13:51.246170304Z"
