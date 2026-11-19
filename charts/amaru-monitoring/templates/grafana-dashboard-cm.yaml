@@ -2108,14 +2108,14 @@ data:
           {
             "current": {
               "selected": false,
-              "text": {{ .Values.dashboard.poolId | quote }},
-              "value": {{ .Values.dashboard.poolId | quote }}
+              "text": {{ .Values.dashboard.poolId | default "" | quote }},
+              "value": {{ .Values.dashboard.poolId | default "" | quote }}
             },
             "hide": 0,
             "label": "Pool id (hex)",
             "name": "pool_id",
             "options": [],
-            "query": {{ .Values.dashboard.poolId | quote }},
+            "query": {{ .Values.dashboard.poolId | default "" | quote }},
             "skipUrlSync": false,
             "type": "textbox"
           }
