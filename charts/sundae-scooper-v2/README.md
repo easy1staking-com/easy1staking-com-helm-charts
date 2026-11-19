@@ -731,5 +731,17 @@ one more, and the fix is to omit the block rather than to fill it in.
 `replicas: 1`, hardcoded, no `replicaCount`. A scooper signs from one key: two
 replicas race the same SQLite index and build competing scoops from the same pool
 state, and a losing scoop is a wasted fee rather than a no-op. ⚠ With one
-replica and `OrderedReady`, no upgrade fails safely — the old pod is gone before
-the new one starts.
+replica, no upgrade fails safely — the old pod is gone before the new one starts.
+That comes from the StatefulSet's fixed, namespace-unique pod name, not from
+`podManagementPolicy`.
+
+**A rollout that never becomes Ready needs the pod deleted by hand.** If a change
+leaves the pod never Ready (a crash loop from a bad image or bad config, or a
+startup probe that never passes), reverting the values is not enough: under the
+chart's `podManagementPolicy: OrderedReady` the StatefulSet keeps waiting for
+the broken pod before it applies the reverted template. This is a known
+Kubernetes issue, described under "Forced rollback" in the StatefulSet
+documentation. After reverting, delete the pod with
+`kubectl delete pod <fullname>-0`; the StatefulSet recreates it from the
+reverted template. Delete it normally, never with `--force`: a force-deleted pod
+can overlap its replacement, and two scoopers must not.

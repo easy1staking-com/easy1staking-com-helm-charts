@@ -82,10 +82,14 @@ spec:
   replicas: 1
   serviceName: {{ include "sundae-scooper-v2.fullname" . }}-headless
   {{- /*
-    OrderedReady + one replica means an upgrade terminates the old pod before
-    the new one starts. That is deliberate: the SQLite index is RWO and two
+    One replica in a StatefulSet means an upgrade terminates the old pod before
+    the new one starts: the pod's name is fixed and unique in its namespace, so
+    the replacement cannot exist until the old pod is gone. podManagementPolicy
+    plays no part in that. It is deliberate: the SQLite index is RWO and two
     scoopers must not overlap. ⚠ The trade is that no upgrade fails safely —
-    there is no old pod to fall back to if the new image is wrong.
+    there is no old pod to fall back to if the new image is wrong, and under
+    OrderedReady a never-Ready rollout waits until the pod is deleted by hand,
+    even after the values are reverted (README, "Single replica").
   */}}
   podManagementPolicy: OrderedReady
   selector:

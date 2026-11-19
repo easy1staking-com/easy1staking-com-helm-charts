@@ -174,8 +174,9 @@ spec:
 
     The node signs and submits from ONE wallet. Two pods running at once race
     the same UTxO set, which is how the same liquidation gets submitted twice.
-    Recreate rather than RollingUpdate for the same reason: a rolling update
-    overlaps the old and new pods, which is exactly the state being avoided.
+    That is also why this is a StatefulSet (below): its rolling update replaces
+    the pod without overlap, where a Deployment's RollingUpdate runs the old and
+    new pods side by side, which is exactly the state being avoided.
 
     This bounds concurrency; it does not make double-submission impossible.
     Only the application can do that, by keying submission on something on
@@ -194,10 +195,12 @@ spec:
   replicas: {{ $replicas }}
   {{- /*
     A StatefulSet, not a Deployment, and the reason is the arming rather than
-    storage. StatefulSet's default OrderedReady management TERMINATES the old pod
-    before starting the new one on a roll, so two armed bots never overlap. A
-    Deployment's RollingUpdate can briefly run both — a window in which two
-    schedulers are live at once.
+    storage. Its pod has one fixed name, and a pod name is unique in its
+    namespace, so on a roll the StatefulSet TERMINATES the old pod and cannot
+    create the new one until the old is gone: two armed bots never overlap,
+    unless someone force-deletes the pod. podManagementPolicy plays no part in
+    this. A Deployment's RollingUpdate can briefly run both — a window in which
+    two schedulers are live at once.
 
     There is deliberately NO volumeClaimTemplate: the database is external (the
     Zalando cluster), the wallet is a Secret, and the yaci-store cursor lives in
