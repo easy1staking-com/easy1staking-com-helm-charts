@@ -31,69 +31,23 @@ data:
       },
       "editable": true,
       "fiscalYearStartMonth": 0,
-      "graphTooltip": 0,
+      "graphTooltip": 1,
       "id": null,
       "links": [],
       "liveNow": false,
       "panels": [
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "thresholds"
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "unit": "none"
-            },
-            "overrides": []
-          },
+          "collapsed": false,
           "gridPos": {
-            "h": 4,
-            "w": 4,
+            "h": 1,
+            "w": 24,
             "x": 0,
             "y": 0
           },
           "id": 1,
-          "options": {
-            "colorMode": "value",
-            "graphMode": "area",
-            "justifyMode": "auto",
-            "orientation": "auto",
-            "reduceOptions": {
-              "values": false,
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": ""
-            },
-            "textMode": "auto"
-          },
-          "pluginVersion": "10.0.0",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "expr": "amaru_cardano_node_metrics_blockNum_int{namespace=\"$namespace\",node=\"$node\"}",
-              "refId": "A"
-            }
-          ],
-          "title": "Current Block",
-          "type": "stat"
+          "panels": [],
+          "title": "General",
+          "type": "row"
         },
         {
           "datasource": {
@@ -106,6 +60,7 @@ data:
                 "mode": "thresholds"
               },
               "mappings": [],
+              "unit": "s",
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -114,184 +69,29 @@ data:
                     "value": null
                   }
                 ]
-              },
-              "unit": "none"
+              }
             },
             "overrides": []
           },
           "gridPos": {
-            "h": 4,
+            "h": 5,
             "w": 4,
-            "x": 4,
-            "y": 0
+            "x": 0,
+            "y": 1
           },
           "id": 2,
           "options": {
             "colorMode": "value",
-            "graphMode": "area",
+            "graphMode": "none",
             "justifyMode": "auto",
             "orientation": "auto",
+            "textMode": "value_and_name",
             "reduceOptions": {
-              "values": false,
               "calcs": [
                 "lastNotNull"
               ],
-              "fields": ""
-            },
-            "textMode": "auto"
-          },
-          "pluginVersion": "10.0.0",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "expr": "amaru_cardano_node_metrics_epoch_int{namespace=\"$namespace\",node=\"$node\"}",
-              "refId": "A"
-            }
-          ],
-          "title": "Current Epoch",
-          "type": "stat"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "thresholds"
-              },
-              "mappings": [],
-              "max": 432000,
-              "min": 0,
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  },
-                  {
-                    "color": "yellow",
-                    "value": 300000
-                  },
-                  {
-                    "color": "red",
-                    "value": 400000
-                  }
-                ]
-              },
-              "unit": "none"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 4,
-            "w": 4,
-            "x": 8,
-            "y": 0
-          },
-          "id": 3,
-          "options": {
-            "orientation": "auto",
-            "reduceOptions": {
-              "values": false,
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": ""
-            },
-            "showThresholdLabels": false,
-            "showThresholdMarkers": true
-          },
-          "pluginVersion": "10.0.0",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "expr": "amaru_cardano_node_metrics_slotInEpoch_int{namespace=\"$namespace\",node=\"$node\"}",
-              "refId": "A"
-            }
-          ],
-          "title": "Slot in Epoch",
-          "type": "gauge"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "tooltip": false,
-                  "viz": false,
-                  "legend": false
-                },
-                "lineInterpolation": "linear",
-                "lineWidth": 1,
-                "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showPoints": "never",
-                "spanNulls": false,
-                "stacking": {
-                  "group": "A",
-                  "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "unit": "percent"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 4,
-            "w": 6,
-            "x": 12,
-            "y": 0
-          },
-          "id": 4,
-          "options": {
-            "legend": {
-              "calcs": [],
-              "displayMode": "list",
-              "placement": "bottom",
-              "showLegend": false
-            },
-            "tooltip": {
-              "mode": "single",
-              "sort": "none"
+              "fields": "",
+              "values": false
             }
           },
           "pluginVersion": "10.0.0",
@@ -301,66 +101,8 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_cardano_node_metrics_density_real{namespace=\"$namespace\",node=\"$node\"} * 100",
-              "refId": "A"
-            }
-          ],
-          "title": "Block Density",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "thresholds"
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "unit": "s"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 4,
-            "w": 3,
-            "x": 18,
-            "y": 0
-          },
-          "id": 5,
-          "options": {
-            "colorMode": "value",
-            "graphMode": "area",
-            "justifyMode": "auto",
-            "orientation": "auto",
-            "reduceOptions": {
-              "values": false,
-              "calcs": [
-                "lastNotNull"
-              ],
-              "fields": ""
-            },
-            "textMode": "auto"
-          },
-          "pluginVersion": "10.0.0",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "expr": "amaru_process_runtime_seconds{namespace=\"$namespace\",node=\"$node\"}",
+              "expr": "max by (node) (amaru_process_runtime_seconds{namespace=\"$namespace\", node=~\"$node\"})",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
               "refId": "A"
             }
           ],
@@ -378,6 +120,258 @@ data:
                 "mode": "thresholds"
               },
               "mappings": [],
+              "unit": "none",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 4,
+            "y": 1
+          },
+          "id": 3,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "textMode": "name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (node, version) (amaru_cardano_node_metrics_cardano_build_info{namespace=\"$namespace\", node=~\"$node\"})",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }} {{ "{{" }}version{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Version",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "unit": "none",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 8,
+            "y": 1
+          },
+          "id": 4,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (node) (amaru_cardano_node_metrics_epoch_int{namespace=\"$namespace\", node=~\"$node\"})",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Epoch",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "Slots left in the current epoch, one slot per second. The epoch length comes from each node's network label: 86400 slots on preview, 432000 on preprod and mainnet.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "unit": "s",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 12,
+            "y": 1
+          },
+          "id": 5,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (node) (86400 - amaru_cardano_node_metrics_slotInEpoch_int{namespace=\"$namespace\", node=~\"$node\", network=\"preview\"}) or max by (node) (432000 - amaru_cardano_node_metrics_slotInEpoch_int{namespace=\"$namespace\", node=~\"$node\", network!=\"preview\"})",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Time to epoch end",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "Seconds between now and the wall-clock time of the tip's slot, computed per network from the network label (preview, preprod, mainnet). Amaru pushes metrics every 30 s, so a healthy node reads up to about a minute.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "unit": "s",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 120
+                  },
+                  {
+                    "color": "red",
+                    "value": 600
+                  }
+                ]
+              },
+              "decimals": 0
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 16,
+            "y": 1
+          },
+          "id": 6,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (node) (time() - (amaru_cardano_node_metrics_slotNum_int{namespace=\"$namespace\", node=~\"$node\", network=\"preview\"} + 1666656000)) or max by (node) (time() - (amaru_cardano_node_metrics_slotNum_int{namespace=\"$namespace\", node=~\"$node\", network=\"preprod\"} + 1655683200)) or max by (node) (time() - (amaru_cardano_node_metrics_slotNum_int{namespace=\"$namespace\", node=~\"$node\", network=\"mainnet\"} + 1591566291))",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Tip age",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "unit": "percent",
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -387,30 +381,30 @@ data:
                   }
                 ]
               },
-              "unit": "none"
+              "decimals": 2
             },
             "overrides": []
           },
           "gridPos": {
-            "h": 4,
-            "w": 3,
-            "x": 21,
-            "y": 0
+            "h": 5,
+            "w": 4,
+            "x": 20,
+            "y": 1
           },
-          "id": 6,
+          "id": 7,
           "options": {
             "colorMode": "value",
-            "graphMode": "area",
+            "graphMode": "none",
             "justifyMode": "auto",
             "orientation": "auto",
+            "textMode": "value_and_name",
             "reduceOptions": {
-              "values": false,
               "calcs": [
                 "lastNotNull"
               ],
-              "fields": ""
-            },
-            "textMode": "auto"
+              "fields": "",
+              "values": false
+            }
           },
           "pluginVersion": "10.0.0",
           "targets": [
@@ -419,11 +413,132 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_process_open_files{namespace=\"$namespace\",node=\"$node\"}",
+              "expr": "max by (node) (amaru_cardano_node_metrics_density_real{namespace=\"$namespace\", node=~\"$node\"}) * 100",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
               "refId": "A"
             }
           ],
-          "title": "Open Files",
+          "title": "Chain density",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "unit": "none",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 4,
+            "x": 0,
+            "y": 6
+          },
+          "id": 8,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (node) (amaru_cardano_node_metrics_blockNum_int{namespace=\"$namespace\", node=~\"$node\"})",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Block height",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "unit": "none",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 6,
+            "w": 4,
+            "x": 4,
+            "y": 6
+          },
+          "id": 9,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (node) (amaru_cardano_node_metrics_slotInEpoch_int{namespace=\"$namespace\", node=~\"$node\"})",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Slot in epoch",
           "type": "stat"
         },
         {
@@ -438,216 +553,20 @@ data:
               },
               "custom": {
                 "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
                 "axisPlacement": "auto",
-                "barAlignment": 0,
                 "drawStyle": "line",
                 "fillOpacity": 10,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "tooltip": false,
-                  "viz": false,
-                  "legend": false
-                },
-                "lineInterpolation": "linear",
-                "lineWidth": 2,
-                "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showPoints": "never",
-                "spanNulls": false,
-                "stacking": {
-                  "group": "A",
-                  "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "unit": "none"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 0,
-            "y": 4
-          },
-          "id": 7,
-          "options": {
-            "legend": {
-              "calcs": [
-                "lastNotNull",
-                "max"
-              ],
-              "displayMode": "table",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": {
-              "mode": "single",
-              "sort": "none"
-            }
-          },
-          "pluginVersion": "10.0.0",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "expr": "amaru_cardano_node_metrics_blockNum_int{namespace=\"$namespace\",node=\"$node\"}",
-              "legendFormat": "Block Number",
-              "refId": "A"
-            }
-          ],
-          "title": "Block Sync Progress",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "tooltip": false,
-                  "viz": false,
-                  "legend": false
-                },
-                "lineInterpolation": "linear",
-                "lineWidth": 2,
-                "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showPoints": "never",
-                "spanNulls": false,
-                "stacking": {
-                  "group": "A",
-                  "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "unit": "none"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 8,
-            "w": 12,
-            "x": 12,
-            "y": 4
-          },
-          "id": 8,
-          "options": {
-            "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "displayMode": "table",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": {
-              "mode": "single",
-              "sort": "none"
-            }
-          },
-          "pluginVersion": "10.0.0",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "expr": "rate(amaru_cardano_node_metrics_txsProcessedNum_int_total{namespace=\"$namespace\",node=\"$node\"}[5m])",
-              "legendFormat": "Tx/s (5m avg)",
-              "refId": "A"
-            }
-          ],
-          "title": "Transaction Processing Rate",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "tooltip": false,
-                  "viz": false,
-                  "legend": false
-                },
-                "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
                 "showPoints": "never",
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
                   "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
                 }
               },
               "mappings": [],
+              "unit": "short",
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -656,123 +575,26 @@ data:
                     "value": null
                   }
                 ]
-              },
-              "unit": "percent"
+              }
             },
             "overrides": []
           },
           "gridPos": {
             "h": 6,
-            "w": 8,
-            "x": 0,
-            "y": 12
-          },
-          "id": 9,
-          "options": {
-            "legend": {
-              "calcs": [
-                "lastNotNull",
-                "mean",
-                "max"
-              ],
-              "displayMode": "table",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": {
-              "mode": "single",
-              "sort": "none"
-            }
-          },
-          "pluginVersion": "10.0.0",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "expr": "amaru_process_cpu_live_percent{namespace=\"$namespace\",node=\"$node\"}",
-              "legendFormat": "CPU Usage",
-              "refId": "A"
-            }
-          ],
-          "title": "CPU Usage",
-          "type": "timeseries"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "tooltip": false,
-                  "viz": false,
-                  "legend": false
-                },
-                "lineInterpolation": "linear",
-                "lineWidth": 1,
-                "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showPoints": "never",
-                "spanNulls": false,
-                "stacking": {
-                  "group": "A",
-                  "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "unit": "bytes"
-            },
-            "overrides": []
-          },
-          "gridPos": {
-            "h": 6,
-            "w": 8,
+            "w": 16,
             "x": 8,
-            "y": 12
+            "y": 6
           },
           "id": 10,
           "options": {
             "legend": {
-              "calcs": [
-                "lastNotNull",
-                "mean",
-                "max"
-              ],
-              "displayMode": "table",
+              "calcs": [],
+              "displayMode": "list",
               "placement": "bottom",
               "showLegend": true
             },
             "tooltip": {
-              "mode": "single",
+              "mode": "multi",
               "sort": "none"
             }
           },
@@ -783,123 +605,26 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_process_memory_live_resident_bytes{namespace=\"$namespace\",node=\"$node\"}",
-              "legendFormat": "Resident Memory",
+              "expr": "max by (node) (deriv(amaru_cardano_node_metrics_blockNum_int{namespace=\"$namespace\", node=~\"$node\"}[$__rate_interval])) * 60",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
               "refId": "A"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "expr": "amaru_process_memory_available_virtual_bytes{namespace=\"$namespace\",node=\"$node\"}",
-              "legendFormat": "Virtual Memory",
-              "refId": "B"
             }
           ],
-          "title": "Memory Usage",
+          "title": "Sync speed (blocks/min)",
           "type": "timeseries"
         },
         {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "${datasource}"
-          },
-          "fieldConfig": {
-            "defaults": {
-              "color": {
-                "mode": "palette-classic"
-              },
-              "custom": {
-                "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
-                "axisPlacement": "auto",
-                "barAlignment": 0,
-                "drawStyle": "line",
-                "fillOpacity": 10,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "tooltip": false,
-                  "viz": false,
-                  "legend": false
-                },
-                "lineInterpolation": "linear",
-                "lineWidth": 1,
-                "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
-                "showPoints": "never",
-                "spanNulls": false,
-                "stacking": {
-                  "group": "A",
-                  "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
-                }
-              },
-              "mappings": [],
-              "thresholds": {
-                "mode": "absolute",
-                "steps": [
-                  {
-                    "color": "green",
-                    "value": null
-                  }
-                ]
-              },
-              "unit": "Bps"
-            },
-            "overrides": []
-          },
+          "collapsed": false,
           "gridPos": {
-            "h": 6,
-            "w": 8,
-            "x": 16,
+            "h": 1,
+            "w": 24,
+            "x": 0,
             "y": 12
           },
           "id": 11,
-          "options": {
-            "legend": {
-              "calcs": [
-                "lastNotNull",
-                "mean",
-                "max"
-              ],
-              "displayMode": "table",
-              "placement": "bottom",
-              "showLegend": true
-            },
-            "tooltip": {
-              "mode": "single",
-              "sort": "none"
-            }
-          },
-          "pluginVersion": "10.0.0",
-          "targets": [
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "expr": "rate(amaru_process_disk_live_read_bytes{namespace=\"$namespace\",node=\"$node\"}[5m])",
-              "legendFormat": "Read Rate",
-              "refId": "A"
-            },
-            {
-              "datasource": {
-                "type": "prometheus",
-                "uid": "${datasource}"
-              },
-              "expr": "rate(amaru_process_disk_live_write_bytes{namespace=\"$namespace\",node=\"$node\"}[5m])",
-              "legendFormat": "Write Rate",
-              "refId": "B"
-            }
-          ],
-          "title": "Disk I/O Rate",
-          "type": "timeseries"
+          "panels": [],
+          "title": "Network",
+          "type": "row"
         },
         {
           "datasource": {
@@ -913,35 +638,20 @@ data:
               },
               "custom": {
                 "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
                 "axisPlacement": "auto",
-                "barAlignment": 0,
                 "drawStyle": "line",
                 "fillOpacity": 10,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "tooltip": false,
-                  "viz": false,
-                  "legend": false
-                },
-                "lineInterpolation": "linear",
                 "lineWidth": 1,
                 "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
                 "showPoints": "never",
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
                   "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
                 }
               },
               "mappings": [],
+              "unit": "short",
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -950,29 +660,26 @@ data:
                     "value": null
                   }
                 ]
-              },
-              "unit": "bytes"
+              }
             },
             "overrides": []
           },
           "gridPos": {
-            "h": 6,
+            "h": 7,
             "w": 12,
             "x": 0,
-            "y": 18
+            "y": 13
           },
           "id": 12,
           "options": {
             "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "displayMode": "table",
+              "calcs": [],
+              "displayMode": "list",
               "placement": "bottom",
               "showLegend": true
             },
             "tooltip": {
-              "mode": "single",
+              "mode": "multi",
               "sort": "none"
             }
           },
@@ -983,8 +690,8 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_process_disk_total_read_bytes{namespace=\"$namespace\",node=\"$node\"}",
-              "legendFormat": "Total Read",
+              "expr": "max by (node) (amaru_cardano_node_metrics_connectionManager_inboundConns_int{namespace=\"$namespace\", node=~\"$node\"})",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }} inbound",
               "refId": "A"
             },
             {
@@ -992,12 +699,21 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_process_disk_total_write_bytes{namespace=\"$namespace\",node=\"$node\"}",
-              "legendFormat": "Total Written",
+              "expr": "max by (node) (amaru_cardano_node_metrics_connectionManager_outboundConns_int{namespace=\"$namespace\", node=~\"$node\"})",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }} outbound",
               "refId": "B"
+            },
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (node) (amaru_cardano_node_metrics_connectionManager_unidirectionalConns_int{namespace=\"$namespace\", node=~\"$node\"})",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }} unidirectional",
+              "refId": "C"
             }
           ],
-          "title": "Total Disk I/O",
+          "title": "Connections",
           "type": "timeseries"
         },
         {
@@ -1012,35 +728,20 @@ data:
               },
               "custom": {
                 "axisCenteredZero": false,
-                "axisColorMode": "text",
-                "axisLabel": "",
                 "axisPlacement": "auto",
-                "barAlignment": 0,
                 "drawStyle": "line",
                 "fillOpacity": 10,
-                "gradientMode": "none",
-                "hideFrom": {
-                  "tooltip": false,
-                  "viz": false,
-                  "legend": false
-                },
-                "lineInterpolation": "linear",
-                "lineWidth": 2,
+                "lineWidth": 1,
                 "pointSize": 5,
-                "scaleDistribution": {
-                  "type": "linear"
-                },
                 "showPoints": "never",
                 "spanNulls": false,
                 "stacking": {
                   "group": "A",
                   "mode": "none"
-                },
-                "thresholdsStyle": {
-                  "mode": "off"
                 }
               },
               "mappings": [],
+              "unit": "short",
               "thresholds": {
                 "mode": "absolute",
                 "steps": [
@@ -1049,29 +750,26 @@ data:
                     "value": null
                   }
                 ]
-              },
-              "unit": "none"
+              }
             },
             "overrides": []
           },
           "gridPos": {
-            "h": 6,
+            "h": 7,
             "w": 12,
             "x": 12,
-            "y": 18
+            "y": 13
           },
           "id": 13,
           "options": {
             "legend": {
-              "calcs": [
-                "lastNotNull"
-              ],
-              "displayMode": "table",
+              "calcs": [],
+              "displayMode": "list",
               "placement": "bottom",
               "showLegend": true
             },
             "tooltip": {
-              "mode": "single",
+              "mode": "multi",
               "sort": "none"
             }
           },
@@ -1082,12 +780,1241 @@ data:
                 "type": "prometheus",
                 "uid": "${datasource}"
               },
-              "expr": "amaru_cardano_node_metrics_txsProcessedNum_int_total{namespace=\"$namespace\",node=\"$node\"}",
-              "legendFormat": "Total Transactions",
+              "expr": "sum by (node) (rate(amaru_cardano_node_metrics_served_block_count_int_total{namespace=\"$namespace\", node=~\"$node\"}[$__rate_interval])) * 60",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
               "refId": "A"
             }
           ],
-          "title": "Total Transactions Processed",
+          "title": "Blocks served (per min)",
+          "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 20
+          },
+          "id": 14,
+          "panels": [],
+          "title": "Consensus",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisPlacement": "auto",
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 21
+          },
+          "id": 15,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (node, outcome) (rate(amaru_amaru_consensus_header_total{namespace=\"$namespace\", node=~\"$node\"}[$__rate_interval])) * 60",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }} {{ "{{" }}outcome{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Headers by outcome (per min)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisPlacement": "auto",
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 21
+          },
+          "id": 16,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (node) (rate(amaru_amaru_consensus_fork_switch_total{namespace=\"$namespace\", node=~\"$node\"}[$__rate_interval])) * 3600",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Chain switches (per hour)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "95th percentile of the time from a slot's start to its header reaching this node.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisPlacement": "auto",
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "unit": "s",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 0,
+            "y": 28
+          },
+          "id": 17,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "histogram_quantile(0.95, sum by (node, le) (rate(amaru_amaru_consensus_slot_start_to_header_duration_microseconds_bucket{namespace=\"$namespace\", node=~\"$node\"}[$__rate_interval]))) / 1e6",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Header delay after slot start (p95)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisPlacement": "auto",
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "unit": "s",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 12,
+            "x": 12,
+            "y": 28
+          },
+          "id": 18,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "histogram_quantile(0.95, sum by (node, le) (rate(amaru_amaru_consensus_block_fetch_duration_microseconds_bucket{namespace=\"$namespace\", node=~\"$node\"}[$__rate_interval]))) / 1e6",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Block fetch time (p95)",
+          "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 35
+          },
+          "id": 19,
+          "panels": [],
+          "title": "Mempool",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisPlacement": "auto",
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "unit": "bytes",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 0,
+            "y": 36
+          },
+          "id": 20,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (node) (amaru_cardano_node_metrics_mempoolBytes_int{namespace=\"$namespace\", node=~\"$node\"})",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Mempool size",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisPlacement": "auto",
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 8,
+            "y": 36
+          },
+          "id": 21,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (node) (amaru_cardano_node_metrics_txsInMempool_int{namespace=\"$namespace\", node=~\"$node\"})",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Transactions in mempool",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisPlacement": "auto",
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 8,
+            "x": 16,
+            "y": 36
+          },
+          "id": 22,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (node, result) (rate(amaru_amaru_metrics_mempoolTxInsertionsNum_int_total{namespace=\"$namespace\", node=~\"$node\"}[$__rate_interval])) * 60",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }} {{ "{{" }}result{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Transaction insertions (per min)",
+          "type": "timeseries"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 43
+          },
+          "id": 23,
+          "panels": [],
+          "title": "Block producer",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "The KES period the ledger is in now. It comes from the ledger, not from the keys, so relays show it too.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "unit": "none",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 0,
+            "y": 44
+          },
+          "id": 24,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (node) (amaru_cardano_node_metrics_currentKESPeriod_int{namespace=\"$namespace\", node=~\"$node\"})",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Current KES period",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "The KES period the operational certificate starts at. Recorded by the forge stage, so only a block producer running with its keys exports it; a relay shows nothing here, and that is expected.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "unit": "none",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 4,
+            "y": 44
+          },
+          "id": 25,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (node) (amaru_cardano_node_metrics_operationalCertificateStartKESPeriod_int{namespace=\"$namespace\", node=~\"$node\"})",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Opcert start KES period",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "The KES period the operational certificate expires at. Recorded by the forge stage, so only a block producer running with its keys exports it; a relay shows nothing here, and that is expected.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "unit": "none",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 8,
+            "y": 44
+          },
+          "id": 26,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (node) (amaru_cardano_node_metrics_operationalCertificateExpiryKESPeriod_int{namespace=\"$namespace\", node=~\"$node\"})",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Opcert expiry KES period",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "KES periods left before the operational certificate expires. Recorded by the forge stage, so only a block producer running with its keys exports it; a relay shows nothing here, and that is expected.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "unit": "none",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 4
+                  },
+                  {
+                    "color": "green",
+                    "value": 8
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 12,
+            "y": 44
+          },
+          "id": 27,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (node) (amaru_cardano_node_metrics_remainingKESPeriods_int{namespace=\"$namespace\", node=~\"$node\"})",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "KES periods remaining",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "Time until the operational certificate expires: remaining KES periods times 129600 slots per period, one slot per second. Recorded by the forge stage, so only a block producer running with its keys exports it; a relay shows nothing here, and that is expected.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "unit": "s",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "red",
+                    "value": null
+                  },
+                  {
+                    "color": "yellow",
+                    "value": 518400
+                  },
+                  {
+                    "color": "green",
+                    "value": 1036800
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 16,
+            "y": 44
+          },
+          "id": 28,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (node) (amaru_cardano_node_metrics_remainingKESPeriods_int{namespace=\"$namespace\", node=~\"$node\"}) * 129600",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "KES expiry",
+          "type": "stat"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "description": "Distinct blocks issued by the pool in the pool_id variable that this node reported as its tip during the time range. Amaru exports no forge counters, so this counts blocks SEEN AT TIP, not blocks forged: a block that is tip for less than one metrics push (30 s) is missed, and a past tip lingers for up to 5 minutes after it is replaced. Empty when pool_id is empty. Only the block producer is expected to show a value.",
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "thresholds"
+              },
+              "mappings": [],
+              "unit": "none",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 5,
+            "w": 4,
+            "x": 20,
+            "y": 44
+          },
+          "id": 29,
+          "options": {
+            "colorMode": "value",
+            "graphMode": "none",
+            "justifyMode": "auto",
+            "orientation": "auto",
+            "textMode": "value_and_name",
+            "reduceOptions": {
+              "calcs": [
+                "lastNotNull"
+              ],
+              "fields": "",
+              "values": false
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "count by (node) (count by (node, hash) (max_over_time(amaru_cardano_node_metrics_tipBlock{namespace=\"$namespace\", node=~\"$node\", issuer_verification_key_hash=\"$pool_id\"}[$__range])))",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
+              "refId": "A",
+              "instant": true,
+              "range": false
+            }
+          ],
+          "title": "Our blocks seen at tip",
+          "type": "stat"
+        },
+        {
+          "collapsed": false,
+          "gridPos": {
+            "h": 1,
+            "w": 24,
+            "x": 0,
+            "y": 49
+          },
+          "id": 30,
+          "panels": [],
+          "title": "Resources",
+          "type": "row"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisPlacement": "auto",
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 0,
+            "y": 50
+          },
+          "id": 31,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (pod, container) (rate(container_cpu_usage_seconds_total{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"$namespace\", pod=~\"amaru-$node-0\", container!=\"\"}[$__rate_interval]))",
+              "legendFormat": "{{ "{{" }}pod{{ "}}" }} {{ "{{" }}container{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "CPU (cores)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisPlacement": "auto",
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "unit": "bytes",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 6,
+            "y": 50
+          },
+          "id": 32,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "sum by (pod, container) (container_memory_working_set_bytes{job=\"kubelet\", metrics_path=\"/metrics/cadvisor\", namespace=\"$namespace\", pod=~\"amaru-$node-0\", container!=\"\"})",
+              "legendFormat": "{{ "{{" }}pod{{ "}}" }} {{ "{{" }}container{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Memory (working set)",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisPlacement": "auto",
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "unit": "bytes",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 12,
+            "y": 50
+          },
+          "id": 33,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (persistentvolumeclaim) (kubelet_volume_stats_available_bytes{job=\"kubelet\", namespace=\"$namespace\", persistentvolumeclaim=~\"amaru-$node-amaru-$node-0\"})",
+              "legendFormat": "{{ "{{" }}persistentvolumeclaim{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Volume free",
+          "type": "timeseries"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "${datasource}"
+          },
+          "fieldConfig": {
+            "defaults": {
+              "color": {
+                "mode": "palette-classic"
+              },
+              "custom": {
+                "axisCenteredZero": false,
+                "axisPlacement": "auto",
+                "drawStyle": "line",
+                "fillOpacity": 10,
+                "lineWidth": 1,
+                "pointSize": 5,
+                "showPoints": "never",
+                "spanNulls": false,
+                "stacking": {
+                  "group": "A",
+                  "mode": "none"
+                }
+              },
+              "mappings": [],
+              "unit": "short",
+              "thresholds": {
+                "mode": "absolute",
+                "steps": [
+                  {
+                    "color": "green",
+                    "value": null
+                  }
+                ]
+              }
+            },
+            "overrides": []
+          },
+          "gridPos": {
+            "h": 7,
+            "w": 6,
+            "x": 18,
+            "y": 50
+          },
+          "id": 34,
+          "options": {
+            "legend": {
+              "calcs": [],
+              "displayMode": "list",
+              "placement": "bottom",
+              "showLegend": true
+            },
+            "tooltip": {
+              "mode": "multi",
+              "sort": "none"
+            }
+          },
+          "pluginVersion": "10.0.0",
+          "targets": [
+            {
+              "datasource": {
+                "type": "prometheus",
+                "uid": "${datasource}"
+              },
+              "expr": "max by (node) (amaru_process_open_files{namespace=\"$namespace\", node=~\"$node\"})",
+              "legendFormat": "{{ "{{" }}node{{ "}}" }}",
+              "refId": "A"
+            }
+          ],
+          "title": "Open files",
           "type": "timeseries"
         }
       ],
@@ -1149,30 +2076,48 @@ data:
           },
           {
             "current": {
-              "selected": false,
-              "text": "amaru-node-1",
-              "value": "amaru-node-1"
+              "selected": true,
+              "text": [
+                "All"
+              ],
+              "value": [
+                "$__all"
+              ]
             },
             "datasource": {
               "type": "prometheus",
               "uid": "${datasource}"
             },
-            "definition": "label_values(amaru_cardano_node_metrics_blockNum_int{job=\"amaru\",namespace=\"$namespace\"}, node)",
+            "definition": "label_values(amaru_cardano_node_metrics_blockNum_int{job=\"amaru\", namespace=\"$namespace\"}, node)",
             "hide": 0,
-            "includeAll": false,
+            "includeAll": true,
             "label": "Node",
-            "multi": false,
+            "multi": true,
             "name": "node",
             "options": [],
             "query": {
-              "query": "label_values(amaru_cardano_node_metrics_blockNum_int{job=\"amaru\",namespace=\"$namespace\"}, node)",
+              "query": "label_values(amaru_cardano_node_metrics_blockNum_int{job=\"amaru\", namespace=\"$namespace\"}, node)",
               "refId": "PrometheusVariableQueryEditor-VariableQuery"
             },
-            "refresh": 1,
+            "refresh": 2,
             "regex": "",
             "skipUrlSync": false,
             "sort": 1,
             "type": "query"
+          },
+          {
+            "current": {
+              "selected": false,
+              "text": {{ .Values.dashboard.poolId | default "" | quote }},
+              "value": {{ .Values.dashboard.poolId | default "" | quote }}
+            },
+            "hide": 0,
+            "label": "Pool id (hex)",
+            "name": "pool_id",
+            "options": [],
+            "query": {{ .Values.dashboard.poolId | default "" | quote }},
+            "skipUrlSync": false,
+            "type": "textbox"
           }
         ]
       },

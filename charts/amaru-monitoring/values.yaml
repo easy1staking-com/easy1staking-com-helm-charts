@@ -28,6 +28,11 @@ dashboard:
     from: "now-1h"
     to: "now"
 
+  # Hex pool id (56 hex characters) that the "Our blocks seen at tip" panel
+  # filters on, the default of the dashboard's pool_id variable. Empty leaves
+  # that panel empty. Set it in your deployment values, never in this repo.
+  poolId: ""
+
 # PrometheusRule for alerting
 alerts:
   # Enable Prometheus alerting rules

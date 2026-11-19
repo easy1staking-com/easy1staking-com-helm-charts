@@ -83,29 +83,60 @@ Each deployment creates uniquely named resources using the release name prefix.
 
 ## Dashboard Features
 
-The Grafana dashboard includes:
+The "Amaru Node Dashboard" is one page, modelled on a Haskell stake pool overview:
+relays and block producers side by side, one series (or one stat value) per node.
+Six rows, all expanded:
 
-**Overview Stats:**
-- Current Block Number
-- Current Epoch
-- Slot in Epoch (gauge)
-- Block Density
-- Uptime
-- Open Files
+- **General**: uptime, version (from `cardano_build_info`), epoch, time to epoch
+  end, tip age, chain density, block height, slot in epoch, and sync speed in
+  blocks per minute.
+- **Network**: inbound, outbound and unidirectional connections, and blocks
+  served per minute.
+- **Consensus**: headers per minute by outcome, the p95 delay from slot start to
+  header arrival, p95 block fetch time, and chain switches per hour.
+- **Mempool**: mempool size in bytes, transactions in the mempool, and
+  transaction insertions per minute by result.
+- **Block producer**: `Current KES period`, `Opcert start KES period`,
+  `Opcert expiry KES period`, `KES periods remaining`, `KES expiry` (remaining
+  periods times 129600 slots per KES period), and `Our blocks seen at tip`.
+- **Resources**: container CPU (cores) and working-set memory from cAdvisor,
+  free bytes on the node's volume, and the node's open files. These read the
+  kubelet's series by pod (`amaru-<node>-0`) and claim
+  (`amaru-<node>-amaru-<node>-0`).
 
-**Time Series Charts:**
-- Block Sync Progress
-- Transaction Processing Rate
-- CPU Usage
-- Memory Usage (Resident & Virtual)
-- Disk I/O Rate
-- Total Disk I/O
-- Total Transactions Processed
+**Variables:**
+- `datasource`: the Prometheus datasource.
+- `namespace`: populated from the Amaru series in the datasource.
+- `node`: multi-select, All by default, populated from the selected namespace.
+- `pool_id`: a text box labelled "Pool id (hex)", the pool the
+  `Our blocks seen at tip` panel looks for. Its default is the chart value
+  `dashboard.poolId`, empty by default, which leaves that one panel empty. Set it
+  in your own deployment values; this repository ships no pool id.
 
-**Filtering:**
-- Namespace selector (dropdown)
-- Node selector (dropdown, filtered by namespace)
-- Datasource selector
+**There are no blocks panels, deliberately.** Amaru exports no forge counters: at
+v10.11.20261112 there is no metric for slots led, blocks forged, blocks adopted
+or slots missed. Forging shows up only as log events such as `FORGED` and
+`MISSED_SLOT`. The absence is the design, not an omission: do not add panels for
+Haskell forge counter names, because Amaru will never fill them.
+
+**What `Our blocks seen at tip` counts.** It counts distinct blocks issued by
+`pool_id` that the node reported as its tip during the dashboard's time range,
+read from the `issuer_verification_key_hash` label of the tip gauge. It is
+"seen at tip", not "forged": Amaru pushes metrics every 30 s, so a block that is
+the tip for less than one push is never seen and is not counted, and the
+collector keeps a replaced tip's series for 5 minutes, so a past tip lingers that
+long. Use it as a sign of life, not as a forge tally.
+
+**Block producer panels on a relay.** The three operational certificate panels
+(`Opcert start KES period`, `Opcert expiry KES period`, `KES periods remaining`)
+and `KES expiry` show data only on a block producer running with its keys,
+because the forge stage records them. On a relay they are empty, which is
+expected. `Current KES period` comes from the ledger, so it shows on relays too.
+
+**Per-network values.** `Tip age` and `Time to epoch end` are derived per node
+from its `network` label: an epoch is 86400 slots on preview and 432000 on
+preprod and mainnet, and tip age uses each network's slot-zero time. A node
+whose `network` label is none of preview, preprod or mainnet shows no tip age.
 
 ## How It Works
 
@@ -116,7 +147,7 @@ The Grafana dashboard includes:
 
 2. **Grafana Sidecar**: The ConfigMap is labeled with `grafana_dashboard: "1"`, which the kube-prometheus-stack Grafana sidecar automatically detects and imports.
 
-3. **Dynamic Variables**: Namespace and node lists are dynamically populated from Prometheus label values.
+3. **Dynamic Variables**: Namespace and node lists are dynamically populated from Prometheus label values; `node` is multi-select and defaults to All. `pool_id` is a free-text box whose default comes from `dashboard.poolId`.
 
 ## Integration with Amaru Chart
 
