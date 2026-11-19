@@ -710,22 +710,39 @@ and the cutover below is where it matters.
 
 ### Cutover from a Haskell block producer
 
-```bash
-# 1. Stop the Haskell block producer.
-kubectl -n <namespace> scale statefulset <haskell-bp> --replicas=0
+**Stop the Haskell block producer where it is declared, not by hand.** If its
+release is managed by GitOps (an Argo CD or Flux app), its values in Git are the
+source of truth, and a hand `kubectl scale` does not last: Argo CD's `selfHeal`
+reverts it at once, and without `selfHeal` the next sync of that app reverts it,
+possibly days after the NotFound check below passed. Either way both block
+producers end up forging with the same keys.
 
-# 2. Prove it is gone. This must print NotFound; a pod still Terminating is
-#    not gone.
+1. **Stop the Haskell block producer at its source of truth.** In its values
+   (its GitOps source, or the values file of its Helm release), set
+   `replicas: 0`, or `enabled: false` if that is what its chart offers. Commit
+   it, then sync that app.
+2. **Do not hand-scale it instead.** A `kubectl scale` is reverted by `selfHeal`
+   at once, and by any later sync of that app even without `selfHeal`.
+3. **After that sync, prove it is gone.** `kubectl get pod` must print NotFound;
+   a pod still Terminating is not gone.
+4. **Only then enable the Amaru block producer** (`type: block-producer`,
+   `replicas: 1`) and sync.
+5. **After any flip, prove no NodePort Service survived.** Expect NotFound.
+
+```yaml
+# Step 1, in the Haskell block producer's values, in its source of truth:
+replicas: 0          # or enabled: false, whichever its chart offers
+```
+
+```bash
+# Step 3, after that sync. This must print NotFound.
 kubectl -n <namespace> get pod <haskell-bp-pod>
 
-# 3. Only now enable the Amaru block producer (type: block-producer,
-#    replicas: 1) and sync.
-
-# 4. After any flip, prove no NodePort Service survived. Expect NotFound.
+# Step 5, after any flip. Expect NotFound.
 kubectl -n <namespace> get svc amaru-<name>-ext
 ```
 
-Repeat step 2 for anything else that may hold the same keys, in any release,
+Repeat step 3 for anything else that may hold the same keys, in any release,
 namespace or cluster: the chart cannot see it.
 
 ### Flipping relay ⇄ block producer in place
