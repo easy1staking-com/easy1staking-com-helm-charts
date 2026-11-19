@@ -1,7 +1,8 @@
 # Amaru
 
 Helm chart for [Amaru](https://github.com/pragma-org/amaru), the Rust Cardano node
-by pragma. This chart deploys one or more **relays**.
+by pragma. This chart deploys one or more **relays**, and optionally **block
+producers** (see *Block producer*).
 
 Image: `ghcr.io/pragma-org/amaru` · `v10.11.20261112`. Measured against that
 image: it parses every `node run` argv this chart renders up to its database
@@ -550,6 +551,218 @@ container, but whether that is all it needs is unknown until a live run shows it
 Block-producer keys, when they are mounted, are read through the same `fsGroup`;
 the block-producer section covers how.
 
+## Block producer
+
+A `nodes[]` entry with `type: block-producer` forges. It is the same StatefulSet
+as a relay, with four differences: it mounts the pool's keys, passes the operator
+flags, peers only with the list it is given, and is never exposed. **No values
+file in this chart ships a block producer**; the default node is a relay.
+
+```yaml
+nodes:
+  - name: <bp-name>
+    enabled: true
+    type: block-producer
+    replicas: 1
+    port: 3001
+    peerAddresses:                       # your own relays, and nothing else
+      - "<relay-a>:3001"
+      - "<relay-b>:3001"
+    # secretName: <bp-name>-secret       # the default
+    # softwareTagOff: false              # the default: forged blocks carry the tag
+```
+
+### The keys Secret
+
+Amaru forges only when it is given all three of `--operator-kes`,
+`--operator-vrf` and `--operator-cert`; with none of them it is a follower. The
+chart always passes all three, from a Secret named `<name>-secret`, or
+`nodes[].secretName` when that is set. The Secret must hold exactly these keys:
+
+| Key | What Amaru accepts |
+|---|---|
+| `kes.skey` | the period-zero KES key file, or a cardano-cli `kes.skey` envelope |
+| `vrf.skey` | a raw 32-byte VRF seed, or an **unencrypted** cardano-cli `vrf.skey` |
+| `node.cert` | the operational certificate |
+
+**The cold key is not read and does not belong in the Secret**: the operational
+certificate carries the cold verification key.
+
+**Create the Secret out of band, never in values.** The chart has no inline-key
+and no plaintext fallback on purpose: values end up in Git, in Argo CD and in
+Helm's release history.
+
+```bash
+kubectl -n <namespace> create secret generic <bp-name>-secret \
+  --from-file=kes.skey=<path-to>/kes.skey \
+  --from-file=vrf.skey=<path-to>/vrf.skey \
+  --from-file=node.cert=<path-to>/node.cert
+```
+
+How the chart mounts it:
+
+- **In the `amaru` container only**, read-only at `/keys`. Not in `init` or
+  `mithril-sync`, which run their scripts under `bash -x` and echo every command
+  to the pod log, and not in the otel sidecar.
+- **`items:` projects exactly the three keys above.** A Secret may hold more:
+  the `cardano-node` chart in this repo also mounts `<name>-secret`, with the same
+  three key names, and an operator may keep other material beside them. Only
+  these three reach the pod. A key missing from the Secret fails the volume mount,
+  so the pod does not start.
+- **`defaultMode: 0440`**, readable by Amaru's uid 10000 through `fsGroup`. The
+  `cardano-node` chart uses `0400`; this chart does not, because the files belong
+  to root with group `fsGroup`. Not yet measured on a live cluster.
+- **Not mounted with `sleep: true`**, which runs no Amaru and passes no operator
+  flag.
+- `secretName` is ignored on a relay, which mounts no Secret.
+
+Amaru reads the keys **once, at startup**. It evolves the KES key in memory and
+never writes it back. A rotation (a new KES key and an operational certificate
+with its counter one higher) takes effect only on restart: update the Secret,
+then restart the pod.
+
+### What it renders
+
+```
+amaru node run --network <network> --db-ledger … --db-chain … \
+  --peers-listen-on 0.0.0.0:<port> \
+  --peer <relay-a>:3001 --peer <relay-b>:3001 \
+  --tui-off [--db-chain-automatic-migration] \
+  --peers-max-upstream 2 --peers-mix static!2 \
+  --operator-kes /keys/kes.skey --operator-vrf /keys/vrf.skey --operator-cert /keys/node.cert \
+  [--software-tag-off]
+```
+
+### Static-only peering
+
+A block producer peers only with its own list: one `--peer` per entry of
+`nodes[].peerAddresses` (the legacy `peerAddress` counts, empty strings do not),
+then `--peers-max-upstream N --peers-mix static!N`, where `N` is the length of
+that list. Both are `N` because the peer mix only splits the
+`--peers-max-upstream` slots (default 3), and `!N` is a floor. The chart-wide
+`config.upstreamPeers`, `config.downstreamPeers`, `config.peerMix`,
+`config.peerSnapshot` and `config.submitApi` never reach a block producer: no
+flag, no containerPort, and no port on `-int`.
+
+**Every relay must list the block producer in its own peers.** Amaru's inbound
+listener cannot be turned off, and its peer-sharing self-advertisement (pod IP
+and listen port) is always on, but relays pull the block producer's blocks only
+if they connect to it. An Amaru relay in the same release, for example:
+
+```yaml
+  - name: <relay-name>
+    type: relay
+    peerAddresses:
+      - "amaru-<bp-name>-int:3001"
+      - …
+```
+
+### Never exposed: what the render refuses
+
+The render fails, naming the node, on any of these:
+
+- `nodePort` or `submitApiNodePort` set on a block producer (any non-null value);
+- any `submitApi` key on a block-producer entry;
+- an empty effective peer list;
+- two **enabled** block-producer entries resolving to the same Secret,
+  `replicas: 0` included; that message names the Secret. A disabled entry and a
+  relay do not count.
+
+A block producer therefore gets the headless Service and `amaru-<name>-int`
+only. The otel collector's metrics carry a `type` label (`relay` or
+`block-producer`) beside `node` and `network`.
+
+### Starting a block producer
+
+Amaru checks the operational certificate at startup: its sequence number must
+equal the chain's counter for the pool, or be exactly one ahead, **checked
+against the ledger tip**. A KES key that does not match the certificate fails
+startup too. Two ways to start:
+
+- **Fresh, as a block producer from an empty volume.** A fresh bootstrap's
+  ledger tip may be older than the current certificate. Startup then fails, and
+  keeps failing, because the node never runs long enough to advance.
+- **Sync as a relay first, then flip** (below). This is the remedy for the case
+  above, and the path to prefer.
+
+### KES expiry is silent
+
+An **expired** KES period does **not** stop startup. The node keeps following,
+and each slot it leads logs `WARN MISSED_SLOT reason=ocert_expired`. The
+signal is the `remainingKESPeriods` gauge, which Amaru exports
+over OTLP only on a node with credentials. The name it takes on the sidecar's
+Prometheus endpoint has not been measured by this chart.
+
+### Double forging: what the chart does and does not guarantee
+
+Amaru does not detect two nodes forging with the same keys. RocksDB's lock
+stops two processes only on the **same** volume.
+
+What the chart guarantees, within **one release**: at most one pod per
+block-producer entry (`replicas` is 0 or 1, and the StatefulSet is
+`OrderedReady`), and no two enabled block-producer entries on one Secret.
+
+What it cannot see: other releases, other namespaces, other clusters, or a
+Haskell block producer using the same keys. A force-deleted pod can also overlap
+its replacement; on the same volume the second process fails at the RocksDB
+lock. **Making sure nothing else forges with these keys is the operator's job**,
+and the cutover below is where it matters.
+
+### Cutover from a Haskell block producer
+
+```bash
+# 1. Stop the Haskell block producer.
+kubectl -n <namespace> scale statefulset <haskell-bp> --replicas=0
+
+# 2. Prove it is gone. This must print NotFound; a pod still Terminating is
+#    not gone.
+kubectl -n <namespace> get pod <haskell-bp-pod>
+
+# 3. Only now enable the Amaru block producer (type: block-producer,
+#    replicas: 1) and sync.
+
+# 4. After any flip, prove no NodePort Service survived. Expect NotFound.
+kubectl -n <namespace> get svc amaru-<name>-ext
+```
+
+Repeat step 2 for anything else that may hold the same keys, in any release,
+namespace or cluster: the chart cannot see it.
+
+### Flipping relay ⇄ block producer in place
+
+`type` is kept out of the StatefulSet selector, so changing it updates the
+StatefulSet in place, keeping the node's name and volume (see *Upgrading to
+0.0.1-alpha.24*).
+
+- **Relay to block producer.** Create the Secret first. Remove the entry's
+  `nodePort`, `submitApiNodePort` and any `submitApi` key (the render refuses
+  them), give it `peerAddresses`, then set `type: block-producer`. Add it to every
+  relay's peers.
+- **Block producer to relay.** Set `type: relay`. The keys are no longer mounted,
+  the operator flags go, and the chart-wide peering returns.
+
+**After either flip, check the `-ext` Service.** A relay's `-ext` Service stops
+rendering once its `nodePort` is gone but can survive in the cluster (an Argo CD
+app with `prune: false` never deletes it). Its selector is pinned to
+`type: relay`, so a stale one selects nothing, but delete it by hand and confirm
+`kubectl -n <namespace> get svc amaru-<name>-ext` returns NotFound.
+
+### Open files
+
+Amaru fails at startup if the soft `RLIMIT_NOFILE` (open files) is below 1000.
+The chart does not raise it; the container runtime's default applies. Check it
+on the node, for example from a `sleep: true` pod:
+
+```bash
+kubectl -n <namespace> exec amaru-<name>-0 -c amaru -- bash -c 'ulimit -Sn'
+```
+
+### The CIP-0203 software tag
+
+By default, forged blocks carry a CIP-0203 tag naming Amaru and its release
+day. `softwareTagOff: true` renders `--software-tag-off`, which opts out. It is
+off by default, so the tag is on.
+
 ## Monitoring
 
 `otelCollector.enabled` is **true** by default, because it is the only path from
@@ -712,8 +925,10 @@ databases for a network.
 | `nodes[].replicas` | `1` | `0` or `1`; unset means `1`, anything else fails the render. `0` pauses the node and keeps its volume; scale out by adding `nodes` entries |
 | `nodes[].port` | `3001` | p2p port: listen address, containerPort and services |
 | `nodes[].peerAddresses` | `[]` | explicit upstream peers |
-| `nodes[].nodePort` | `30000` | external exposure; omit for internal-only |
-| `nodes[].submitApiNodePort` | unset | NodePort for the submit API |
+| `nodes[].nodePort` | `30000` | external exposure; omit for internal-only. Refused on a block producer |
+| `nodes[].submitApiNodePort` | unset | NodePort for the submit API. Refused on a block producer |
+| `nodes[].secretName` | `<name>-secret` | block producer only: the keys Secret (`kes.skey`, `vrf.skey`, `node.cert`) — see *Block producer* |
+| `nodes[].softwareTagOff` | `false` | block producer only: `true` renders `--software-tag-off` |
 | `nodes[].storageClassName` | unset | PVC storage class |
 | `nodes[].sleep` | unset | start idle for debugging |
 | `otelCollector.enabled` | `true` | the only metrics path |

@@ -2,6 +2,7 @@
 {{ if $attributes.enabled }}
 {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
 {{- $submitApi := $.Values.config.submitApi | default dict }}
+{{- $isBp := eq (toString $attributes.type) "block-producer" }}
 {{- /*
   Three services per relay, mirroring the cardano-node chart:
     amaru-<name>       headless  — stable per-pod DNS for the p2p port
@@ -11,6 +12,10 @@
   Amaru has no node-to-client socket, so the only inbound listener is the p2p
   port (plus the optional HTTP submit API). It has no Prometheus endpoint of its
   own either: the scrape target is the otel-collector sidecar.
+
+  A block producer gets the first two only, and no submit-api port on -int: it
+  runs no submit API. It never gets -ext, because the StatefulSet template
+  refuses a nodePort on a block producer.
 */ -}}
 ---
 apiVersion: v1
@@ -54,7 +59,7 @@ spec:
       name: node
       port: {{ $attributes.port }}
       targetPort: node
-    {{- if $submitApi.enabled }}
+    {{- if and $submitApi.enabled (not $isBp) }}
     - protocol: TCP
       name: submit-api
       port: {{ $submitApi.port }}

@@ -1,7 +1,8 @@
 # Default values for the amaru chart.
 #
-# This chart deploys one or more Amaru relays. See README.md for the full
-# description of ports, upstream peers, config and topology.
+# This chart deploys one or more Amaru relays, and optionally block producers
+# (nodes[].type). See README.md for the full description of ports, upstream
+# peers, config, topology and the block producer.
 #
 # Quick start (renders a single mainnet relay with these defaults):
 #   helm template my-amaru ./charts/amaru
@@ -229,6 +230,20 @@ nodes:
     # naming the node. It is a pod label, deliberately kept out of the
     # StatefulSet selector, so a node can be flipped between the two in place,
     # keeping its name and its volume.
+    #
+    # No values file here ships a block producer. Setting `type:
+    # block-producer` on an entry makes it forge (README "Block producer"):
+    #   - it mounts the keys Secret named by secretName below, read-only at
+    #     /keys in the amaru container only (not while sleep: true), and passes
+    #     --operator-kes, --operator-vrf and --operator-cert;
+    #   - it peers ONLY with its own peerAddresses (--peers-max-upstream N,
+    #     --peers-mix static!N); the chart-wide upstreamPeers, downstreamPeers,
+    #     peerMix, peerSnapshot and submitApi never reach it;
+    #   - the render fails, naming the node, on a nodePort or submitApiNodePort,
+    #     a per-node submitApi key, or an empty peer list, and when two enabled
+    #     block-producer entries (replicas 0 included) resolve to one Secret.
+    # Every relay must list the block producer in its own peerAddresses: the
+    # relays pull its blocks only if they connect to it.
     type: relay
 
     # 0 or 1. Unset (null) means 1. 0 pauses the node and keeps its volume.
@@ -258,6 +273,14 @@ nodes:
     # resources: {}          # overrides the chart-level resources
     # repository / imageTag  # overrides the chart-level image
     # sleep: true            # debug: start the pod idle instead of running Amaru
+    #
+    # Block producer only; ignored on a relay:
+    # secretName: ""         # keys Secret; empty means <name>-secret. It must
+    #                        # hold kes.skey, vrf.skey and node.cert. Create it
+    #                        # out of band: keys never go in values, and the
+    #                        # chart has no inline or plaintext fallback.
+    # softwareTagOff: false  # true renders --software-tag-off: forged blocks
+    #                        # then omit the CIP-0203 tag naming Amaru.
 
 # OpenTelemetry Collector sidecar.
 #

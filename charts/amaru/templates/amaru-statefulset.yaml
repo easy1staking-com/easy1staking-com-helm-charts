@@ -1,3 +1,22 @@
+{{- /*
+  One Secret, one block producer. Walks every ENABLED block-producer entry,
+  `replicas: 0` included, before anything renders, and fails on two entries
+  resolving to the same keys Secret (secretName, else <name>-secret): two pods
+  forging with the same keys is what this refuses, and a paused entry is one
+  replicas edit away from it. A disabled entry and a relay never count, since
+  neither mounts the Secret. This sees one release only; it cannot see another
+  release, namespace or cluster, nor a Haskell block producer on the same keys.
+*/ -}}
+{{- $bpSecrets := dict }}
+{{- range $n := .Values.nodes }}
+{{- if and $n.enabled (eq (toString $n.type) "block-producer") }}
+{{- $bpSecret := $n.secretName | default (printf "%s-secret" (toString $n.name)) | toString }}
+{{- if hasKey $bpSecrets $bpSecret }}
+{{- fail (printf "nodes[] entries %s and %v: two enabled block producers resolve to the same keys Secret %q; give each its own secretName" (get $bpSecrets $bpSecret) $n.name $bpSecret) }}
+{{- end }}
+{{- $_ := set $bpSecrets $bpSecret (toString $n.name) }}
+{{- end }}
+{{- end }}
 {{ range $attributes := .Values.nodes }}
 {{ if $attributes.enabled }}
 {{- /*
@@ -43,6 +62,37 @@
 {{- $peers = $attributes.peerAddresses }}
 {{- else if $attributes.peerAddress }}
 {{- $peers = list $attributes.peerAddress }}
+{{- end }}
+{{- /*
+  Block producer. Never exposed: a nodePort or submitApiNodePort (any non-null
+  value) or a per-node submitApi key fails the render naming the node, rather
+  than being quietly ignored. Peers only with its own list, so an empty
+  effective list (empty strings removed) fails too: with the chart-wide peer
+  mix dropped, it would have no upstream at all.
+*/ -}}
+{{- $isBp := eq $type "block-producer" }}
+{{- $bpSecretName := "" }}
+{{- if $isBp }}
+{{- if not (kindIs "invalid" $attributes.nodePort) }}
+{{- fail (printf "nodes[] entry %v: a block producer is never exposed; remove nodePort (got %s)" $attributes.name (toJson $attributes.nodePort)) }}
+{{- end }}
+{{- if not (kindIs "invalid" $attributes.submitApiNodePort) }}
+{{- fail (printf "nodes[] entry %v: a block producer is never exposed; remove submitApiNodePort (got %s)" $attributes.name (toJson $attributes.submitApiNodePort)) }}
+{{- end }}
+{{- if hasKey $attributes "submitApi" }}
+{{- fail (printf "nodes[] entry %v: a block producer runs no submit API; remove its submitApi key" $attributes.name) }}
+{{- end }}
+{{- $bpPeers := list }}
+{{- range $p := $peers }}
+{{- if $p }}
+{{- $bpPeers = append $bpPeers $p }}
+{{- end }}
+{{- end }}
+{{- $peers = $bpPeers }}
+{{- if not $peers }}
+{{- fail (printf "nodes[] entry %v: a block producer peers only with its own list; set peerAddresses to at least one of your relays" $attributes.name) }}
+{{- end }}
+{{- $bpSecretName = $attributes.secretName | default (printf "%s-secret" (toString $attributes.name)) | toString }}
 {{- end }}
 {{- $submitApi := $.Values.config.submitApi | default dict }}
 {{- /*
@@ -215,6 +265,27 @@ spec:
             {{- if $.Values.config.migrateChainDb }}
             - "--db-chain-automatic-migration"
             {{- end }}
+            {{- if $isBp }}
+            {{- /* Block producer: static peering only, with N = its own peer
+                   count. The mix only splits the --peers-max-upstream slots
+                   (default 3) and `!N` is a floor, so both are N. The
+                   chart-wide upstreamPeers, downstreamPeers, peerMix,
+                   peerSnapshot and submitApi never reach it. The three
+                   operator flags read the keys mounted at /keys below. */}}
+            - "--peers-max-upstream"
+            - {{ len $peers | quote }}
+            - "--peers-mix"
+            - {{ printf "static!%d" (len $peers) | quote }}
+            - "--operator-kes"
+            - "/keys/kes.skey"
+            - "--operator-vrf"
+            - "/keys/vrf.skey"
+            - "--operator-cert"
+            - "/keys/node.cert"
+            {{- if $attributes.softwareTagOff }}
+            - "--software-tag-off"
+            {{- end }}
+            {{- else }}
             {{- /* Explicit nil checks, not `with`: 0 is a meaningful value here
                    (0 downstream peers = accept no inbound), and `with` would
                    silently drop it and fall back to Amaru's default. */}}
@@ -237,6 +308,7 @@ spec:
             {{- if $submitApi.enabled }}
             - "--submit-api-listen-on"
             - "0.0.0.0:{{ $submitApi.port }}"
+            {{- end }}
             {{- end }}
           {{- end }}
           image: "{{ $attributes.repository | default $.Values.image.repository }}:{{ $attributes.imageTag | default $.Values.image.tag | default $.Chart.AppVersion }}"
@@ -279,7 +351,7 @@ spec:
           ports:
             - name: node
               containerPort: {{ $attributes.port }}
-            {{- if $submitApi.enabled }}
+            {{- if and $submitApi.enabled (not $isBp) }}
             - name: submit-api
               containerPort: {{ $submitApi.port }}
             {{- end }}
@@ -310,6 +382,13 @@ spec:
               mountPath: /var/lib/amaru
             - name: amaru-tmp
               mountPath: /tmp
+            {{- if and $isBp (not $attributes.sleep) }}
+            {{- /* The forging keys: this container only, read-only, never
+                   while sleeping. See the forging-keys volume below. */}}
+            - name: forging-keys
+              mountPath: /keys
+              readOnly: true
+            {{- end }}
         {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
         {{- if $collectorConfig.enabled }}
         - name: otel-collector
@@ -378,6 +457,44 @@ spec:
         - name: otel-collector-config
           configMap:
             name: "otel-collector-{{ $.Release.Name }}-{{ $attributes.name }}"
+        {{- end }}
+        {{- if and $isBp (not $attributes.sleep) }}
+        {{- /*
+          Block-producer keys, from a Secret created out of band. Deliberate
+          divergences, each for a reason:
+
+          - Mounted in the amaru container only. init, mithril-sync and the
+            otel sidecar never read a key, and every container without the
+            mount is one fewer process that can.
+          - init and mithril-sync run their scripts under `bash -x`, which
+            echoes every command and expanded variable to the pod log. Neither
+            mounts /keys, so nothing that trace echoes can come from a key.
+          - `items:` lists exactly the three files Amaru reads. A reused Secret
+            may hold more: the cardano-node chart in this repo also mounts
+            <name>-secret, with the same three key names, and an operator may
+            keep other material beside them. Only these three are projected.
+            A listed key missing from the Secret fails the volume mount, so the
+            pod does not start, rather than starting without credentials.
+          - No inline-secret or plaintext fallback, unlike some charts in this
+            repo: values end up in Git, in Argo and in Helm's release history,
+            and forging keys must pass through none of them.
+          - defaultMode 0440 (octal), not the 0400 the cardano-node chart uses:
+            with fsGroup set the files belong to root with group fsGroup, and
+            Amaru runs as uid 10000, so it reads them through the group bit.
+            Not yet measured on a live cluster.
+          - Not mounted with sleep: true, which runs no Amaru to read them.
+        */}}
+        - name: forging-keys
+          secret:
+            secretName: {{ $bpSecretName | quote }}
+            defaultMode: 0440
+            items:
+              - key: kes.skey
+                path: kes.skey
+              - key: vrf.skey
+                path: vrf.skey
+              - key: node.cert
+                path: node.cert
         {{- end }}
       terminationGracePeriodSeconds: 180
   volumeClaimTemplates:

@@ -2,6 +2,13 @@
 {{- if $attributes.enabled }}
 {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
 {{- if $collectorConfig.enabled }}
+{{- /* The node type as a const label, so rules can select block producers
+       (KES alerts). Unset means relay, as in the StatefulSet template, which
+       also rejects any other value. */}}
+{{- $type := $attributes.type }}
+{{- if kindIs "invalid" $type }}
+{{- $type = "relay" }}
+{{- end }}
 ---
 apiVersion: v1
 kind: ConfigMap
@@ -42,6 +49,7 @@ data:
         const_labels:
           node: "{{ $attributes.name }}"
           network: "{{ $.Values.network }}"
+          type: "{{ $type }}"
       {{- end }}
       {{- if dig "exporters" "prometheusRemoteWrite" "enabled" false $collectorConfig }}
       # Prometheus remote write exporter
