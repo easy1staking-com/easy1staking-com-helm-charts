@@ -2,6 +2,16 @@ apiVersion: v1
 entries:
   amaru:
   - apiVersion: v2
+    appVersion: v10.11.20261112
+    created: "2026-11-19T09:15:25.753106699Z"
+    description: A Helm chart for the Amaru Cardano node (relay)
+    digest: 9c6f3a771fa8ef8e0e8470e012aaaaa0de61199361d53c7f6e314fdd3c1dde21
+    name: amaru
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/amaru-0.0.1-alpha.24/amaru-0.0.1-alpha.24.tgz
+    version: 0.0.1-alpha.24
+  - apiVersion: v2
     appVersion: v10.11.20260820
     created: "2026-08-28T14:09:18.241205119Z"
     description: A Helm chart for the Amaru Cardano node (relay)
@@ -1449,4 +1459,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/sundae-scooper-v2-0.1.0-alpha.1/sundae-scooper-v2-0.1.0-alpha.1.tgz
     version: 0.1.0-alpha.1
-generated: "2026-11-14T23:17:57.601101834Z"
+generated: "2026-11-19T09:15:25.753380052Z"
