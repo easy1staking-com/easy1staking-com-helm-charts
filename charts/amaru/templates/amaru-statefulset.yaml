@@ -1,10 +1,61 @@
+{{- /*
+  One Secret, one block producer. Walks every ENABLED block-producer entry,
+  `replicas: 0` included, before anything renders, and fails on two entries
+  resolving to the same keys Secret (secretName, else <name>-secret): two pods
+  forging with the same keys is what this refuses, and a paused entry is one
+  replicas edit away from it. A disabled entry and a relay never count, since
+  neither mounts the Secret. This sees one release only; it cannot see another
+  release, namespace or cluster, nor a Haskell block producer on the same keys.
+*/ -}}
+{{- $bpSecrets := dict }}
+{{- range $n := .Values.nodes }}
+{{- if and $n.enabled (eq (toString $n.type) "block-producer") }}
+{{- $bpSecret := $n.secretName | default (printf "%s-secret" (toString $n.name)) | toString }}
+{{- if hasKey $bpSecrets $bpSecret }}
+{{- fail (printf "nodes[] entries %s and %v: two enabled block producers resolve to the same keys Secret %q; give each its own secretName" (get $bpSecrets $bpSecret) $n.name $bpSecret) }}
+{{- end }}
+{{- $_ := set $bpSecrets $bpSecret (toString $n.name) }}
+{{- end }}
+{{- end }}
 {{ range $attributes := .Values.nodes }}
 {{ if $attributes.enabled }}
 {{- /*
+  Node type: "relay" or "block-producer". Unset (null) means relay. Anything
+  else fails the render naming the node, rather than reaching a label: a typo
+  such as "bp" or "Relay" would otherwise render a node that is neither.
+  Checked only for enabled nodes, so a disabled entry is never validated.
+*/ -}}
+{{- $type := $attributes.type }}
+{{- if kindIs "invalid" $type }}
+{{- $type = "relay" }}
+{{- else if not (and (kindIs "string" $type) (has $type (list "relay" "block-producer"))) }}
+{{- fail (printf "nodes[] entry %v: type must be \"relay\" or \"block-producer\" (unset means relay), got %s" $attributes.name (toJson $type)) }}
+{{- end }}
+{{- /*
+  Replicas: 0 or 1. Unset (null) means 1; 0 pauses the node and keeps its
+  volume. Each node is one Amaru with its own databases, so more than one
+  replica is never a scale-out: add another nodes[] entry instead. Accepts a
+  YAML number only (Helm hands it over as float64 or int64), never a string or
+  a bool. Explicit nil check, not `default` or `with`: both treat 0 as unset
+  and would silently turn a paused node back on.
+*/ -}}
+{{- $replicas := $attributes.replicas }}
+{{- if kindIs "invalid" $replicas }}
+{{- $replicas = 1 }}
+{{- else if or (kindIs "float64" $replicas) (kindIs "int64" $replicas) (kindIs "int" $replicas) }}
+{{- if not (or (eq (float64 $replicas) 0.0) (eq (float64 $replicas) 1.0)) }}
+{{- fail (printf "nodes[] entry %v: replicas must be 0 or 1 (unset means 1), got %s" $attributes.name (toJson $replicas)) }}
+{{- end }}
+{{- $replicas = int64 $replicas }}
+{{- else }}
+{{- fail (printf "nodes[] entry %v: replicas must be 0 or 1 (unset means 1), got %s (%s)" $attributes.name (toJson $replicas) (kindOf $replicas)) }}
+{{- end }}
+{{- /*
   Upstream peers: prefer the peerAddresses list, fall back to the legacy
   singular peerAddress so existing deployment values keep working.
-  An empty list emits no --peer-address at all, which lets Amaru fall back to
-  its built-in bootstrap peer, peer snapshot and ledger-derived peers.
+  An empty list emits no --peer at all, and Amaru then uses only its other
+  peer-mix sources. It no longer falls back to a network bootstrap peer, although
+  the image's own --peer help text still says it does (an upstream doc bug).
 */ -}}
 {{- $peers := list }}
 {{- if $attributes.peerAddresses }}
@@ -12,7 +63,64 @@
 {{- else if $attributes.peerAddress }}
 {{- $peers = list $attributes.peerAddress }}
 {{- end }}
+{{- /*
+  Block producer. Never exposed: a nodePort or submitApiNodePort (any non-null
+  value) or a per-node submitApi key fails the render naming the node, rather
+  than being quietly ignored. Peers only with its own list, so an empty
+  effective list (empty strings removed) fails too: with the chart-wide peer
+  mix dropped, it would have no upstream at all.
+*/ -}}
+{{- $isBp := eq $type "block-producer" }}
+{{- $bpSecretName := "" }}
+{{- if $isBp }}
+{{- if not (kindIs "invalid" $attributes.nodePort) }}
+{{- fail (printf "nodes[] entry %v: a block producer is never exposed; remove nodePort (got %s)" $attributes.name (toJson $attributes.nodePort)) }}
+{{- end }}
+{{- if not (kindIs "invalid" $attributes.submitApiNodePort) }}
+{{- fail (printf "nodes[] entry %v: a block producer is never exposed; remove submitApiNodePort (got %s)" $attributes.name (toJson $attributes.submitApiNodePort)) }}
+{{- end }}
+{{- if hasKey $attributes "submitApi" }}
+{{- fail (printf "nodes[] entry %v: a block producer runs no submit API; remove its submitApi key" $attributes.name) }}
+{{- end }}
+{{- $bpPeers := list }}
+{{- range $p := $peers }}
+{{- if $p }}
+{{- $bpPeers = append $bpPeers $p }}
+{{- end }}
+{{- end }}
+{{- $peers = $bpPeers }}
+{{- if not $peers }}
+{{- fail (printf "nodes[] entry %v: a block producer peers only with its own list; set peerAddresses to at least one of your relays" $attributes.name) }}
+{{- end }}
+{{- $bpSecretName = $attributes.secretName | default (printf "%s-secret" (toString $attributes.name)) | toString }}
+{{- end }}
 {{- $submitApi := $.Values.config.submitApi | default dict }}
+{{- /*
+  OTEL_METRIC_EXPORT_INTERVAL, in milliseconds. Validated here rather than left
+  to Amaru: it panics at startup on an empty or non-numeric value and takes 0 as
+  a zero interval. Null keeps the chart's 30000. Accepts a YAML integer (Helm
+  hands it over as float64 or int64) or a digit-only string.
+*/ -}}
+{{- $intervalKey := "config.otlpMetricExportIntervalMs" }}
+{{- $intervalMs := $.Values.config.otlpMetricExportIntervalMs }}
+{{- if kindIs "invalid" $intervalMs }}
+{{- $intervalMs = 30000 }}
+{{- else if kindIs "string" $intervalMs }}
+{{- if not (regexMatch "^[0-9]{1,6}$" $intervalMs) }}
+{{- fail (printf "%s must be whole milliseconds in 1000..120000, got %q" $intervalKey $intervalMs) }}
+{{- end }}
+{{- $intervalMs = atoi $intervalMs }}
+{{- else if or (kindIs "float64" $intervalMs) (kindIs "int64" $intervalMs) (kindIs "int" $intervalMs) }}
+{{- if ne (float64 $intervalMs) (float64 (int64 $intervalMs)) }}
+{{- fail (printf "%s must be whole milliseconds in 1000..120000, got %v" $intervalKey $intervalMs) }}
+{{- end }}
+{{- $intervalMs = int64 $intervalMs }}
+{{- else }}
+{{- fail (printf "%s must be whole milliseconds in 1000..120000, got %v (%s)" $intervalKey $intervalMs (kindOf $intervalMs)) }}
+{{- end }}
+{{- if or (lt (int64 $intervalMs) 1000) (gt (int64 $intervalMs) 120000) }}
+{{- fail (printf "%s must be whole milliseconds in 1000..120000, got %v" $intervalKey $intervalMs) }}
+{{- end }}
 ---
 apiVersion: apps/v1
 kind: StatefulSet
@@ -25,13 +133,29 @@ metadata:
     app.kubernetes.io/instance: {{ $.Release.Name }}
     name: {{ $attributes.name }}
 spec:
-  replicas: {{ $attributes.replicas }}
+  replicas: {{ $replicas }}
   serviceName: "amaru-{{ $attributes.name }}"
+  {{- /* podManagementPolicy is the Kubernetes default, written out so nobody
+         changes it casually: it is immutable on a live StatefulSet. It is NOT
+         what keeps a block producer to one pod (README, "Double forging"), but
+         it does make a never-Ready rollout wait until the pod is deleted by hand
+         (README, "Health checks"). */}}
+  podManagementPolicy: OrderedReady
+  {{- /*
+    `type` is deliberately NOT in the selector, although it stays a pod label.
+    A StatefulSet's selector is immutable, and a relay is meant to be flipped
+    to block-producer in place, keeping its name and its volume. With `type`
+    in the selector that flip is rejected by the API server and forces a
+    delete. The headless and -int Services drop it too, though their
+    selectors are mutable: they follow the pod set, so a flip keeps them
+    selecting the pod. The -ext Service is the exception: it pins the literal
+    `type: relay` (see amaru-svc.yaml), so that a stale NodePort Service can
+    never select a block producer.
+  */}}
   selector:
     matchLabels:
       app: amaru
       name: {{ $attributes.name }}
-      type: {{ $attributes.type }}
       network: {{ $.Values.network }}
   template:
     metadata:
@@ -41,7 +165,7 @@ spec:
         app.kubernetes.io/component: node
         app.kubernetes.io/instance: {{ $.Release.Name }}
         name: {{ $attributes.name }}
-        type: {{ $attributes.type }}
+        type: {{ $type }}
         network: {{ $.Values.network }}
     spec:
       {{- with $.Values.podSecurityContext }}
@@ -53,22 +177,34 @@ spec:
           command: [ "bash", "-x", "/configmap/init.sh" ]
           image: "{{ $attributes.repository | default $.Values.image.repository }}:{{ $attributes.imageTag | default $.Values.image.tag | default $.Chart.AppVersion }}"
           env:
+            {{- /* LEDGER_DIR/CHAIN_DIR here and in mithril-sync are the scripts'
+                   own variables, deliberately not AMARU_-prefixed: Amaru remaps
+                   the legacy AMARU_LEDGER_DIR/AMARU_CHAIN_DIR onto its current
+                   names, so under those names Amaru itself would read them. */}}
             - name: SKIP_BOOTSTRAP
               value: {{ $attributes.sleep | default false | quote }}
             - name: DATA_DIR
               value: {{ $.Values.config.dataDir }}
             - name: NETWORK
               value: {{ $.Values.network }}
-            - name: AMARU_LEDGER_DIR
+            - name: LEDGER_DIR
               value: {{ $.Values.config.ledgerDir }}
-            - name: AMARU_CHAIN_DIR
+            - name: CHAIN_DIR
               value: {{ $.Values.config.chainDir }}
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          {{- with $.Values.containerSecurityContext }}
+          securityContext:
+{{ toYaml . | indent 12 }}
+          {{- end }}
           volumeMounts:
             - name: "amaru-{{ $attributes.name }}"
               mountPath: {{ $.Values.config.dataDir }}
             - name: "amaru-init"
               mountPath: /configmap
+            - name: amaru-workdir
+              mountPath: /var/lib/amaru
+            - name: amaru-tmp
+              mountPath: /tmp
         {{- if $.Values.config.mithrilSync.enabled }}
         {{- /* Runs after the bootstrap init container, never in parallel:
                mithril sync refuses to run against a non-bootstrapped node. */}}
@@ -82,18 +218,26 @@ spec:
               value: {{ $.Values.config.dataDir }}
             - name: NETWORK
               value: {{ $.Values.network }}
-            - name: AMARU_LEDGER_DIR
+            - name: LEDGER_DIR
               value: {{ $.Values.config.ledgerDir }}
-            - name: AMARU_CHAIN_DIR
+            - name: CHAIN_DIR
               value: {{ $.Values.config.chainDir }}
             - name: MITHRIL_SNAPSHOTS_DIR
               value: {{ $.Values.config.mithrilSync.snapshotsDir }}
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          {{- with $.Values.containerSecurityContext }}
+          securityContext:
+{{ toYaml . | indent 12 }}
+          {{- end }}
           volumeMounts:
             - name: "amaru-{{ $attributes.name }}"
               mountPath: {{ $.Values.config.dataDir }}
             - name: "amaru-mithril"
               mountPath: /mithril
+            - name: amaru-workdir
+              mountPath: /var/lib/amaru
+            - name: amaru-tmp
+              mountPath: /tmp
         {{- end }}
       containers:
         - name: amaru
@@ -107,47 +251,69 @@ spec:
             - "run"
             - "--network"
             - {{ $.Values.network | quote }}
-            - "--ledger-dir"
+            - "--db-ledger"
             - {{ $.Values.config.ledgerDir | quote }}
-            - "--chain-dir"
+            - "--db-chain"
             - {{ $.Values.config.chainDir | quote }}
             {{- /* Inbound p2p listener. Bound to the same value that drives the
                    containerPort and every Service port, so the advertised port
                    can never drift from the real listen address. */}}
-            - "--listen-address"
+            - "--peers-listen-on"
             - "0.0.0.0:{{ $attributes.port }}"
             {{- range $p := $peers }}
-            - "--peer-address"
+            - "--peer"
             - {{ $p | quote }}
             {{- end }}
             {{- if $.Values.config.noTui }}
-            - "--no-tui"
+            - "--tui-off"
             {{- end }}
             {{- if $.Values.config.migrateChainDb }}
-            - "--migrate-chain-db"
+            - "--db-chain-automatic-migration"
             {{- end }}
+            {{- if $isBp }}
+            {{- /* Block producer: static peering only, with N = its own peer
+                   count. The mix only splits the --peers-max-upstream slots
+                   (default 3) and `!N` is a floor, so both are N. The
+                   chart-wide upstreamPeers, downstreamPeers, peerMix,
+                   peerSnapshot and submitApi never reach it. The three
+                   operator flags read the keys mounted at /keys below. */}}
+            - "--peers-max-upstream"
+            - {{ len $peers | quote }}
+            - "--peers-mix"
+            - {{ printf "static!%d" (len $peers) | quote }}
+            - "--operator-kes"
+            - "/keys/kes.skey"
+            - "--operator-vrf"
+            - "/keys/vrf.skey"
+            - "--operator-cert"
+            - "/keys/node.cert"
+            {{- if $attributes.softwareTagOff }}
+            - "--software-tag-off"
+            {{- end }}
+            {{- else }}
             {{- /* Explicit nil checks, not `with`: 0 is a meaningful value here
                    (0 downstream peers = accept no inbound), and `with` would
                    silently drop it and fall back to Amaru's default. */}}
             {{- if not (kindIs "invalid" $.Values.config.upstreamPeers) }}
-            - "--upstream-peers"
+            - "--peers-max-upstream"
             - {{ $.Values.config.upstreamPeers | quote }}
             {{- end }}
             {{- if not (kindIs "invalid" $.Values.config.downstreamPeers) }}
-            - "--downstream-peers"
+            - "--peers-max-downstream"
             - {{ $.Values.config.downstreamPeers | quote }}
             {{- end }}
             {{- with $.Values.config.peerMix }}
-            - "--peer-mix"
+            - "--peers-mix"
             - {{ . | quote }}
             {{- end }}
             {{- with $.Values.config.peerSnapshot }}
-            - "--peer-snapshot"
+            - "--peers-snapshot"
             - {{ . | quote }}
             {{- end }}
             {{- if $submitApi.enabled }}
-            - "--submit-api-address"
+            - "--submit-api-listen-on"
             - "0.0.0.0:{{ $submitApi.port }}"
+            {{- end }}
             {{- end }}
           {{- end }}
           image: "{{ $attributes.repository | default $.Values.image.repository }}:{{ $attributes.imageTag | default $.Values.image.tag | default $.Chart.AppVersion }}"
@@ -156,7 +322,9 @@ spec:
               {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
               {{- if or $attributes.withOpenTelemetry $collectorConfig.enabled }}
             {{- /*
-              AMARU_WITH_OPEN_TELEMETRY is real and is what turns export on.
+              AMARU_LOG_OTLP=true is what turns export on, for every signal
+              (it can instead name signals). It replaces
+              AMARU_WITH_OPEN_TELEMETRY, the old name, which Amaru still remaps.
               The endpoint, however, is NOT an AMARU_ variable: this binary
               contains no AMARU_OTLP_* string at all, and reads the standard
               OpenTelemetry SDK environment instead. The three AMARU_OTLP_*
@@ -172,7 +340,7 @@ spec:
               the exporter kept sending to the default, killing telemetry
               silently.
             */}}
-            - name: AMARU_WITH_OPEN_TELEMETRY
+            - name: AMARU_LOG_OTLP
               value: "true"
             - name: OTEL_EXPORTER_OTLP_ENDPOINT
               {{- if $collectorConfig.enabled }}
@@ -182,11 +350,13 @@ spec:
               {{- end }}
             - name: OTEL_SERVICE_NAME
               value: "amaru"
+            - name: OTEL_METRIC_EXPORT_INTERVAL
+              value: {{ $intervalMs | quote }}
               {{- end }}
           ports:
             - name: node
               containerPort: {{ $attributes.port }}
-            {{- if $submitApi.enabled }}
+            {{- if and $submitApi.enabled (not $isBp) }}
             - name: submit-api
               containerPort: {{ $submitApi.port }}
             {{- end }}
@@ -206,9 +376,24 @@ spec:
           resources:
 {{ toYaml . | indent 12 }}
           {{- end }}
+          {{- with $.Values.containerSecurityContext }}
+          securityContext:
+{{ toYaml . | indent 12 }}
+          {{- end }}
           volumeMounts:
             - name: "amaru-{{ $attributes.name }}"
               mountPath: {{ $.Values.config.dataDir }}
+            - name: amaru-workdir
+              mountPath: /var/lib/amaru
+            - name: amaru-tmp
+              mountPath: /tmp
+            {{- if and $isBp (not $attributes.sleep) }}
+            {{- /* The forging keys: this container only, read-only, never
+                   while sleeping. See the forging-keys volume below. */}}
+            - name: forging-keys
+              mountPath: /keys
+              readOnly: true
+            {{- end }}
         {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
         {{- if $collectorConfig.enabled }}
         - name: otel-collector
@@ -234,6 +419,17 @@ spec:
           resources:
 {{ toYaml $collectorResources | indent 12 }}
           {{- end }}
+          {{- /*
+            The shared containerSecurityContext, with the uid/gid overridden to
+            10001: the collector image's own USER, which it declares as a number.
+            Without this the sidecar would inherit the pod's 10000, Amaru's user.
+            It mounts no emptyDir: it starts and runs read-only without one.
+            deepCopy so the merge never writes back into .Values, which every
+            node in the range shares.
+          */}}
+          {{- $sidecarSecurityContext := mergeOverwrite (deepCopy ($.Values.containerSecurityContext | default dict)) (dict "runAsUser" 10001 "runAsGroup" 10001) }}
+          securityContext:
+{{ toYaml $sidecarSecurityContext | indent 12 }}
           volumeMounts:
             - name: otel-collector-config
               mountPath: /etc/otel-collector
@@ -243,6 +439,19 @@ spec:
         - name: amaru-init
           configMap:
             name: "amaru-init-{{ $.Release.Name }}"
+        {{- /*
+          Scratch space for the read-only root filesystem, mounted in init,
+          mithril-sync and amaru (sleep included). /var/lib/amaru is the image
+          WORKDIR: `amaru node bootstrap` writes its downloaded archives there,
+          CWD-relative (about 0.9 GiB on preview). They are ephemeral exactly as
+          before; nothing reads them after bootstrap. This is node ephemeral
+          storage, not the PersistentVolume: the databases still go to
+          config.dataDir.
+        */}}
+        - name: amaru-workdir
+          emptyDir: {}
+        - name: amaru-tmp
+          emptyDir: {}
         {{- if $.Values.config.mithrilSync.enabled }}
         - name: amaru-mithril
           configMap:
@@ -253,6 +462,44 @@ spec:
         - name: otel-collector-config
           configMap:
             name: "otel-collector-{{ $.Release.Name }}-{{ $attributes.name }}"
+        {{- end }}
+        {{- if and $isBp (not $attributes.sleep) }}
+        {{- /*
+          Block-producer keys, from a Secret created out of band. Deliberate
+          divergences, each for a reason:
+
+          - Mounted in the amaru container only. init, mithril-sync and the
+            otel sidecar never read a key, and every container without the
+            mount is one fewer process that can.
+          - init and mithril-sync run their scripts under `bash -x`, which
+            echoes every command and expanded variable to the pod log. Neither
+            mounts /keys, so nothing that trace echoes can come from a key.
+          - `items:` lists exactly the three files Amaru reads. A reused Secret
+            may hold more: the cardano-node chart in this repo also mounts
+            <name>-secret, with the same three key names, and an operator may
+            keep other material beside them. Only these three are projected.
+            A listed key missing from the Secret fails the volume mount, so the
+            pod does not start, rather than starting without credentials.
+          - No inline-secret or plaintext fallback, unlike some charts in this
+            repo: values end up in Git, in Argo and in Helm's release history,
+            and forging keys must pass through none of them.
+          - defaultMode 0440 (octal), not the 0400 the cardano-node chart uses:
+            with fsGroup set the files belong to root with group fsGroup, and
+            Amaru runs as uid 10000, so it reads them through the group bit.
+            Not yet measured on a live cluster.
+          - Not mounted with sleep: true, which runs no Amaru to read them.
+        */}}
+        - name: forging-keys
+          secret:
+            secretName: {{ $bpSecretName | quote }}
+            defaultMode: 0440
+            items:
+              - key: kes.skey
+                path: kes.skey
+              - key: vrf.skey
+                path: vrf.skey
+              - key: node.cert
+                path: node.cert
         {{- end }}
       terminationGracePeriodSeconds: 180
   volumeClaimTemplates:

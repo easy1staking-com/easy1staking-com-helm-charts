@@ -1,7 +1,8 @@
 # Default values for the amaru chart.
 #
-# This chart deploys one or more Amaru relays. See README.md for the full
-# description of ports, upstream peers, config and topology.
+# This chart deploys one or more Amaru relays, and optionally block producers
+# (nodes[].type). See README.md for the full description of ports, upstream
+# peers, config, topology and the block producer.
 #
 # Quick start (renders a single mainnet relay with these defaults):
 #   helm template my-amaru ./charts/amaru
@@ -11,7 +12,7 @@ image:
   repository: ghcr.io/pragma-org/amaru
   pullPolicy: IfNotPresent
   # Overrides the image tag, whose default is the chart appVersion.
-  # Pin a release tag (e.g. v10.11.20260820); ":latest" is a nightly build.
+  # Pin a release tag (e.g. v10.11.20261112); ":latest" is a nightly build.
   tag: ""
 
 # Target network: mainnet | preprod | preview.
@@ -61,10 +62,53 @@ resources:
     memory: "1Gi"
     cpu: 1
 
-# Amaru's image runs as non-root uid/gid 10000. Without fsGroup the
-# PersistentVolume mounts root-owned and Amaru cannot create its databases.
+# Pod-level security context, applied to every pod. Together with
+# containerSecurityContext below it meets the Pod Security Standards
+# "restricted" profile, which a namespace labelled
+# pod-security.kubernetes.io/enforce=restricted enforces at admission.
+#
+# Helm merges maps, so an operator overriding one key here (say fsGroup)
+# keeps the others. To remove a key, set it to null.
 podSecurityContext:
+  # Refuse to start any container whose user resolves to root. Enforced by the
+  # kubelet at container start.
+  runAsNonRoot: true
+  # Amaru's image runs as uid/gid 10000, but its USER is the NAME `amaru`, not
+  # a number. The kubelet cannot verify that a named user is non-root, so with
+  # runAsNonRoot it refuses the container unless runAsUser is numeric. Set
+  # explicitly here, together with the group.
+  runAsUser: 10000
+  runAsGroup: 10000
+  # Without fsGroup the PersistentVolume mounts root-owned and Amaru cannot
+  # create its databases. Applied by the kubelet when it mounts the volume.
   fsGroup: 10000
+  # Re-own the volume only when its root does not already carry fsGroup, rather
+  # than walking every file on each mount: a synced ledger is many files.
+  fsGroupChangePolicy: OnRootMismatch
+  # The container runtime's default seccomp filter. The restricted profile
+  # requires one to be set; it is enforced by the kernel.
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container-level security context, rendered on every container: init,
+# mithril-sync, amaru and the otel-collector sidecar. Helm merges maps here
+# too, so overriding one key keeps the others.
+#
+# The sidecar additionally runs as uid/gid 10001, its image's own user; see the
+# StatefulSet template.
+containerSecurityContext:
+  # No setuid binary or file capability can raise a process's privileges.
+  # Enforced by the kernel (no_new_privs).
+  allowPrivilegeEscalation: false
+  # No container here needs a Linux capability: the chart's default ports are
+  # all above 1024. Dropped by the container runtime at start.
+  capabilities:
+    drop: [ALL]
+  # The image's root filesystem is mounted read-only by the container runtime.
+  # Everything Amaru writes goes to the PersistentVolume at config.dataDir, or
+  # to the two emptyDir volumes the chart mounts at the image WORKDIR
+  # /var/lib/amaru and at /tmp.
+  readOnlyRootFilesystem: true
 
 ## App Config
 
@@ -81,9 +125,11 @@ config:
   # that produces unreadable logs, so it is disabled here. Leave this true.
   noTui: true
 
-  # Chain database schema is version 6 as of v10.11.20260820. Version 5
-  # databases migrate automatically only when this is enabled; anything older
-  # must be rebuilt from a bootstrap snapshot (delete the PVC and re-bootstrap).
+  # Chain database schema is version 6 at both v10.11.20260820 and
+  # v10.11.20261112, so upgrading between those two needs no migration. Version 5
+  # databases migrate automatically only when this is enabled
+  # (--db-chain-automatic-migration); anything older must be rebuilt from a
+  # bootstrap snapshot (delete the PVC and re-bootstrap).
   migrateChainDb: false
 
   # Number of upstream peers Amaru maintains connections to.
@@ -94,9 +140,11 @@ config:
   # This is the relay's serving capacity. Unset (null) uses Amaru's default of 10.
   downstreamPeers: null
 
-  # Outbound peer source mix formula. Unset uses Amaru's default:
-  #   "static!2@15m, shared~6, snapshot~3@1h, ledger~3@24h"
-  # "static" are the peers you list in a node's peerAddresses.
+  # Upstream peer source mix formula: how Amaru fills its upstream slots.
+  # Unset uses Amaru's default:
+  #   "static!2@15m, inbound~6, shared~6, snapshot~3@1h, ledger~3@24h"
+  # "static" are the peers you list in a node's peerAddresses; "inbound"
+  # promotes duplex inbound connections into upstream slots.
   peerMix: ""
 
   # Path to a Cardano ledger peer snapshot JSON (bigLedgerPools), compatible
@@ -125,8 +173,26 @@ config:
     # preview at the time of writing, far more on mainnet. Lives on the PVC.
     snapshotsDir: /data/db/mithril
     # Optional bounds on how much is ingested. Unset ingests everything available.
+    # A whole number >= 0: a YAML integer (rendered in decimal) or a digit-only
+    # string (rendered verbatim). Anything else fails the render naming the key.
     ingestUntilSlot: null
     ingestMaximumBlocks: null
+
+  # OTLP metrics export interval, in milliseconds. Renders
+  # OTEL_METRIC_EXPORT_INTERVAL wherever OTLP export is on.
+  #
+  # Whole milliseconds in 1000..120000 (a YAML integer or a digit-only string);
+  # anything else fails the render naming this key, including 0, an empty
+  # string, a fraction or a unit suffix ("30000ms"). Null renders 30000.
+  #
+  # 30 s rather than Amaru's own default of 1000 ms, which applies when the
+  # variable is unset (the OpenTelemetry SDK's default is 60 s): exporting every
+  # second makes thirty times as many OTLP exports as Prometheus can read at a
+  # 30 s scrape interval. The ServiceMonitor sets no interval, so that is the
+  # cluster's Prometheus default, not the chart's.
+  # The range check is not cosmetic: Amaru panics at startup on an empty or
+  # non-numeric value, and takes 0 as a zero interval.
+  otlpMetricExportIntervalMs: 30000
 
   # Optional HTTP Cardano Submit API (POST /api/submit/tx).
   # Amaru has no node-to-client (n2c) socket; this is the nearest equivalent.
@@ -158,19 +224,43 @@ serviceMonitor:
 nodes:
   - name: relay-1
     enabled: true
+
+    # Node type: relay | block-producer. Unset (null) means relay; any other
+    # value, including a different case or a stray space, fails the render
+    # naming the node. It is a pod label, deliberately kept out of the
+    # StatefulSet selector, so a node can be flipped between the two in place,
+    # keeping its name and its volume.
+    #
+    # No values file here ships a block producer. Setting `type:
+    # block-producer` on an entry makes it forge (README "Block producer"):
+    #   - it mounts the keys Secret named by secretName below, read-only at
+    #     /keys in the amaru container only (not while sleep: true), and passes
+    #     --operator-kes, --operator-vrf and --operator-cert;
+    #   - it peers ONLY with its own peerAddresses (--peers-max-upstream N,
+    #     --peers-mix static!N); the chart-wide upstreamPeers, downstreamPeers,
+    #     peerMix, peerSnapshot and submitApi never reach it;
+    #   - the render fails, naming the node, on a nodePort or submitApiNodePort,
+    #     a per-node submitApi key, or an empty peer list, and when two enabled
+    #     block-producer entries (replicas 0 included) resolve to one Secret.
+    # Every relay must list the block producer in its own peerAddresses: the
+    # relays pull its blocks only if they connect to it.
     type: relay
+
+    # 0 or 1. Unset (null) means 1. 0 pauses the node and keeps its volume.
+    # Anything else fails the render naming the node. Each entry is a single
+    # Amaru with its own databases: scale out by adding entries, not replicas.
     replicas: 1
 
-    # Node-to-node p2p port. Drives --listen-address, the containerPort and every
-    # Service port together, so the advertised port cannot drift from the real
-    # listen port. 3001 matches the cardano-node chart convention (Amaru's own
-    # built-in default is 3000; we always pass it explicitly).
+    # Node-to-node p2p port. Drives --peers-listen-on, the containerPort and
+    # every Service port together, so the advertised port cannot drift from the
+    # real listen port. 3001 matches the cardano-node chart convention (Amaru's
+    # own built-in default is 0.0.0.0:3001 too; we always pass it explicitly).
     port: 3001
 
     # Upstream peers to synchronize from, over the p2p mini-protocol.
-    # Each entry renders one --peer-address. These are the "static" source in
-    # the peer mix. Leave empty to use only Amaru's built-in bootstrap peer,
-    # peer snapshot and ledger-derived peers.
+    # Each entry renders one --peer. These are the "static" source in the peer
+    # mix. Leave empty to use only Amaru's other peer-mix sources: an empty list
+    # no longer falls back to a network bootstrap peer.
     peerAddresses: []
     #  - "cardano-node-relay-1-int:3001"
     #  - "relays.example.com:3001"
@@ -183,6 +273,14 @@ nodes:
     # resources: {}          # overrides the chart-level resources
     # repository / imageTag  # overrides the chart-level image
     # sleep: true            # debug: start the pod idle instead of running Amaru
+    #
+    # Block producer only; ignored on a relay:
+    # secretName: ""         # keys Secret; empty means <name>-secret. It must
+    #                        # hold kes.skey, vrf.skey and node.cert. Create it
+    #                        # out of band: keys never go in values, and the
+    #                        # chart has no inline or plaintext fallback.
+    # softwareTagOff: false  # true renders --software-tag-off: forged blocks
+    #                        # then omit the CIP-0203 tag naming Amaru.
 
 # OpenTelemetry Collector sidecar.
 #
