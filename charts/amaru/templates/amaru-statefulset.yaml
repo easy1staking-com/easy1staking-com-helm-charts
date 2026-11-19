@@ -91,10 +91,11 @@ spec:
     A StatefulSet's selector is immutable, and a relay is meant to be flipped
     to block-producer in place, keeping its name and its volume. With `type`
     in the selector that flip is rejected by the API server and forces a
-    delete. The headless and -int Services drop it for the same reason. The
-    -ext Service is the exception: it pins the literal `type: relay` (see
-    amaru-svc.yaml), so that a stale NodePort Service can never select a
-    block producer.
+    delete. The headless and -int Services drop it too, though their
+    selectors are mutable: they follow the pod set, so a flip keeps them
+    selecting the pod. The -ext Service is the exception: it pins the literal
+    `type: relay` (see amaru-svc.yaml), so that a stale NodePort Service can
+    never select a block producer.
   */}}
   selector:
     matchLabels:
@@ -136,11 +137,19 @@ spec:
             - name: CHAIN_DIR
               value: {{ $.Values.config.chainDir }}
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          {{- with $.Values.containerSecurityContext }}
+          securityContext:
+{{ toYaml . | indent 12 }}
+          {{- end }}
           volumeMounts:
             - name: "amaru-{{ $attributes.name }}"
               mountPath: {{ $.Values.config.dataDir }}
             - name: "amaru-init"
               mountPath: /configmap
+            - name: amaru-workdir
+              mountPath: /var/lib/amaru
+            - name: amaru-tmp
+              mountPath: /tmp
         {{- if $.Values.config.mithrilSync.enabled }}
         {{- /* Runs after the bootstrap init container, never in parallel:
                mithril sync refuses to run against a non-bootstrapped node. */}}
@@ -161,11 +170,19 @@ spec:
             - name: MITHRIL_SNAPSHOTS_DIR
               value: {{ $.Values.config.mithrilSync.snapshotsDir }}
           imagePullPolicy: {{ $.Values.image.pullPolicy }}
+          {{- with $.Values.containerSecurityContext }}
+          securityContext:
+{{ toYaml . | indent 12 }}
+          {{- end }}
           volumeMounts:
             - name: "amaru-{{ $attributes.name }}"
               mountPath: {{ $.Values.config.dataDir }}
             - name: "amaru-mithril"
               mountPath: /mithril
+            - name: amaru-workdir
+              mountPath: /var/lib/amaru
+            - name: amaru-tmp
+              mountPath: /tmp
         {{- end }}
       containers:
         - name: amaru
@@ -282,9 +299,17 @@ spec:
           resources:
 {{ toYaml . | indent 12 }}
           {{- end }}
+          {{- with $.Values.containerSecurityContext }}
+          securityContext:
+{{ toYaml . | indent 12 }}
+          {{- end }}
           volumeMounts:
             - name: "amaru-{{ $attributes.name }}"
               mountPath: {{ $.Values.config.dataDir }}
+            - name: amaru-workdir
+              mountPath: /var/lib/amaru
+            - name: amaru-tmp
+              mountPath: /tmp
         {{- $collectorConfig := $attributes.otelCollector | default $.Values.otelCollector }}
         {{- if $collectorConfig.enabled }}
         - name: otel-collector
@@ -310,6 +335,17 @@ spec:
           resources:
 {{ toYaml $collectorResources | indent 12 }}
           {{- end }}
+          {{- /*
+            The shared containerSecurityContext, with the uid/gid overridden to
+            10001: the collector image's own USER, which it declares as a number.
+            Without this the sidecar would inherit the pod's 10000, Amaru's user.
+            It mounts no emptyDir: it starts and runs read-only without one.
+            deepCopy so the merge never writes back into .Values, which every
+            node in the range shares.
+          */}}
+          {{- $sidecarSecurityContext := mergeOverwrite (deepCopy ($.Values.containerSecurityContext | default dict)) (dict "runAsUser" 10001 "runAsGroup" 10001) }}
+          securityContext:
+{{ toYaml $sidecarSecurityContext | indent 12 }}
           volumeMounts:
             - name: otel-collector-config
               mountPath: /etc/otel-collector
@@ -319,6 +355,19 @@ spec:
         - name: amaru-init
           configMap:
             name: "amaru-init-{{ $.Release.Name }}"
+        {{- /*
+          Scratch space for the read-only root filesystem, mounted in init,
+          mithril-sync and amaru (sleep included). /var/lib/amaru is the image
+          WORKDIR: `amaru node bootstrap` writes its downloaded archives there,
+          CWD-relative (about 0.9 GiB on preview). They are ephemeral exactly as
+          before; nothing reads them after bootstrap. This is node ephemeral
+          storage, not the PersistentVolume: the databases still go to
+          config.dataDir.
+        */}}
+        - name: amaru-workdir
+          emptyDir: {}
+        - name: amaru-tmp
+          emptyDir: {}
         {{- if $.Values.config.mithrilSync.enabled }}
         - name: amaru-mithril
           configMap:

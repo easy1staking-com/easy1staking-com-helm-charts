@@ -61,10 +61,53 @@ resources:
     memory: "1Gi"
     cpu: 1
 
-# Amaru's image runs as non-root uid/gid 10000. Without fsGroup the
-# PersistentVolume mounts root-owned and Amaru cannot create its databases.
+# Pod-level security context, applied to every pod. Together with
+# containerSecurityContext below it meets the Pod Security Standards
+# "restricted" profile, which a namespace labelled
+# pod-security.kubernetes.io/enforce=restricted enforces at admission.
+#
+# Helm merges maps, so an operator overriding one key here (say fsGroup)
+# keeps the others. To remove a key, set it to null.
 podSecurityContext:
+  # Refuse to start any container whose user resolves to root. Enforced by the
+  # kubelet at container start.
+  runAsNonRoot: true
+  # Amaru's image runs as uid/gid 10000, but its USER is the NAME `amaru`, not
+  # a number. The kubelet cannot verify that a named user is non-root, so with
+  # runAsNonRoot it refuses the container unless runAsUser is numeric. Set
+  # explicitly here, together with the group.
+  runAsUser: 10000
+  runAsGroup: 10000
+  # Without fsGroup the PersistentVolume mounts root-owned and Amaru cannot
+  # create its databases. Applied by the kubelet when it mounts the volume.
   fsGroup: 10000
+  # Re-own the volume only when its root does not already carry fsGroup, rather
+  # than walking every file on each mount: a synced ledger is many files.
+  fsGroupChangePolicy: OnRootMismatch
+  # The container runtime's default seccomp filter. The restricted profile
+  # requires one to be set; it is enforced by the kernel.
+  seccompProfile:
+    type: RuntimeDefault
+
+# Container-level security context, rendered on every container: init,
+# mithril-sync, amaru and the otel-collector sidecar. Helm merges maps here
+# too, so overriding one key keeps the others.
+#
+# The sidecar additionally runs as uid/gid 10001, its image's own user; see the
+# StatefulSet template.
+containerSecurityContext:
+  # No setuid binary or file capability can raise a process's privileges.
+  # Enforced by the kernel (no_new_privs).
+  allowPrivilegeEscalation: false
+  # No container here needs a Linux capability: the chart's default ports are
+  # all above 1024. Dropped by the container runtime at start.
+  capabilities:
+    drop: [ALL]
+  # The image's root filesystem is mounted read-only by the container runtime.
+  # Everything Amaru writes goes to the PersistentVolume at config.dataDir, or
+  # to the two emptyDir volumes the chart mounts at the image WORKDIR
+  # /var/lib/amaru and at /tmp.
+  readOnlyRootFilesystem: true
 
 ## App Config
 

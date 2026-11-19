@@ -84,10 +84,11 @@ and selfHeal recreates it from the old chart, selector and all.
 **What survives.** With `--cascade=orphan` the pod and its PersistentVolumeClaim
 survive the delete. The new StatefulSet adopts the pod (its labels still match
 the new selector) and the claim (same name, `amaru-<name>-amaru-<name>-0`), then
-rolls the pod onto its own template: expect one restart, on the same volume. The
-databases are kept, and the restarted pod does not bootstrap again. This sequence
-follows from how StatefulSets adopt orphans; this chart has not measured it on a
-live cluster.
+rolls the pod onto its own template only if that template differs between the
+old and new chart; if it is identical, the adopted revision matches and nothing
+restarts. Either way the pod stays on the same volume. The databases are kept,
+and a rolled pod does not bootstrap again. This sequence follows from how
+StatefulSets adopt orphans; this chart has not measured it on a live cluster.
 
 **StatefulSets created on `0.0.1-alpha.24` or later need nothing.**
 
@@ -487,7 +488,67 @@ must be rebuilt: delete the PVC and let the init container bootstrap again.
 **Filesystem permissions.** The image runs as non-root uid/gid **10000**. The
 chart sets `podSecurityContext.fsGroup: 10000` so the PersistentVolume is
 writable. Removing it makes Amaru fail at startup with a RocksDB
-`PermissionDenied`.
+`PermissionDenied`. See *Security context* below for the rest of the pod's
+security settings.
+
+## Security context
+
+Every pod meets the Pod Security Standards **restricted** profile, so the chart
+installs into a namespace labelled `pod-security.kubernetes.io/enforce=restricted`.
+Every container also runs with a **read-only root filesystem**.
+
+**Pod** (`podSecurityContext`):
+
+| Field | Value | Why |
+|---|---|---|
+| `runAsNonRoot` | `true` | the kubelet refuses any container whose user resolves to root |
+| `runAsUser` / `runAsGroup` | `10000` | Amaru's image user. Its `USER` is the *name* `amaru`, which the kubelet cannot check against `runAsNonRoot`, so the number must be given explicitly |
+| `fsGroup` | `10000` | makes the PersistentVolume writable (see *Filesystem permissions* above) |
+| `fsGroupChangePolicy` | `OnRootMismatch` | re-own the volume only when its root does not already match, instead of walking every file on each mount |
+| `seccompProfile.type` | `RuntimeDefault` | the container runtime's default seccomp filter |
+
+**Every container** (`containerSecurityContext`), on init, mithril-sync, amaru
+and the otel-collector sidecar:
+
+| Field | Value |
+|---|---|
+| `allowPrivilegeEscalation` | `false` |
+| `capabilities.drop` | `[ALL]` |
+| `readOnlyRootFilesystem` | `true` |
+
+Both are values-driven and Helm merges maps, so overriding one key (say
+`podSecurityContext.fsGroup`) keeps all the others; set a key to `null` to
+remove it.
+
+**The sidecar runs as uid/gid 10001**, not 10000. That is the
+`otel/opentelemetry-collector-contrib` image's own numeric user; the template
+merges it over `containerSecurityContext` for that container only.
+
+**Two `emptyDir` volumes stand in for the writable root**, mounted in init,
+mithril-sync and amaru, including with `sleep: true`:
+
+- `/var/lib/amaru`, the image WORKDIR. `amaru node bootstrap` writes its
+  downloaded archives there, relative to its working directory. They are
+  ephemeral, as they always were. This is the node's ephemeral storage, not the
+  PersistentVolume, so on preview a bootstrap needs about 0.9 GiB of it
+  (measured below).
+- `/tmp`.
+
+The databases still go to the PersistentVolume at `config.dataDir`.
+
+**What has been measured.** On `v10.11.20261112`, a real preview
+`amaru node bootstrap` run through the chart's init script under Docker with
+`--read-only --user 10000:10000 --cap-drop ALL --security-opt no-new-privileges`,
+tmpfs at `/var/lib/amaru` and `/tmp` and a writable data dir, completed with
+exit code 0. It wrote about 914 MiB of archives under `/var/lib/amaru/snapshots`,
+1.5 GiB to the data dir, and nothing to `/tmp`.
+
+**What has not.** `amaru mithril sync` under the same constraints has **not**
+been measured. The chart mounts the same two `emptyDir`s in the mithril-sync
+container, but whether that is all it needs is unknown until a live run shows it.
+
+Block-producer keys, when they are mounted, are read through the same `fsGroup`;
+the block-producer section covers how.
 
 ## Monitoring
 
@@ -643,7 +704,8 @@ databases for a network.
 | `otelCollector.acceptLogsAndTraces` | `true` | give Amaru's log/trace exporters a pipeline — see Logging |
 | `otelCollector.debugVerbosity` | `basic` | verbosity of the exporter terminating those pipelines |
 | `resources` | 1 CPU / 1Gi | chart-level default, overridable per node |
-| `podSecurityContext.fsGroup` | `10000` | required for PVC write access |
+| `podSecurityContext` | non-root uid/gid `10000`, `fsGroup: 10000` (`OnRootMismatch`), seccomp `RuntimeDefault` | pod side of the restricted profile; `fsGroup` is required for PVC write access — see Security context |
+| `containerSecurityContext` | no privilege escalation, `drop: [ALL]`, `readOnlyRootFilesystem: true` | rendered on every container; the sidecar adds uid/gid `10001` — see Security context |
 | `nodes[].name` | `relay-1` | relay name; becomes the object name suffix |
 | `nodes[].enabled` | `true` | render this relay |
 | `nodes[].type` | `relay` | `relay` \| `block-producer`; unset means `relay`, anything else fails the render. A pod label, kept out of the StatefulSet selector so a node can flip in place — see *Upgrading to 0.0.1-alpha.24* |
