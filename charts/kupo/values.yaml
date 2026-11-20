@@ -31,6 +31,11 @@ securityContext: {}
 service:
   type: ClusterIP
   port: 1442
+  # nodePort pins the node port when service.type is NodePort or LoadBalancer
+  # (valid range: 30000-32767). Empty lets Kubernetes pick a port. It is refused
+  # with service.type ClusterIP, which has no node port.
+  # Kupo has no authentication: a node port is open on every node's interfaces.
+  nodePort: ""
 
 ingress:
   enabled: false
