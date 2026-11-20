@@ -948,6 +948,16 @@ entries:
   kupo:
   - apiVersion: v2
     appVersion: v2.11.0
+    created: "2026-11-20T11:29:52.303551055Z"
+    description: A Helm chart for Kubernetes
+    digest: 736c05301449d6f71a7a2cded4a679ed9cb3596b93ad3ce672657b27ae5a67d2
+    name: kupo
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/kupo-0.2.0/kupo-0.2.0.tgz
+    version: 0.2.0
+  - apiVersion: v2
+    appVersion: v2.11.0
     created: "2026-06-23T21:41:35.086574598Z"
     description: A Helm chart for Kubernetes
     digest: 13e17d5b33b88fb8128cdc3674570c6f7347a5d208c565b209282ceb797d39bb
@@ -1499,4 +1509,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/sundae-scooper-v2-0.1.0-alpha.1/sundae-scooper-v2-0.1.0-alpha.1.tgz
     version: 0.1.0-alpha.1
-generated: "2026-11-19T15:13:51.246170304Z"
+generated: "2026-11-20T11:29:52.303799289Z"
