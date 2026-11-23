@@ -21,6 +21,7 @@ spec:
   clusterIP: None
   type: ClusterIP
 {{ if $attributes.nodePort }}
+{{- /* -ext carries only the n2n port: on k3s a NodePort is DNATed before ufw sees it, so prom and socat stay on -int. */}}
 ---
 apiVersion: v1
 kind: Service
@@ -40,15 +41,6 @@ spec:
       port: {{ $attributes.port }}
       targetPort: node
       nodePort: {{ $attributes.nodePort }}
-    - protocol: TCP
-      name: prom
-      port: 12798
-    {{- if $attributes.socatEnabled }}
-    - protocol: TCP
-      name: socat
-      port: {{ $attributes.socatPort }}
-      targetPort: socat
-    {{- end }}
   type: NodePort
   {{- with $attributes.externalTrafficPolicy }}
   externalTrafficPolicy: {{ . }}
@@ -74,7 +66,8 @@ spec:
       targetPort: node
     - protocol: TCP
       name: prom
-      port: 12798
+      port: {{ $attributes.prometheusPort | default 12798 }}
+      targetPort: prom
     {{- if $attributes.socatEnabled }}
     - protocol: TCP
       name: socat
@@ -82,7 +75,11 @@ spec:
       targetPort: socat
     {{- end }}
   type: ClusterIP
-{{ if and $attributes.socatEnabled $attributes.socatNodePort }}
+{{- /* Refuse rather than drop: a pin without the flag would otherwise lose n2c access silently on upgrade. */}}
+{{- if and $attributes.socatNodePort (not $attributes.socatNodePortEnabled) }}
+{{- fail (printf "nodes[%s]: socatNodePort is set but socatNodePortEnabled is not true; set socatNodePortEnabled: true to keep the socat NodePort, or remove socatNodePort" $attributes.name) }}
+{{- end }}
+{{ if and $attributes.socatNodePortEnabled $attributes.socatEnabled (eq $attributes.type "relay") }}
 ---
 apiVersion: v1
 kind: Service
@@ -100,7 +97,10 @@ spec:
     - protocol: TCP
       name: socat
       port: {{ $attributes.socatPort }}
-      nodePort: {{ $attributes.socatNodePort }}
+      targetPort: socat
+      {{- with $attributes.socatNodePort }}
+      nodePort: {{ . }}
+      {{- end }}
   type: NodePort
 {{ end }}
 {{ end }}

@@ -55,8 +55,19 @@ mithril:
 # kube-proxy does not SNAT it. Before setting Local:
 #   - A cluster node that does not run the pod drops the traffic. Irrelevant on
 #     a single-node cluster; on multi-node, peers must target the pod's node.
-#   - It applies to every port on -ext: the node port, prom 12798 and, when
-#     socatEnabled, socat.
+#   - -ext carries only the node (n2n) port, so that is all it applies to. The
+#     prom and socat ports are on the in-cluster -int Service only.
 #   - A NodePort Service gets no healthCheckNodePort (only LoadBalancer does),
 #     so an external load balancer in front of the NodePorts must health-check
 #     each node itself.
+#
+# Per-node socat keys (the node socket, n2c, over TCP):
+#   - socatEnabled / socatPort: a relay-only sidecar that exposes n2c inside
+#     the cluster, on the cardano-node-<name>-int Service at socatPort.
+#   - socatNodePortEnabled: opt-in, default false. When true on a relay with
+#     socatEnabled, a cardano-node-<name>-socat NodePort Service publishes n2c.
+#   - socatNodePort: optional, and only with socatNodePortEnabled: true. It pins
+#     the node port (30000-32767); empty means Kubernetes allocates one. Set
+#     without the flag, the render fails rather than silently dropping n2c.
+# A NodePort is reachable on every host address, whatever ufw says: on k3s,
+# kube-proxy DNATs the traffic before ufw sees it.
