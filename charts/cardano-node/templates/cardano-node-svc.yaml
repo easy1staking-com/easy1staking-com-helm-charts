@@ -75,6 +75,10 @@ spec:
       targetPort: socat
     {{- end }}
   type: ClusterIP
+{{- /* Type before truth: a quoted "false" is a non-empty string, so truthy, and would publish n2c. kindIs, not eq: eq errors on string vs bool without naming the flag. */}}
+{{- if not (or (kindIs "invalid" $attributes.socatNodePortEnabled) (kindIs "bool" $attributes.socatNodePortEnabled)) }}
+{{- fail (printf "nodes[%s]: socatNodePortEnabled must be a YAML boolean (true or false, unquoted); got %#v (%s)" $attributes.name $attributes.socatNodePortEnabled (kindOf $attributes.socatNodePortEnabled)) }}
+{{- end }}
 {{- /* Refuse rather than drop: a pin without the flag would otherwise lose n2c access silently on upgrade. */}}
 {{- if and $attributes.socatNodePort (not $attributes.socatNodePortEnabled) }}
 {{- fail (printf "nodes[%s]: socatNodePort is set but socatNodePortEnabled is not true; set socatNodePortEnabled: true to keep the socat NodePort, or remove socatNodePort" $attributes.name) }}
