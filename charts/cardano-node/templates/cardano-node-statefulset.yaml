@@ -222,9 +222,6 @@ spec:
           - name: secret-keys
             mountPath: /etc/keys/node.cert
             subPath: node.cert
-          ports:
-          - name: socat
-            containerPort: {{ $attributes.socatPort }}
       {{- end }}
       volumes:
         - name: config-files

@@ -66,6 +66,7 @@ mithril:
 #     the cluster, on the cardano-node-<name>-int Service at socatPort.
 #   - socatNodePortEnabled: opt-in, default false. When true on a relay with
 #     socatEnabled, a cardano-node-<name>-socat NodePort Service publishes n2c.
+#     It must be a YAML boolean: a quoted "false" or "true" is refused.
 #   - socatNodePort: optional, and only with socatNodePortEnabled: true. It pins
 #     the node port (30000-32767); empty means Kubernetes allocates one. Set
 #     without the flag, the render fails rather than silently dropping n2c.
