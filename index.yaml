@@ -525,6 +525,16 @@ entries:
     version: 0.0.1
   - apiVersion: v2
     appVersion: 11.0.1
+    created: "2026-11-24T00:10:46.704230181Z"
+    description: A Helm chart for the Cardano Node
+    digest: 695f19f74759519f805182549996a445bd07c37382dd4dff876923a4a7bd24a4
+    name: cardano-node
+    type: application
+    urls:
+    - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/cardano-node-0.0.1-beta.17/cardano-node-0.0.1-beta.17.tgz
+    version: 0.0.1-beta.17
+  - apiVersion: v2
+    appVersion: 11.0.1
     created: "2026-11-23T10:30:46.617679988Z"
     description: A Helm chart for the Cardano Node
     digest: 494725018b3e0006188cb83838390ee16f288710a15b5ee3d7724ad7dd2d20e2
@@ -1519,4 +1529,4 @@ entries:
     urls:
     - https://github.com/easy1staking-com/easy1staking-com-helm-charts/releases/download/sundae-scooper-v2-0.1.0-alpha.1/sundae-scooper-v2-0.1.0-alpha.1.tgz
     version: 0.1.0-alpha.1
-generated: "2026-11-23T10:30:46.617962879Z"
+generated: "2026-11-24T00:10:46.704741424Z"
